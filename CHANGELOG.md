@@ -5,6 +5,21 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-01
+
+### Fixed
+- **RC3**: `search_code` now merges all ast-index result types (content_matches + symbols + files + references) — previously only used content_matches which was often empty
+- **RC4**: `class_hierarchy` and `implementations` parse text format as fallback when JSON parse fails
+- **RC6**: `read_symbol` auto-fetches outline from ast-index if no cached structure — no longer requires prior smart_read
+- `ensureIndex` uses `--sub-projects` flag for monorepo indexing
+
+### Removed
+- Reverted Haiku v0.2.1 — removed broken PersistentFileCache, DiffEngine, RealTokenEstimator, ContextWindowTracker, smart-read-xml, context-markup
+- Removed 3 heavy native dependencies: `better-sqlite3`, `js-tiktoken`, `diff`
+
+### Added
+- `start.sh` — bootstrap script for Claude Code plugin system
+
 ## [0.2.0] - 2026-03-01
 
 ### Fixed

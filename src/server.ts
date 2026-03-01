@@ -324,7 +324,7 @@ export async function createServer(projectRoot: string) {
 
         case 'read_symbol': {
           const symArgs = validateReadSymbolArgs(args);
-          const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry);
+          const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
           analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: symTokens * 3, timestamp: Date.now() });

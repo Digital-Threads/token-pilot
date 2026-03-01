@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
@@ -18,6 +19,7 @@ export async function handleReadSymbol(
   symbolResolver: SymbolResolver,
   fileCache: FileCache,
   contextRegistry: ContextRegistry,
+  astIndex?: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
 
@@ -32,8 +34,12 @@ export async function handleReadSymbol(
     lines = content.split('\n');
   }
 
-  // Resolve symbol
-  const resolved = await symbolResolver.resolve(args.symbol, cached?.structure);
+  // Resolve symbol — auto-fetch structure if not cached
+  let structure = cached?.structure;
+  if (!structure && astIndex) {
+    structure = await astIndex.outline(absPath) ?? undefined;
+  }
+  const resolved = await symbolResolver.resolve(args.symbol, structure);
 
   if (!resolved) {
     return {

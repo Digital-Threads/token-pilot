@@ -87,7 +87,7 @@ export class AstIndexClient {
     if (needsRebuild) {
       console.error('[token-pilot] ast-index: building index (this may take a moment)...');
       try {
-        await this.exec(['rebuild'], 60000);
+        await this.exec(['rebuild', '--sub-projects'], 60000);
         this.indexed = true;
         // Verify rebuild produced content
         try {
@@ -221,13 +221,24 @@ export class AstIndexClient {
     try {
       const result = await this.exec(args);
       const parsed = JSON.parse(result);
-      // ast-index returns { content_matches: [...] }
-      const matches = parsed.content_matches ?? parsed;
-      if (!Array.isArray(matches)) return [];
-      return matches.map((m: { content?: string; text?: string; line: number; path?: string; file?: string }) => ({
+      // ast-index returns { content_matches: [], symbols: [], files: [], references: [] }
+      // Merge all result types — content_matches alone is often empty
+      const all: Array<{ path?: string; file?: string; line: number; content?: string; text?: string; signature?: string }> = [
+        ...(Array.isArray(parsed.content_matches) ? parsed.content_matches : []),
+        ...(Array.isArray(parsed.symbols) ? parsed.symbols.map((s: { path?: string; file?: string; line: number; signature?: string; name?: string }) => ({
+          path: s.path ?? s.file, line: s.line, content: s.signature ?? s.name,
+        })) : []),
+        ...(Array.isArray(parsed.files) ? parsed.files.map((f: { path?: string; file?: string; line?: number }) => ({
+          path: f.path ?? f.file, line: f.line ?? 1, content: f.path ?? f.file,
+        })) : []),
+        ...(Array.isArray(parsed.references) ? parsed.references : []),
+      ];
+      // Fallback: if parsed is an array directly
+      const matches = all.length > 0 ? all : (Array.isArray(parsed) ? parsed : []);
+      return matches.map((m: { content?: string; text?: string; signature?: string; line: number; path?: string; file?: string }) => ({
         file: m.path ?? m.file ?? '',
         line: m.line,
-        text: m.content ?? m.text ?? '',
+        text: m.content ?? m.text ?? m.signature ?? '',
       }));
     } catch (err) {
       console.error(`[token-pilot] ast-index search failed: ${err instanceof Error ? err.message : err}`);
@@ -257,7 +268,12 @@ export class AstIndexClient {
     await this.ensureIndex();
     try {
       const result = await this.exec(['implementations', name, '--format', 'json']);
-      return JSON.parse(result);
+      try {
+        return JSON.parse(result);
+      } catch {
+        // JSON parse failed — parse text format as fallback
+        return this.parseImplementationsText(result);
+      }
     } catch (err) {
       console.error(`[token-pilot] ast-index implementations failed: ${err instanceof Error ? err.message : err}`);
       return [];
@@ -268,11 +284,44 @@ export class AstIndexClient {
     await this.ensureIndex();
     try {
       const result = await this.exec(['hierarchy', name, '--format', 'json']);
-      return JSON.parse(result);
+      try {
+        return JSON.parse(result);
+      } catch {
+        // JSON parse failed — parse text format as fallback
+        return this.parseHierarchyText(result, name);
+      }
     } catch (err) {
       console.error(`[token-pilot] ast-index hierarchy failed: ${err instanceof Error ? err.message : err}`);
       return null;
     }
+  }
+
+  private parseImplementationsText(text: string): AstIndexImplementation[] {
+    const results: AstIndexImplementation[] = [];
+    // Parse lines like: "class ClassName (file.php:42)"
+    for (const line of text.split('\n')) {
+      const m = line.match(/^\s*(class|interface|trait|struct|impl)\s+(\S+)\s+\((.+):(\d+)\)/);
+      if (m) {
+        results.push({ kind: m[1], name: m[2], file: m[3], line: parseInt(m[4], 10) });
+      }
+    }
+    return results;
+  }
+
+  private parseHierarchyText(text: string, rootName: string): AstIndexHierarchyNode | null {
+    if (!text.trim()) return null;
+    // Build a simple tree from indented text output
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length === 0) return null;
+
+    const children: AstIndexHierarchyNode[] = [];
+    for (const line of lines) {
+      const m = line.match(/(\S+)\s*(?:\((.+):(\d+)\))?/);
+      if (m && m[1] !== rootName) {
+        children.push({ name: m[1], kind: 'class', children: [], file: m[2], line: m[3] ? parseInt(m[3], 10) : undefined });
+      }
+    }
+    return children.length > 0 ? { name: rootName, kind: 'interface', children } : null;
   }
 
   async stats(): Promise<string | null> {
