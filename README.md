@@ -222,7 +222,7 @@ npm run dev          # TypeScript watch mode
 
 ```
 src/
-  index.ts              — CLI entry point (5 commands)
+  index.ts              — CLI entry point (6 commands)
   server.ts             — MCP server (14 tools)
   types.ts              — Core domain types
   ast-index/
