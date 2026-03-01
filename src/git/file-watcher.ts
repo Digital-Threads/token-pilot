@@ -42,6 +42,13 @@ export class FileWatcher {
       depth: 10,
     });
 
+    this.watcher.on('error', (err: unknown) => {
+      // Ignore permission errors (e.g. Docker volumes, restricted dirs)
+      // Don't crash the server — file watching is best-effort
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[token-pilot] file watcher error (ignored): ${msg}`);
+    });
+
     this.watcher.on('change', (filePath: string) => {
       // Invalidate only if this file is in cache
       const absPath = resolve(filePath);
