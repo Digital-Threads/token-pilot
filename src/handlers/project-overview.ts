@@ -1,5 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 
 export async function handleProjectOverview(
@@ -84,7 +84,7 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
   try {
     const pkg = JSON.parse(await readFile(resolve(projectRoot, 'package.json'), 'utf-8'));
     return {
-      name: pkg.name ?? 'unknown',
+      name: pkg.name ?? basename(projectRoot),
       version: pkg.version ?? '0.0.0',
       description: pkg.description,
       type: 'Node.js/TypeScript',

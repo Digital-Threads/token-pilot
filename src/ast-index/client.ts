@@ -87,17 +87,30 @@ export class AstIndexClient {
     if (needsRebuild) {
       console.error('[token-pilot] ast-index: building index (this may take a moment)...');
       try {
-        await this.exec(['rebuild', '--sub-projects'], 60000);
-        this.indexed = true;
-        // Verify rebuild produced content
+        // First try plain rebuild (works for monorepos with apps/ structure)
+        await this.exec(['rebuild'], 60000);
+
+        // Check how many files were indexed
+        let fileCount = 0;
         try {
-          const stats = await this.exec(['stats']);
-          const filesMatch = stats.match(/Files:\s*(\d+)/);
-          const fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
-          console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
-        } catch {
-          console.error('[token-pilot] ast-index: index built (stats unavailable)');
+          const statsText = await this.exec(['stats']);
+          const filesMatch = statsText.match(/Files:\s*(\d+)/);
+          fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+        } catch { /* stats unavailable */ }
+
+        // If very few files, retry with --sub-projects (for workspace-style monorepos)
+        if (fileCount < 5) {
+          console.error(`[token-pilot] ast-index: only ${fileCount} files — retrying with --sub-projects...`);
+          await this.exec(['rebuild', '--sub-projects'], 60000);
+          try {
+            const statsText = await this.exec(['stats']);
+            const filesMatch = statsText.match(/Files:\s*(\d+)/);
+            fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+          } catch { /* stats unavailable */ }
         }
+
+        this.indexed = true;
+        console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
       } catch (buildErr) {
         console.error(`[token-pilot] ast-index: rebuild failed — ${buildErr instanceof Error ? buildErr.message : buildErr}`);
         throw buildErr;
@@ -310,18 +323,40 @@ export class AstIndexClient {
 
   private parseHierarchyText(text: string, rootName: string): AstIndexHierarchyNode | null {
     if (!text.trim()) return null;
-    // Build a simple tree from indented text output
-    const lines = text.split('\n').filter(l => l.trim());
-    if (lines.length === 0) return null;
+    // Parse ast-index hierarchy text output:
+    //   Hierarchy for 'ClassName':
+    //     Parents:
+    //       ParentClass (extends)
+    //     Children:
+    //       ChildClass (implements)  (file.ts:42)
+    const lines = text.split('\n');
+    const parents: AstIndexHierarchyNode[] = [];
+    const childNodes: AstIndexHierarchyNode[] = [];
+    let section: 'none' | 'parents' | 'children' = 'none';
 
-    const children: AstIndexHierarchyNode[] = [];
     for (const line of lines) {
-      const m = line.match(/(\S+)\s*(?:\((.+):(\d+)\))?/);
-      if (m && m[1] !== rootName) {
-        children.push({ name: m[1], kind: 'class', children: [], file: m[2], line: m[3] ? parseInt(m[3], 10) : undefined });
+      const trimmed = line.trim();
+      if (trimmed === 'Parents:') { section = 'parents'; continue; }
+      if (trimmed === 'Children:') { section = 'children'; continue; }
+      if (trimmed.startsWith('Hierarchy for') || !trimmed) continue;
+
+      // Match: SymbolName (relationship)  (file:line) — file:line is optional
+      const m = trimmed.match(/^(\S+)\s+\((\w+)\)(?:\s+\((.+):(\d+)\))?/);
+      if (m && section !== 'none') {
+        const node: AstIndexHierarchyNode = {
+          name: m[1],
+          kind: m[2], // extends, implements, etc.
+          children: [],
+          file: m[3],
+          line: m[4] ? parseInt(m[4], 10) : undefined,
+        };
+        if (section === 'parents') parents.push(node);
+        else childNodes.push(node);
       }
     }
-    return children.length > 0 ? { name: rootName, kind: 'interface', children } : null;
+
+    if (parents.length === 0 && childNodes.length === 0) return null;
+    return { name: rootName, kind: 'class', children: childNodes, parents };
   }
 
   async stats(): Promise<string | null> {

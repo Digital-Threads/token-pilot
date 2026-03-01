@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-03-01
+
+### Fixed
+- **ensureIndex**: plain rebuild first (indexes full monorepo), fallback to `--sub-projects` only if <5 files
+- **smart_read**: non-code files (YAML, JSON, Markdown, TOML) use structural summary instead of raw content dump
+- **smart_read**: unsupported files return truncated 60-line preview instead of full raw content
+- **class_hierarchy**: proper parser for ast-index text output (Parents/Children sections)
+- **project_overview**: uses directory name when package.json has no `name` field
+
 ## [0.2.2] - 2026-03-01
 
 ### Fixed

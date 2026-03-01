@@ -84,4 +84,5 @@ export interface AstIndexHierarchyNode {
   file?: string;
   line?: number;
   children?: AstIndexHierarchyNode[];
+  parents?: AstIndexHierarchyNode[];
 }

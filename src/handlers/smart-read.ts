@@ -7,6 +7,7 @@ import type { TokenPilotConfig } from '../types.js';
 import { formatOutline } from '../formatters/structure.js';
 import { estimateTokens, formatSavings } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
+import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
 
 export interface SmartReadArgs {
   path: string;
@@ -58,11 +59,25 @@ export async function handleSmartRead(
     const structure = await astIndex.outline(absPath);
 
     if (!structure) {
-      // ast-index doesn't support this — return raw
+      // ast-index doesn't support this file type
+      // Try non-code structural summary (JSON, YAML, Markdown, TOML)
+      if (isNonCodeStructured(absPath)) {
+        const nonCodeResult = await handleNonCodeRead(args.path, projectRoot, contextRegistry);
+        if (nonCodeResult) return nonCodeResult;
+      }
+
+      // Fallback: return truncated preview instead of full raw content
+      const previewLines = 60;
+      const truncated = lines.length > previewLines;
+      const preview = lines.slice(0, previewLines).join('\n');
+      const tokens = estimateTokens(preview);
+      contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: lines.length, tokens });
+
       return {
         content: [{
           type: 'text',
-          text: `FILE: ${args.path} (${lines.length} lines — language not supported, raw content)\n\n${content}`,
+          text: `FILE: ${args.path} (${lines.length} lines — no AST support, preview)\n\n${preview}`
+            + (truncated ? `\n\n... truncated (${lines.length - previewLines} more lines). Use read_range() for full content.` : ''),
         }],
       };
     }
