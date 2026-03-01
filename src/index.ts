@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createServer } from './server.js';
 import { installHook, uninstallHook } from './hooks/installer.js';
 import { findBinary, installBinary } from './ast-index/binary-manager.js';
+
+const execFileAsync = promisify(execFile);
 
 const SMALL_FILE_THRESHOLD = 80;
 
@@ -64,7 +68,24 @@ switch (args[0]) {
 }
 
 async function startServer() {
-  const projectRoot = args[0] || process.cwd();
+  let projectRoot = args[0] || process.cwd();
+
+  // Detect git root for reliable project root (avoids cwd=/home/user issues)
+  if (!args[0]) {
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: process.cwd(),
+        timeout: 3000,
+      });
+      const gitRoot = stdout.trim();
+      if (gitRoot) {
+        projectRoot = gitRoot;
+        console.error(`[token-pilot] project root: ${projectRoot} (git)`);
+      }
+    } catch {
+      console.error(`[token-pilot] project root: ${projectRoot} (cwd, not a git repo)`);
+    }
+  }
 
   // Non-blocking update check (logs to stderr, never blocks startup)
   checkLatestVersion().then(latest => {

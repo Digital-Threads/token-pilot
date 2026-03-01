@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 
@@ -11,15 +11,7 @@ export async function handleProjectOverview(
     '',
   ];
 
-  // 1. Try to get ast-index stats
-  try {
-    const statsRaw = await astIndex.search('', { maxResults: 0 });
-    // stats via the stats method is better
-  } catch {
-    // ignore
-  }
-
-  // 2. Read package.json / Cargo.toml etc. for project info
+  // 1. Read package.json / Cargo.toml etc. for project info
   const projectInfo = await detectProjectInfo(projectRoot);
   if (projectInfo) {
     lines.push(`Project: ${projectInfo.name} v${projectInfo.version}`);
@@ -28,16 +20,51 @@ export async function handleProjectOverview(
     lines.push('');
   }
 
-  // 3. Use ast-index map for compact project structure
+  // 2. Top-level directory listing
   try {
-    const mapResult = await execAstIndexMap(astIndex);
-    if (mapResult) {
-      lines.push('PROJECT MAP:');
-      lines.push(mapResult);
+    const entries = await readdir(projectRoot, { withFileTypes: true });
+    const dirs = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+      .map(e => e.name)
+      .sort();
+    const files = entries
+      .filter(e => e.isFile() && !e.name.startsWith('.'))
+      .map(e => e.name)
+      .sort();
+
+    if (dirs.length > 0 || files.length > 0) {
+      lines.push('STRUCTURE:');
+      for (const d of dirs) {
+        lines.push(`  ${d}/`);
+      }
+      for (const f of files.slice(0, 15)) {
+        lines.push(`  ${f}`);
+      }
+      if (files.length > 15) {
+        lines.push(`  ... and ${files.length - 15} more files`);
+      }
       lines.push('');
     }
-  } catch {
-    // map not available
+  } catch { /* ignore */ }
+
+  // 3. ast-index stats (indexed files, languages)
+  if (astIndex.isAvailable()) {
+    try {
+      const statsText = await astIndex.stats();
+      if (statsText) {
+        const filesMatch = statsText.match(/Files:\s*(\d+)/);
+        const symbolsMatch = statsText.match(/Symbols:\s*(\d+)/);
+        const refsMatch = statsText.match(/Refs:\s*(\d+)/);
+        const projectType = statsText.match(/Project:\s*(.+)/);
+
+        lines.push('INDEX:');
+        if (projectType) lines.push(`  Detected: ${projectType[1].trim()}`);
+        if (filesMatch) lines.push(`  Files indexed: ${filesMatch[1]}`);
+        if (symbolsMatch) lines.push(`  Symbols: ${symbolsMatch[1]}`);
+        if (refsMatch) lines.push(`  References: ${refsMatch[1]}`);
+        lines.push('');
+      }
+    } catch { /* ast-index stats not available */ }
   }
 
   lines.push('HINT: Use smart_read() on individual files, or search_code() to find specific symbols.');
@@ -64,6 +91,17 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     };
   } catch { /* not a node project */ }
 
+  // Try composer.json (PHP)
+  try {
+    const composer = JSON.parse(await readFile(resolve(projectRoot, 'composer.json'), 'utf-8'));
+    return {
+      name: composer.name ?? 'unknown',
+      version: composer.version ?? '0.0.0',
+      description: composer.description,
+      type: 'PHP',
+    };
+  } catch { /* not a php project */ }
+
   // Try Cargo.toml
   try {
     const cargo = await readFile(resolve(projectRoot, 'Cargo.toml'), 'utf-8');
@@ -87,13 +125,5 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     return { name, version: '0.0.0', type: 'Go' };
   } catch { /* not a go project */ }
 
-  return null;
-}
-
-async function execAstIndexMap(astIndex: AstIndexClient): Promise<string | null> {
-  // ast-index map returns a compact project structure
-  // We access it via the internal exec by using search with empty query
-  // Actually, we need to expose a map() method. For now, return null.
-  // This will be enhanced when we expose more ast-index commands.
   return null;
 }

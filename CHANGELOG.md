@@ -5,7 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.6] - 2026-03-01
+## [0.2.0] - 2026-03-01
+
+### Fixed
+- **P0**: ast-index errors no longer silently swallowed — all search/usages/implementations/hierarchy/outline/symbol log errors to stderr
+- **P0**: `exec()` now captures and logs ast-index subprocess stderr
+- **P0**: `projectRoot` detected via `git rev-parse --show-toplevel` instead of `process.cwd()` (fixes wrong index root)
+- **P1**: `forget(all=true)` now clears both ContextRegistry and FileCache (fixes stale export_ast_index/read_diff after forget)
+- **P1**: `forget(path=X)` also invalidates FileCache for that path
+- **P2**: `read_symbol` supports PHP `::` separator (e.g. `RefundProcessor::refund`)
+- **P2**: `findInStructure` recursion fixed — supports 3+ level nesting (Namespace::Class::method)
+- `ensureIndex()`: verify index has content after `stats` — force rebuild if 0 files indexed
+
+### Changed
+- `project_overview`: now shows directory listing + ast-index stats (files, symbols, references) instead of stub
+- `project_overview`: added PHP (`composer.json`) detection
+
+## [0.1.6] - 2026-03-01 (unpublished)
 
 ### Fixed
 - `ensureIndex()`: verify index has content after `stats` — force rebuild if 0 files indexed (fixes empty search results on first run)

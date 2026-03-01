@@ -98,21 +98,24 @@ export class SymbolResolver {
   }
 
   private findInStructure(qualifiedName: string, symbols: SymbolInfo[]): SymbolInfo | null {
-    const parts = qualifiedName.split('.');
+    // Support both . and :: separators (PHP uses ::)
+    const parts = qualifiedName.includes('::')
+      ? qualifiedName.split('::')
+      : qualifiedName.split('.');
 
+    return this.findByParts(parts, symbols);
+  }
+
+  private findByParts(parts: string[], symbols: SymbolInfo[]): SymbolInfo | null {
     for (const sym of symbols) {
       if (parts.length === 1 && sym.name === parts[0]) {
         return sym;
       }
 
-      if (parts.length === 2 && sym.name === parts[0]) {
-        const child = sym.children.find(c => c.name === parts[1]);
-        if (child) return child;
+      if (parts.length >= 2 && sym.name === parts[0]) {
+        const found = this.findByParts(parts.slice(1), sym.children);
+        if (found) return found;
       }
-
-      // Recurse
-      const found = this.findInStructure(qualifiedName, sym.children);
-      if (found) return found;
     }
 
     return null;

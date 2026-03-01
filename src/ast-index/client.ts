@@ -112,7 +112,8 @@ export class AstIndexClient {
       const entries = this.parseOutlineText(result);
       if (entries.length === 0) return null;
       return await this.buildFileStructure(filePath, entries);
-    } catch {
+    } catch (err) {
+      console.error(`[token-pilot] ast-index outline failed for ${filePath}: ${err instanceof Error ? err.message : err}`);
       return null;
     }
   }
@@ -205,7 +206,8 @@ export class AstIndexClient {
         start_line: first.line,
         signature: first.signature,
       };
-    } catch {
+    } catch (err) {
+      console.error(`[token-pilot] ast-index symbol failed: ${err instanceof Error ? err.message : err}`);
       return null;
     }
   }
@@ -227,7 +229,8 @@ export class AstIndexClient {
         line: m.line,
         text: m.content ?? m.text ?? '',
       }));
-    } catch {
+    } catch (err) {
+      console.error(`[token-pilot] ast-index search failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
@@ -244,7 +247,8 @@ export class AstIndexClient {
         text: u.context,
         kind: 'reference',
       }));
-    } catch {
+    } catch (err) {
+      console.error(`[token-pilot] ast-index usages failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
@@ -254,7 +258,8 @@ export class AstIndexClient {
     try {
       const result = await this.exec(['implementations', name, '--format', 'json']);
       return JSON.parse(result);
-    } catch {
+    } catch (err) {
+      console.error(`[token-pilot] ast-index implementations failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
@@ -264,6 +269,15 @@ export class AstIndexClient {
     try {
       const result = await this.exec(['hierarchy', name, '--format', 'json']);
       return JSON.parse(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index hierarchy failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
+  async stats(): Promise<string | null> {
+    try {
+      return await this.exec(['stats']);
     } catch {
       return null;
     }
@@ -278,7 +292,7 @@ export class AstIndexClient {
       throw new Error('ast-index not initialized. Call init() first.');
     }
 
-    const { stdout } = await execFileAsync(
+    const { stdout, stderr } = await execFileAsync(
       this.binaryPath,
       args,
       {
@@ -287,6 +301,10 @@ export class AstIndexClient {
         cwd: this.projectRoot,
       }
     );
+
+    if (stderr) {
+      console.error(`[token-pilot] ast-index stderr (${args[0]}): ${stderr.trim()}`);
+    }
 
     return stdout;
   }

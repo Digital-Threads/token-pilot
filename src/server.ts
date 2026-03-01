@@ -409,7 +409,7 @@ export async function createServer(projectRoot: string) {
           return handleContextStatus(contextRegistry, args as { path?: string } | undefined);
 
         case 'forget':
-          return handleForget(contextRegistry, args as { path?: string; symbol?: string; all?: boolean } | undefined);
+          return handleForget(contextRegistry, fileCache, args as { path?: string; symbol?: string; all?: boolean } | undefined);
 
         default:
           return {
@@ -460,15 +460,20 @@ function handleContextStatus(
 
 function handleForget(
   registry: ContextRegistry,
+  fileCache: FileCache,
   args?: { path?: string; symbol?: string; all?: boolean },
 ): { content: Array<{ type: 'text'; text: string }> } {
   if (args?.all) {
     registry.forgetAll();
-    return { content: [{ type: 'text', text: 'Forgot all tracked content.' }] };
+    fileCache.invalidate();
+    return { content: [{ type: 'text', text: 'Forgot all tracked content and cleared file cache.' }] };
   }
 
   if (args?.path) {
     registry.forget(args.path, args.symbol);
+    if (!args.symbol) {
+      fileCache.invalidate(args.path);
+    }
     const what = args.symbol ? `${args.symbol} from ${args.path}` : args.path;
     return { content: [{ type: 'text', text: `Forgot: ${what}` }] };
   }
