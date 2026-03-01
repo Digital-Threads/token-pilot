@@ -59,11 +59,44 @@ export async function handleReadSymbol(
   const loc = `[L${resolved.startLine}-${resolved.endLine}]`;
   const lineCount = resolved.endLine - resolved.startLine + 1;
 
+  // Mega-symbol protection: if symbol is too large, show outline + head/tail
+  const MAX_SYMBOL_LINES = 300;
+  let displaySource = source;
+  let truncated = false;
+
+  if (lineCount > MAX_SYMBOL_LINES) {
+    const sourceLines = source.split('\n');
+    const HEAD = 50;
+    const TAIL = 30;
+    const head = sourceLines.slice(0, HEAD).join('\n');
+    const tail = sourceLines.slice(-TAIL).join('\n');
+    const omitted = sourceLines.length - HEAD - TAIL;
+
+    // Build method outline for the symbol if it has children
+    let methodOutline = '';
+    if (resolved.symbol.children && resolved.symbol.children.length > 0) {
+      const methodLines = resolved.symbol.children.map(c => {
+        const mLoc = `[L${c.location.startLine}-${c.location.endLine}]`;
+        return `  ${c.visibility === 'private' ? '🔒 ' : ''}${c.name}${c.kind === 'method' || c.kind === 'function' ? '()' : ''} ${mLoc} (${c.location.lineCount} lines)`;
+      });
+      methodOutline = `\nMETHODS (${resolved.symbol.children.length}):\n${methodLines.join('\n')}\n`;
+    }
+
+    displaySource = [
+      head,
+      '',
+      `    ... ${omitted} lines omitted — use read_symbol("${args.path}", "MethodName") to read specific methods ...`,
+      methodOutline,
+      tail,
+    ].join('\n');
+    truncated = true;
+  }
+
   const outputLines: string[] = [
     `FILE: ${args.path}`,
-    `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines)`,
+    `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, showing first 50 + last 30` : ''})`,
     '',
-    source,
+    displaySource,
   ];
 
   // References

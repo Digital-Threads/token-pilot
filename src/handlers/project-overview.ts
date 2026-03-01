@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { resolve, basename } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 
@@ -6,68 +6,81 @@ export async function handleProjectOverview(
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  const lines: string[] = [
-    `PROJECT OVERVIEW: ${projectRoot}`,
-    '',
-  ];
+  const lines: string[] = [];
 
-  // 1. Read package.json / Cargo.toml etc. for project info
+  // 1. Project info from package.json / Cargo.toml etc.
   const projectInfo = await detectProjectInfo(projectRoot);
   if (projectInfo) {
-    lines.push(`Project: ${projectInfo.name} v${projectInfo.version}`);
-    if (projectInfo.description) lines.push(`Description: ${projectInfo.description}`);
-    lines.push(`Type: ${projectInfo.type}`);
+    lines.push(`PROJECT: ${projectInfo.name} v${projectInfo.version}`);
+    if (projectInfo.description) lines.push(`  ${projectInfo.description}`);
+    lines.push('');
+  } else {
+    lines.push(`PROJECT: ${basename(projectRoot)}`);
     lines.push('');
   }
 
-  // 2. Top-level directory listing
-  try {
-    const entries = await readdir(projectRoot, { withFileTypes: true });
-    const dirs = entries
-      .filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
-      .map(e => e.name)
-      .sort();
-    const files = entries
-      .filter(e => e.isFile() && !e.name.startsWith('.'))
-      .map(e => e.name)
-      .sort();
-
-    if (dirs.length > 0 || files.length > 0) {
-      lines.push('STRUCTURE:');
-      for (const d of dirs) {
-        lines.push(`  ${d}/`);
-      }
-      for (const f of files.slice(0, 15)) {
-        lines.push(`  ${f}`);
-      }
-      if (files.length > 15) {
-        lines.push(`  ... and ${files.length - 15} more files`);
-      }
-      lines.push('');
-    }
-  } catch { /* ignore */ }
-
-  // 3. ast-index stats (indexed files, languages)
+  // 2. ast-index map — directory structure with file counts and symbol kinds
   if (astIndex.isAvailable()) {
-    try {
-      const statsText = await astIndex.stats();
-      if (statsText) {
-        const filesMatch = statsText.match(/Files:\s*(\d+)/);
-        const symbolsMatch = statsText.match(/Symbols:\s*(\d+)/);
-        const refsMatch = statsText.match(/Refs:\s*(\d+)/);
-        const projectType = statsText.match(/Project:\s*(.+)/);
+    const [mapData, convData] = await Promise.all([
+      astIndex.map(),
+      astIndex.conventions(),
+    ]);
 
-        lines.push('INDEX:');
-        if (projectType) lines.push(`  Detected: ${projectType[1].trim()}`);
-        if (filesMatch) lines.push(`  Files indexed: ${filesMatch[1]}`);
-        if (symbolsMatch) lines.push(`  Symbols: ${symbolsMatch[1]}`);
-        if (refsMatch) lines.push(`  References: ${refsMatch[1]}`);
+    if (mapData) {
+      lines.push(`TYPE: ${mapData.project_type} (${mapData.file_count} files)`);
+      lines.push('');
+
+      // Conventions
+      if (convData) {
+        if (convData.architecture.length > 0) {
+          lines.push(`ARCHITECTURE: ${convData.architecture.join(', ')}`);
+        }
+
+        const fwList: string[] = [];
+        for (const [category, frameworks] of Object.entries(convData.frameworks)) {
+          for (const fw of frameworks) {
+            fwList.push(`${fw.name} (${category})`);
+          }
+        }
+        if (fwList.length > 0) {
+          lines.push(`FRAMEWORKS: ${fwList.join(', ')}`);
+        }
+
+        if (convData.naming_patterns.length > 0) {
+          const patterns = convData.naming_patterns
+            .slice(0, 8)
+            .map(p => `${p.suffix}(${p.count})`)
+            .join(', ');
+          lines.push(`PATTERNS: ${patterns}`);
+        }
         lines.push('');
       }
-    } catch { /* ast-index stats not available */ }
+
+      // Directory map
+      lines.push('MAP:');
+      for (const group of mapData.groups) {
+        const kinds = group.kinds
+          ? ' — ' + Object.entries(group.kinds).map(([k, v]) => `${v} ${k}`).join(', ')
+          : '';
+        lines.push(`  ${group.path} (${group.file_count} files${kinds})`);
+      }
+      lines.push('');
+    } else {
+      // Fallback to stats
+      try {
+        const statsText = await astIndex.stats();
+        if (statsText) {
+          const filesMatch = statsText.match(/Files:\s*(\d+)/);
+          const symbolsMatch = statsText.match(/Symbols:\s*(\d+)/);
+          if (filesMatch) lines.push(`Files indexed: ${filesMatch[1]}`);
+          if (symbolsMatch) lines.push(`Symbols: ${symbolsMatch[1]}`);
+          lines.push('');
+        }
+      } catch { /* ignore */ }
+    }
   }
 
-  lines.push('HINT: Use smart_read() on individual files, or search_code() to find specific symbols.');
+  lines.push('HINT: Use smart_read() on files, search_code() for symbols, find_usages() for references.');
 
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
@@ -80,7 +93,6 @@ interface ProjectInfo {
 }
 
 async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | null> {
-  // Try package.json
   try {
     const pkg = JSON.parse(await readFile(resolve(projectRoot, 'package.json'), 'utf-8'));
     return {
@@ -91,7 +103,6 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     };
   } catch { /* not a node project */ }
 
-  // Try composer.json (PHP)
   try {
     const composer = JSON.parse(await readFile(resolve(projectRoot, 'composer.json'), 'utf-8'));
     return {
@@ -102,7 +113,6 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     };
   } catch { /* not a php project */ }
 
-  // Try Cargo.toml
   try {
     const cargo = await readFile(resolve(projectRoot, 'Cargo.toml'), 'utf-8');
     const name = cargo.match(/^name\s*=\s*"(.+?)"/m)?.[1] ?? 'unknown';
@@ -110,7 +120,6 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     return { name, version, type: 'Rust' };
   } catch { /* not a rust project */ }
 
-  // Try pyproject.toml
   try {
     const pyproject = await readFile(resolve(projectRoot, 'pyproject.toml'), 'utf-8');
     const name = pyproject.match(/^name\s*=\s*"(.+?)"/m)?.[1] ?? 'unknown';
@@ -118,7 +127,6 @@ async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | nul
     return { name, version, type: 'Python' };
   } catch { /* not a python project */ }
 
-  // Try go.mod
   try {
     const gomod = await readFile(resolve(projectRoot, 'go.mod'), 'utf-8');
     const name = gomod.match(/^module\s+(.+)/m)?.[1] ?? 'unknown';

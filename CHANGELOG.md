@@ -5,6 +5,81 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-03-02
+
+### Added
+- **Auto-install PreToolUse hook**: hook installs automatically on server start (Claude Code), no manual `install-hook` needed
+- **AI instructions template**: README includes ready-to-copy block for `.cursorrules` / `CLAUDE.md`
+
+### Changed
+- **Tool descriptions rewritten** — explicit "ALWAYS use instead of Read/cat", "use instead of Grep" for AI prioritization
+- README updated: PreToolUse hook section, MCP Tools table with "Instead of" column
+
+## [0.4.0] - 2026-03-02
+
+### Added
+- **Python class method parser**: smart_read/read_symbol shows all methods inside Python classes with visibility, decorators, async detection
+- **PHP class method parser**: same for PHP classes with public/private/protected, static
+- **Version display**: `project_overview` and `session_analytics` show `TOKEN PILOT v{version}`
+
+### Changed
+- **Removed find_callers** — did not save tokens vs grep, ast-index limitation with `this.method()` calls
+- **Removed find_implementations** — did not save tokens vs grep, ast-index limitation with decorators
+- **Removed class_hierarchy** — did not save tokens vs grep, poor results from ast-index
+- **14 focused tools** instead of 17 — only tools that actually save tokens or provide unique value
+
+### Fixed
+- **Mega-symbol truncation**: symbols >300 lines show head (50) + tail (30) + method outline instead of 71KB overflow
+- **Recursive findFlat**: unqualified method names (`run`, `_build_summary`) found inside class children
+
+## [0.3.2] - 2026-03-01
+
+### Fixed
+- **Python class methods**: smart_read now shows all methods inside Python classes (ast-index only returns class-level, token-pilot parses `def` methods with visibility, decorators, async detection)
+- **read_symbol Python**: `Orchestrator.run`, `Orchestrator._build_summary` — qualified and unqualified method access works (was returning entire 829-line class)
+- **Mega-symbol truncation**: symbols >300 lines show head (50) + tail (30) + method outline instead of 71KB overflow
+- **findFlat recursive**: unqualified method names (`run`, `_build_summary`) now found inside class children
+
+## [0.3.1] - 2026-03-01
+
+### Fixed
+- **find_usages**: combine `refs` + `search` with exact word boundary filtering — 0% result loss vs grep (was 40% loss with refs-only)
+- **read_symbol**: fix `Class.method` qualified names for flat outlines (ast-index lists methods as siblings, not children)
+- **read_symbol**: filter ast-index leaf name fallback by requested file (was returning symbols from wrong files)
+- **YAML smart_read**: 3-level nested parser with scalar values, array counts (was only showing top-level keys)
+- Removed all "Use Grep as fallback" hints — token-pilot gives complete results on its own
+
+## [0.3.0] - 2026-03-01
+
+### Added
+- **find_callers** tool — find all callers of a function, with optional call hierarchy tree (depth parameter)
+- **changed_symbols** tool — show symbol-level git changes (added/modified/removed) vs a base branch
+- **find_unused** tool — detect potentially unused/dead symbols in the project
+- 8 new ast-index client methods: `refs`, `map`, `conventions`, `callers`, `callTree`, `changed`, `unusedSymbols`, `fileImports`
+- Incremental index updates via `ast-index update` (fast) instead of full rebuild
+
+### Fixed
+- **find_usages**: rewritten to use `ast-index refs` — returns definitions + imports + usages in one call (was losing ~66% of results)
+- **project_overview**: rewritten to use `ast-index map` + `conventions` — shows architecture, frameworks, naming patterns, directory map with symbol kinds
+- **search_code**: deduplication of results (removes duplicate file:line entries)
+- **read_symbol**: structure-first lookup for `Class.method` qualified names with ast-index leaf fallback
+- **export_ast_index**: `all_indexed=true` option exports all files from ast-index, not just cached ones
+- **YAML smart_read**: expand one level of nesting (shows nested keys under top-level sections)
+
+### Changed
+- Total MCP tools: 14 → 17
+- ast-index commands used: 8 → 16
+- Index updates are now incremental by default (falls back to full rebuild only when needed)
+
+## [0.2.4] - 2026-03-01
+
+### Fixed
+- **search_code**: filter out garbage entries with empty file paths or `:undefined` lines
+- **read_symbol**: support `Class.method` and `Class::method` qualified names (structure-first lookup, ast-index leaf fallback)
+- **export_ast_index**: `all_indexed=true` option exports all files from ast-index, not just cached ones
+- **YAML smart_read**: expand one level of nesting (shows service names, nested keys under top-level sections)
+- Improved empty-cache message in export_ast_index with hint about `all_indexed`
+
 ## [0.2.3] - 2026-03-01
 
 ### Fixed

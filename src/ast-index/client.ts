@@ -14,6 +14,15 @@ import type {
   AstIndexUsageResult,
   AstIndexImplementation,
   AstIndexHierarchyNode,
+  AstIndexRefsResponse,
+  AstIndexRefEntry,
+  AstIndexMapResponse,
+  AstIndexConventionsResponse,
+  AstIndexCallerEntry,
+  AstIndexCallTreeNode,
+  AstIndexChangedEntry,
+  AstIndexUnusedSymbol,
+  AstIndexImportEntry,
 } from './types.js';
 import { findBinary, installBinary } from './binary-manager.js';
 
@@ -65,56 +74,61 @@ export class AstIndexClient {
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
 
-    let needsRebuild = false;
+    // Check if index already exists and has files
+    let existingFileCount = 0;
     try {
       const stats = await this.exec(['stats']);
-      // Parse "Files:  N" from stats output
       const filesMatch = stats.match(/Files:\s*(\d+)/);
-      const fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+      existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+    } catch { /* no index yet */ }
 
-      if (fileCount === 0) {
-        console.error('[token-pilot] ast-index: index exists but is empty — rebuilding...');
-        needsRebuild = true;
-      } else {
+    if (existingFileCount > 0) {
+      // Index exists — use incremental update (fast)
+      console.error(`[token-pilot] ast-index: updating index (${existingFileCount} files)...`);
+      try {
+        await this.exec(['update'], 30000);
+        // Re-check count after update
+        try {
+          const statsText = await this.exec(['stats']);
+          const filesMatch = statsText.match(/Files:\s*(\d+)/);
+          existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : existingFileCount;
+        } catch { /* keep previous count */ }
         this.indexed = true;
-        console.error(`[token-pilot] ast-index: index ready (${fileCount} files)`);
+        console.error(`[token-pilot] ast-index: index ready (${existingFileCount} files)`);
         return;
+      } catch (updateErr) {
+        console.error(`[token-pilot] ast-index: update failed, falling back to rebuild — ${updateErr instanceof Error ? updateErr.message : updateErr}`);
       }
-    } catch {
-      needsRebuild = true;
     }
 
-    if (needsRebuild) {
-      console.error('[token-pilot] ast-index: building index (this may take a moment)...');
-      try {
-        // First try plain rebuild (works for monorepos with apps/ structure)
-        await this.exec(['rebuild'], 60000);
+    // No index or update failed — full rebuild
+    console.error('[token-pilot] ast-index: building index (this may take a moment)...');
+    try {
+      await this.exec(['rebuild'], 60000);
 
-        // Check how many files were indexed
-        let fileCount = 0;
+      let fileCount = 0;
+      try {
+        const statsText = await this.exec(['stats']);
+        const filesMatch = statsText.match(/Files:\s*(\d+)/);
+        fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+      } catch { /* stats unavailable */ }
+
+      // If very few files, retry with --sub-projects (workspace-style monorepos)
+      if (fileCount < 5) {
+        console.error(`[token-pilot] ast-index: only ${fileCount} files — retrying with --sub-projects...`);
+        await this.exec(['rebuild', '--sub-projects'], 60000);
         try {
           const statsText = await this.exec(['stats']);
           const filesMatch = statsText.match(/Files:\s*(\d+)/);
           fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
         } catch { /* stats unavailable */ }
-
-        // If very few files, retry with --sub-projects (for workspace-style monorepos)
-        if (fileCount < 5) {
-          console.error(`[token-pilot] ast-index: only ${fileCount} files — retrying with --sub-projects...`);
-          await this.exec(['rebuild', '--sub-projects'], 60000);
-          try {
-            const statsText = await this.exec(['stats']);
-            const filesMatch = statsText.match(/Files:\s*(\d+)/);
-            fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
-          } catch { /* stats unavailable */ }
-        }
-
-        this.indexed = true;
-        console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
-      } catch (buildErr) {
-        console.error(`[token-pilot] ast-index: rebuild failed — ${buildErr instanceof Error ? buildErr.message : buildErr}`);
-        throw buildErr;
       }
+
+      this.indexed = true;
+      console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
+    } catch (buildErr) {
+      console.error(`[token-pilot] ast-index: rebuild failed — ${buildErr instanceof Error ? buildErr.message : buildErr}`);
+      throw buildErr;
     }
   }
 
@@ -248,11 +262,22 @@ export class AstIndexClient {
       ];
       // Fallback: if parsed is an array directly
       const matches = all.length > 0 ? all : (Array.isArray(parsed) ? parsed : []);
-      return matches.map((m: { content?: string; text?: string; signature?: string; line: number; path?: string; file?: string }) => ({
-        file: m.path ?? m.file ?? '',
-        line: m.line,
-        text: m.content ?? m.text ?? m.signature ?? '',
-      }));
+      const mapped = matches
+        .map((m: { content?: string; text?: string; signature?: string; line?: number; path?: string; file?: string }) => ({
+          file: m.path ?? m.file ?? '',
+          line: typeof m.line === 'number' ? m.line : 0,
+          text: m.content ?? m.text ?? m.signature ?? '',
+        }))
+        .filter(r => r.file !== '' && r.text !== '');
+
+      // Deduplicate by file:line (merge of 4 categories creates dupes)
+      const seen = new Set<string>();
+      return mapped.filter(r => {
+        const key = `${r.file}:${r.line}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     } catch (err) {
       console.error(`[token-pilot] ast-index search failed: ${err instanceof Error ? err.message : err}`);
       return [];
@@ -367,6 +392,188 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * List all files known to the ast-index.
+   * Parses the `files` command output which lists one file per line.
+   */
+  async listFiles(): Promise<string[]> {
+    try {
+      await this.ensureIndex();
+      const result = await this.exec(['files'], 15000);
+      return result.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index files failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /**
+   * Cross-references: definitions + imports + usages in one call.
+   * Replaces separate symbol() + usages() calls.
+   */
+  async refs(symbolName: string, limit = 20): Promise<AstIndexRefsResponse> {
+    await this.ensureIndex();
+    try {
+      const result = await this.exec(['refs', symbolName, '--limit', String(limit), '--format', 'json']);
+      return JSON.parse(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index refs failed: ${err instanceof Error ? err.message : err}`);
+      return { definitions: [], imports: [], usages: [] };
+    }
+  }
+
+  /**
+   * Project map: directory structure with file counts and symbol kinds.
+   */
+  async map(options?: { module?: string; limit?: number }): Promise<AstIndexMapResponse | null> {
+    await this.ensureIndex();
+    try {
+      const args = ['map', '--format', 'json'];
+      if (options?.module) args.push('--module', options.module);
+      if (options?.limit) args.push('--limit', String(options.limit));
+      const result = await this.exec(args, 15000);
+      return JSON.parse(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index map failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Detect project conventions: architecture, frameworks, naming patterns.
+   */
+  async conventions(): Promise<AstIndexConventionsResponse | null> {
+    await this.ensureIndex();
+    try {
+      const result = await this.exec(['conventions', '--format', 'json']);
+      return JSON.parse(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index conventions failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Find callers of a function.
+   */
+  async callers(functionName: string, limit = 50): Promise<AstIndexCallerEntry[]> {
+    await this.ensureIndex();
+    try {
+      const result = await this.exec(['callers', functionName, '--limit', String(limit), '--format', 'json']);
+      const parsed = JSON.parse(result);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error(`[token-pilot] ast-index callers failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /**
+   * Show call hierarchy tree (callers tree up).
+   */
+  async callTree(functionName: string, depth = 3): Promise<AstIndexCallTreeNode | null> {
+    await this.ensureIndex();
+    try {
+      const result = await this.exec(['call-tree', functionName, '--depth', String(depth), '--format', 'json']);
+      return JSON.parse(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index call-tree failed: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Show changed symbols since base branch (git diff).
+   */
+  async changed(base?: string): Promise<AstIndexChangedEntry[]> {
+    await this.ensureIndex();
+    try {
+      const args = ['changed', '--format', 'json'];
+      if (base) args.push('--base', base);
+      const result = await this.exec(args, 15000);
+      const parsed = JSON.parse(result);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error(`[token-pilot] ast-index changed failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /**
+   * Find potentially unused symbols.
+   */
+  async unusedSymbols(options?: { module?: string; exportOnly?: boolean; limit?: number }): Promise<AstIndexUnusedSymbol[]> {
+    await this.ensureIndex();
+    try {
+      const args = ['unused-symbols', '--format', 'json'];
+      if (options?.module) args.push('--module', options.module);
+      if (options?.exportOnly) args.push('--export-only');
+      if (options?.limit) args.push('--limit', String(options.limit));
+      const result = await this.exec(args, 15000);
+      const parsed = JSON.parse(result);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error(`[token-pilot] ast-index unused-symbols failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get imports for a specific file.
+   * Parses text output: "  { X, Y } from 'source';"
+   */
+  async fileImports(filePath: string): Promise<AstIndexImportEntry[]> {
+    await this.ensureIndex();
+    try {
+      const result = await this.exec(['imports', filePath]);
+      return this.parseImportsText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index imports failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  private parseImportsText(text: string): AstIndexImportEntry[] {
+    const entries: AstIndexImportEntry[] = [];
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('Imports in') || trimmed.startsWith('Total:')) continue;
+
+      // Match: { X, Y } from 'source'
+      const braceMatch = trimmed.match(/^\{\s*(.+?)\s*\}\s+from\s+['"](.+?)['"]/);
+      if (braceMatch) {
+        entries.push({
+          specifiers: braceMatch[1].split(',').map(s => s.trim()),
+          source: braceMatch[2],
+        });
+        continue;
+      }
+
+      // Match: * as X from 'source'
+      const nsMatch = trimmed.match(/^\*\s+as\s+(\S+)\s+from\s+['"](.+?)['"]/);
+      if (nsMatch) {
+        entries.push({
+          specifiers: [nsMatch[1]],
+          source: nsMatch[2],
+          isNamespace: true,
+        });
+        continue;
+      }
+
+      // Match: X from 'source' (default import)
+      const defaultMatch = trimmed.match(/^(\w+)\s+from\s+['"](.+?)['"]/);
+      if (defaultMatch) {
+        entries.push({
+          specifiers: [defaultMatch[1]],
+          source: defaultMatch[2],
+          isDefault: true,
+        });
+        continue;
+      }
+    }
+    return entries;
+  }
+
   isAvailable(): boolean {
     return this.binaryPath !== null;
   }
@@ -404,12 +611,20 @@ export class AstIndexClient {
     // Fix last entry end_line to use actual file line count
     this.fixLastEndLine(entries, lines.length);
 
+    // Enrich classes that ast-index returned without children (language-specific)
+    const lang = this.detectLanguage(filePath);
+    if (lang === 'Python') {
+      this.enrichPythonClassMethods(entries, lines);
+    } else if (lang === 'PHP') {
+      this.enrichPHPClassMethods(entries, lines);
+    }
+
     // Enrich entries with signatures from file content
     this.enrichSignatures(entries, lines);
 
     return {
       path: filePath,
-      language: this.detectLanguage(filePath),
+      language: lang,
       meta: {
         lines: lines.length,
         bytes: fileStat.size,
@@ -420,6 +635,164 @@ export class AstIndexClient {
       exports: [],
       symbols: entries.map(e => this.mapOutlineEntry(e)),
     };
+  }
+
+  /**
+   * Python: ast-index doesn't return methods inside classes.
+   * Parse file content to extract `def` methods for classes without children.
+   */
+  private enrichPythonClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
+    for (const entry of entries) {
+      if (entry.kind.toLowerCase() !== 'class') continue;
+      if (entry.children && entry.children.length > 0) continue;
+
+      const classStartIdx = entry.start_line - 1; // 0-based
+      const classEndIdx = entry.end_line - 1;
+
+      // Detect class body indent: look for first `def ` inside class range
+      let bodyIndent = -1;
+      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
+        const defMatch = lines[i].match(/^(\s+)def\s/);
+        if (defMatch) {
+          bodyIndent = defMatch[1].length;
+          break;
+        }
+      }
+      if (bodyIndent < 0) continue; // no methods found
+
+      const methods: AstIndexOutlineEntry[] = [];
+
+      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
+        const line = lines[i];
+        // Match `def method_name(` at the detected indent level
+        const match = line.match(new RegExp(`^\\s{${bodyIndent}}def\\s+(\\w+)\\s*\\(`));
+        if (!match) continue;
+
+        const methodName = match[1];
+        const methodLine = i + 1; // 1-based
+
+        // Check for async/static/decorators
+        const isAsync = line.includes('async def');
+        const isStatic = i > 0 && /^\s*@staticmethod/.test(lines[i - 1]);
+        const isClassMethod = i > 0 && /^\s*@classmethod/.test(lines[i - 1]);
+
+        // Collect decorators above
+        const decorators: string[] = [];
+        for (let d = i - 1; d >= classStartIdx; d--) {
+          const decMatch = lines[d].match(new RegExp(`^\\s{${bodyIndent}}@(\\w+)`));
+          if (decMatch) {
+            decorators.unshift(`@${decMatch[1]}`);
+          } else {
+            break;
+          }
+        }
+
+        // Determine visibility from name
+        const visibility = methodName.startsWith('__') && !methodName.endsWith('__')
+          ? 'private'
+          : methodName.startsWith('_')
+            ? 'protected'
+            : 'public';
+
+        methods.push({
+          name: methodName,
+          kind: isStatic || isClassMethod ? 'function' : 'method',
+          start_line: methodLine,
+          end_line: 0, // computed below
+          signature: line.trim(),
+          visibility,
+          is_async: isAsync,
+          is_static: isStatic,
+          decorators: decorators.length > 0 ? decorators : undefined,
+        });
+      }
+
+      // Compute end_lines for methods
+      for (let m = 0; m < methods.length; m++) {
+        if (m < methods.length - 1) {
+          // End before next method (or its first decorator)
+          const nextStart = methods[m + 1].start_line;
+          // Walk back from next method to skip decorators/blank lines
+          let endLine = nextStart - 1;
+          for (let k = nextStart - 2; k >= methods[m].start_line; k--) {
+            const l = lines[k];
+            if (l.trim() === '' || new RegExp(`^\\s{${bodyIndent}}@`).test(l)) {
+              endLine = k; // 0-based → will be used as 1-based below
+            } else {
+              break;
+            }
+          }
+          methods[m].end_line = endLine;
+        } else {
+          // Last method ends at class end
+          methods[m].end_line = entry.end_line;
+        }
+      }
+
+      entry.children = methods;
+    }
+  }
+
+  /**
+   * PHP: ast-index doesn't return methods inside classes.
+   * Parse file content to extract `function` methods for classes without children.
+   */
+  private enrichPHPClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
+    for (const entry of entries) {
+      if (entry.kind.toLowerCase() !== 'class') continue;
+      if (entry.children && entry.children.length > 0) continue;
+
+      const classStartIdx = entry.start_line - 1;
+      const classEndIdx = entry.end_line - 1;
+
+      // Detect class body indent: look for first `function ` inside class range
+      let bodyIndent = -1;
+      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
+        const fnMatch = lines[i].match(/^(\s+)(?:public|private|protected|static|\s)*function\s/);
+        if (fnMatch) {
+          bodyIndent = fnMatch[1].length;
+          break;
+        }
+      }
+      if (bodyIndent < 0) continue;
+
+      const methods: AstIndexOutlineEntry[] = [];
+
+      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
+        const line = lines[i];
+        // Match PHP method: [visibility] [static] function name(
+        const match = line.match(
+          new RegExp(`^\\s{${bodyIndent}}(?:(public|private|protected)\\s+)?(?:(static)\\s+)?function\\s+(\\w+)\\s*\\(`)
+        );
+        if (!match) continue;
+
+        const visibility = match[1] ?? 'public';
+        const isStatic = !!match[2];
+        const methodName = match[3];
+        const methodLine = i + 1;
+
+        methods.push({
+          name: methodName,
+          kind: isStatic ? 'function' : 'method',
+          start_line: methodLine,
+          end_line: 0,
+          signature: line.trim(),
+          visibility,
+          is_static: isStatic,
+        });
+      }
+
+      // Compute end_lines
+      for (let m = 0; m < methods.length; m++) {
+        if (m < methods.length - 1) {
+          methods[m].end_line = methods[m + 1].start_line - 1;
+        } else {
+          methods[m].end_line = entry.end_line;
+        }
+      }
+
+      entry.children = methods;
+    }
   }
 
   /** Fix the last entry's end_line to use actual file line count */

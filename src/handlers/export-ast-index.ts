@@ -4,6 +4,7 @@ import type { FileCache } from '../core/file-cache.js';
 export interface ExportAstIndexArgs {
   paths?: string[];
   format?: 'markdown' | 'json';
+  all_indexed?: boolean;
 }
 
 /**
@@ -11,6 +12,8 @@ export interface ExportAstIndexArgs {
  *
  * Generates a markdown document with headings per file and symbols as sections,
  * which context-mode can index via its `index` tool for cross-tool search.
+ *
+ * When all_indexed=true, exports all files known to ast-index (not just cached ones).
  */
 export async function handleExportAstIndex(
   args: ExportAstIndexArgs,
@@ -18,6 +21,11 @@ export async function handleExportAstIndex(
   fileCache: FileCache,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const format = args.format ?? 'markdown';
+
+  // When all_indexed is requested, use ast-index to get all file outlines directly
+  if (args.all_indexed) {
+    return exportAllIndexed(astIndex, format, args.paths);
+  }
 
   // Gather all cached files or specified subset
   const cachedPaths = fileCache.cachedPaths();
@@ -29,7 +37,7 @@ export async function handleExportAstIndex(
     return {
       content: [{
         type: 'text',
-        text: 'No indexed files available. Use smart_read on files first to populate the cache.',
+        text: 'No cached files available.\nHINT: Use all_indexed=true to export all files from the ast-index, or use smart_read on files first to populate the cache.',
       }],
     };
   }
@@ -133,6 +141,82 @@ function formatSymbolMarkdown(
   for (const child of sym.children) {
     formatSymbolMarkdown(child, sections, headingLevel + 1);
   }
+}
+
+/**
+ * Export all files from ast-index directly (bypasses cache).
+ * Uses ast-index outline for each file to get structure.
+ */
+async function exportAllIndexed(
+  astIndex: AstIndexClient,
+  format: string,
+  filterPaths?: string[],
+): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  let allFiles = await astIndex.listFiles();
+
+  if (filterPaths && filterPaths.length > 0) {
+    allFiles = allFiles.filter(f => filterPaths.some(p => f.includes(p)));
+  }
+
+  if (allFiles.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: 'No files in ast-index. The index may not be built yet.',
+      }],
+    };
+  }
+
+  // For large projects, just export file list with symbol counts
+  // Getting full outlines for 1000+ files would be too slow
+  if (allFiles.length > 50) {
+    const sections: string[] = [
+      '# Token Pilot AST Index Export',
+      '',
+      `Total indexed files: ${allFiles.length}`,
+      '',
+      '## Indexed Files',
+      '',
+    ];
+    for (const f of allFiles) {
+      sections.push(`- ${f}`);
+    }
+    sections.push('');
+    sections.push('HINT: Use export_ast_index(paths=["src/specific-dir/"]) to export outlines for a subset.');
+    return { content: [{ type: 'text', text: sections.join('\n') }] };
+  }
+
+  // For smaller sets, get full outlines
+  const sections: string[] = [
+    '# Token Pilot AST Index Export',
+    '',
+    `Exported ${allFiles.length} files from ast-index.`,
+    '',
+  ];
+
+  for (const filePath of allFiles) {
+    const structure = await astIndex.outline(filePath);
+    if (!structure) {
+      sections.push(`## ${filePath}`);
+      sections.push('(no AST structure available)');
+      sections.push('');
+      continue;
+    }
+
+    sections.push(`## ${structure.path}`);
+    sections.push('');
+    sections.push(`Language: ${structure.language} | Lines: ${structure.meta.lines}`);
+    sections.push('');
+
+    for (const sym of structure.symbols) {
+      formatSymbolMarkdown(sym, sections, 3);
+    }
+
+    sections.push('---');
+    sections.push('');
+  }
+
+  return { content: [{ type: 'text', text: sections.join('\n') }] };
 }
 
 function flattenSymbols(

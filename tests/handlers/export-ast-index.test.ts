@@ -58,7 +58,7 @@ describe('handleExportAstIndex', () => {
   it('returns empty message when no files cached', async () => {
     const cache = new FileCache(100, 80);
     const result = await handleExportAstIndex({}, astIndex, cache);
-    expect(result.content[0].text).toContain('No indexed files');
+    expect(result.content[0].text).toContain('No cached files');
   });
 
   it('exports markdown by default', async () => {
@@ -108,6 +108,6 @@ describe('handleExportAstIndex', () => {
     cache.set('/tmp/a.ts', makeCacheEntry('a.ts', 'typescript'));
 
     const result = await handleExportAstIndex({ paths: ['/tmp/nonexistent.ts'] }, astIndex, cache);
-    expect(result.content[0].text).toContain('No indexed files');
+    expect(result.content[0].text).toContain('No cached files');
   });
 });

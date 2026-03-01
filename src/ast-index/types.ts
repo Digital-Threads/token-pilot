@@ -86,3 +86,84 @@ export interface AstIndexHierarchyNode {
   children?: AstIndexHierarchyNode[];
   parents?: AstIndexHierarchyNode[];
 }
+
+/** ast-index refs --format json */
+export interface AstIndexRefsResponse {
+  definitions: AstIndexRefEntry[];
+  imports: AstIndexRefEntry[];
+  usages: AstIndexRefEntry[];
+}
+
+export interface AstIndexRefEntry {
+  name: string;
+  kind?: string;
+  line: number;
+  path: string;
+  signature?: string;
+  context?: string;
+}
+
+/** ast-index map --format json */
+export interface AstIndexMapResponse {
+  project_type: string;
+  file_count: number;
+  module_count: number;
+  showing: number;
+  total_dirs: number;
+  groups: AstIndexMapGroup[];
+}
+
+export interface AstIndexMapGroup {
+  path: string;
+  file_count: number;
+  kinds?: Record<string, number>;
+}
+
+/** ast-index conventions --format json */
+export interface AstIndexConventionsResponse {
+  architecture: string[];
+  frameworks: Record<string, Array<{ name: string; count: number }>>;
+  naming_patterns: Array<{ suffix: string; count: number }>;
+}
+
+/** ast-index callers --format json */
+export interface AstIndexCallerEntry {
+  name: string;
+  line: number;
+  path: string;
+  context?: string;
+}
+
+/** ast-index call-tree --format json */
+export interface AstIndexCallTreeNode {
+  name: string;
+  file?: string;
+  line?: number;
+  callers?: AstIndexCallTreeNode[];
+}
+
+/** ast-index changed --format json */
+export interface AstIndexChangedEntry {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  change_type: string; // added, modified, removed
+}
+
+/** ast-index unused-symbols --format json */
+export interface AstIndexUnusedSymbol {
+  name: string;
+  kind: string;
+  line: number;
+  path: string;
+  signature?: string;
+}
+
+/** ast-index imports (text format) */
+export interface AstIndexImportEntry {
+  specifiers: string[];
+  source: string;
+  isDefault?: boolean;
+  isNamespace?: boolean;
+}

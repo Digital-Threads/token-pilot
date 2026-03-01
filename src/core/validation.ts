@@ -154,34 +154,6 @@ export function validateFindUsagesArgs(args: unknown): { symbol: string } {
 }
 
 /**
- * Validate find_implementations arguments.
- */
-export function validateFindImplementationsArgs(args: unknown): { name: string } {
-  if (!args || typeof args !== 'object') {
-    throw new Error('Arguments must be an object.');
-  }
-  const a = args as Record<string, unknown>;
-  if (typeof a.name !== 'string' || a.name.length === 0) {
-    throw new Error('Required parameter "name" must be a non-empty string.');
-  }
-  return { name: a.name };
-}
-
-/**
- * Validate class_hierarchy arguments.
- */
-export function validateClassHierarchyArgs(args: unknown): { name: string } {
-  if (!args || typeof args !== 'object') {
-    throw new Error('Arguments must be an object.');
-  }
-  const a = args as Record<string, unknown>;
-  if (typeof a.name !== 'string' || a.name.length === 0) {
-    throw new Error('Required parameter "name" must be a non-empty string.');
-  }
-  return { name: a.name };
-}
-
-/**
  * Validate smart_read_many arguments.
  */
 export function validateSmartReadManyArgs(args: unknown): { paths: string[] } {
@@ -203,11 +175,12 @@ export function validateSmartReadManyArgs(args: unknown): { paths: string[] } {
 export function validateExportAstIndexArgs(args: unknown): {
   paths?: string[];
   format?: 'markdown' | 'json';
+  all_indexed?: boolean;
 } {
   if (!args || typeof args !== 'object') return {};
   const a = args as Record<string, unknown>;
 
-  const result: { paths?: string[]; format?: 'markdown' | 'json' } = {};
+  const result: { paths?: string[]; format?: 'markdown' | 'json'; all_indexed?: boolean } = {};
 
   if (Array.isArray(a.paths)) {
     for (const p of a.paths) {
@@ -221,6 +194,10 @@ export function validateExportAstIndexArgs(args: unknown): {
       throw new Error('"format" must be "markdown" or "json".');
     }
     result.format = a.format;
+  }
+
+  if (a.all_indexed !== undefined) {
+    result.all_indexed = Boolean(a.all_indexed);
   }
 
   return result;
@@ -242,4 +219,28 @@ function optionalNumber(val: unknown, name: string): number | undefined {
   if (val === undefined || val === null) return undefined;
   if (typeof val !== 'number') throw new Error(`"${name}" must be a number.`);
   return val;
+}
+
+export function validateChangedSymbolsArgs(args: unknown): {
+  base?: string;
+} {
+  if (!args || typeof args !== 'object') return {};
+  const a = args as Record<string, unknown>;
+  return {
+    base: optionalString(a.base, 'base'),
+  };
+}
+
+export function validateFindUnusedArgs(args: unknown): {
+  module?: string;
+  export_only?: boolean;
+  limit?: number;
+} {
+  if (!args || typeof args !== 'object') return {};
+  const a = args as Record<string, unknown>;
+  return {
+    module: optionalString(a.module, 'module'),
+    export_only: optionalBool(a.export_only, 'export_only'),
+    limit: optionalNumber(a.limit, 'limit'),
+  };
 }

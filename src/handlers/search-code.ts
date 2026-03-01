@@ -24,7 +24,7 @@ export async function handleSearchCode(
       hints.push('WARNING: ast-index is not available. Install it: cargo install ast-index');
     } else {
       hints.push('TIP: Index may not cover this language/project. Run `ast-index build` in the project root.');
-      hints.push('TIP: Use Grep as a fallback for text-based search.');
+      hints.push('TIP: Check that the symbol exists and the index is up to date (project_overview shows index status).');
     }
     return { content: [{ type: 'text', text: hints.join('\n') }] };
   }

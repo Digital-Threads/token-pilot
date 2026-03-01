@@ -59,7 +59,7 @@ export function formatOutline(structure: FileStructure, options: FormatOptions =
   }
 
   lines.push('');
-  lines.push('HINT: Use read_symbol("<ClassName>.<method>") to load a specific symbol.');
+  lines.push('HINT: Use read_symbol(path="<this file>", symbol="<name>") to load a specific symbol. Supports Class.method and Class::method.');
 
   return lines.join('\n');
 }

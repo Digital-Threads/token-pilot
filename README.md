@@ -94,44 +94,75 @@ brew tap defendend/ast-index && brew install ast-index
 npx token-pilot install-ast-index
 ```
 
-### PreToolUse Hook (optional)
+### PreToolUse Hook (auto-installed for Claude Code)
 
-Intercepts `Read` calls for large code files and suggests `smart_read`:
+Intercepts `Read` calls for large code files and suggests `smart_read`. **Installed automatically** when the MCP server starts. Manual commands:
 
 ```bash
-npx token-pilot install-hook            # Current project
+npx token-pilot install-hook            # Force re-install
 npx token-pilot uninstall-hook          # Remove
+```
+
+## AI Instructions (Important)
+
+After installing Token Pilot, add these instructions to your project so the AI uses Token Pilot instead of default tools.
+
+**Cursor** — add to `.cursorrules` in project root:
+
+**Claude Code** — add to `CLAUDE.md` in project root:
+
+```
+# Token Pilot — Code Reading Rules
+
+You have Token Pilot MCP server connected. ALWAYS use it instead of default tools for reading code:
+
+## Reading files
+- ALWAYS use smart_read() instead of Read/cat for code files. It returns AST structure (classes, methods, signatures, line ranges) saving 80-99% tokens.
+- After smart_read, use read_symbol("path", "Class.method") to load only the specific function you need.
+- Use smart_read_many() instead of multiple Read calls when reading 2+ files.
+- After editing a file, use read_diff() instead of re-reading — shows only changed hunks.
+
+## Searching
+- Use find_usages() instead of Grep when looking for where a symbol is used — groups by definitions, imports, usages.
+- Use search_code() for finding functions/classes by name.
+- Use Grep only for exact text patterns (not symbol names).
+
+## Workflow
+1. project_overview() — start here for unfamiliar projects
+2. smart_read("file.ts") — see structure of a file
+3. read_symbol("file.ts", "ClassName.methodName") — read specific code
+4. read_diff("file.ts") — after edits, see only changes
 ```
 
 ## MCP Tools (14)
 
 ### Core Reading
 
-| Tool | Description |
-|------|-------------|
-| `smart_read` | AST-based structural overview of a file. Returns classes, functions, methods with signatures and line ranges. |
-| `read_symbol` | Load source code of a specific symbol (e.g., `UserService.updateUser`). |
-| `read_range` | Read a specific line range from a file. |
-| `read_diff` | Show only what changed since Token Pilot last served the file. |
-| `smart_read_many` | Batch `smart_read` for up to 20 files in one call. |
+| Tool | Instead of | Description |
+|------|-----------|-------------|
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures and line ranges. 80-99% savings. |
+| `read_symbol` | `Read` + scroll | Load source of a specific symbol (e.g., `UserService.updateUser`). Supports `Class.method`. |
+| `read_range` | `Read` offset | Read a specific line range from a file. |
+| `read_diff` | re-`Read` | Show only what changed since last smart_read. 80-95% savings on re-reads. |
+| `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files in one call. |
 
 ### Search & Navigation
 
-| Tool | Description |
-|------|-------------|
-| `search_code` | Indexed structural code search via ast-index. Faster than grep for symbols. |
-| `find_usages` | Find all usages of a symbol across the project (definitions, calls, imports, references). |
-| `find_implementations` | Find all implementations of an interface/abstract class/trait. |
-| `class_hierarchy` | Show class/interface inheritance hierarchy tree. |
-| `project_overview` | Compact project overview: type, dependencies, structure map. |
+| Tool | Instead of | Description |
+|------|-----------|-------------|
+| `search_code` | `Grep` (symbols) | AST-indexed symbol search. Use for function/class names. |
+| `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. |
+| `project_overview` | `ls` + explore | Project type, architecture, frameworks, directory map. |
+| `changed_symbols` | `git diff` | Symbol-level git changes (added/modified/removed) vs base branch. |
+| `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 
 ### Integration & Analytics
 
 | Tool | Description |
 |------|-------------|
-| `export_ast_index` | Export AST data as markdown/JSON for cross-tool indexing (e.g., context-mode BM25). |
+| `export_ast_index` | Export AST data as markdown/JSON for cross-tool indexing. |
 | `session_analytics` | Token savings report: total saved, per-tool breakdown, top files. |
-| `context_status` | Show what files/symbols are currently tracked in context. |
+| `context_status` | Show what files/symbols are tracked in context. |
 | `forget` | Remove a file or symbol from context tracking. |
 
 ## CLI Commands
@@ -230,7 +261,7 @@ Plus structural summaries for non-code files: JSON, YAML, Markdown, TOML, XML, C
 ### Verify installation
 
 ```bash
-npx token-pilot --help          # Should print CLI help with 14 tools
+npx token-pilot --help          # Should print CLI help with 17 tools
 npx token-pilot --version       # Should print current version
 npx token-pilot doctor          # Run diagnostics (checks ast-index, config, etc.)
 ```
@@ -260,7 +291,7 @@ Token Pilot also checks for updates on startup and logs a notice to stderr if a 
 ```bash
 npm install          # Install dependencies
 npm run build        # Compile TypeScript
-npm test             # Run tests (111 tests)
+npm test             # Run tests
 npm run test:watch   # Run tests in watch mode
 npm run dev          # TypeScript watch mode
 ```
@@ -270,7 +301,7 @@ npm run dev          # TypeScript watch mode
 ```
 src/
   index.ts              — CLI entry point (6 commands)
-  server.ts             — MCP server (14 tools)
+  server.ts             — MCP server (17 tools)
   types.ts              — Core domain types
   ast-index/
     client.ts           — ast-index CLI wrapper
@@ -297,10 +328,13 @@ src/
     read-diff.ts        — read_diff handler (O(n) diff)
     smart-read-many.ts  — Batch smart_read
     search-code.ts      — search_code handler
-    find-usages.ts      — find_usages handler
+    find-usages.ts      — find_usages handler (via ast-index refs)
+    find-callers.ts     — find_callers handler
+    changed-symbols.ts  — changed_symbols handler
+    find-unused.ts      — find_unused handler
     find-implementations.ts
     class-hierarchy.ts
-    project-overview.ts
+    project-overview.ts — project_overview (via ast-index map + conventions)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25
   git/

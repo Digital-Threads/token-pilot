@@ -7,8 +7,6 @@ import {
   validateReadDiffArgs,
   validateSearchCodeArgs,
   validateFindUsagesArgs,
-  validateFindImplementationsArgs,
-  validateClassHierarchyArgs,
   validateSmartReadManyArgs,
 } from '../../src/core/validation.js';
 
@@ -126,22 +124,6 @@ describe('validateFindUsagesArgs', () => {
 
   it('throws on missing symbol', () => {
     expect(() => validateFindUsagesArgs({})).toThrow('symbol');
-  });
-});
-
-describe('validateFindImplementationsArgs', () => {
-  it('accepts valid args', () => {
-    expect(validateFindImplementationsArgs({ name: 'IService' }).name).toBe('IService');
-  });
-
-  it('throws on missing name', () => {
-    expect(() => validateFindImplementationsArgs({})).toThrow('name');
-  });
-});
-
-describe('validateClassHierarchyArgs', () => {
-  it('accepts valid args', () => {
-    expect(validateClassHierarchyArgs({ name: 'BaseClass' }).name).toBe('BaseClass');
   });
 });
 

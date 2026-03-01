@@ -94,6 +94,13 @@ async function startServer() {
     }
   }).catch(() => { /* ignore */ });
 
+  // Auto-install PreToolUse hook (non-blocking, Claude Code only)
+  installHook(projectRoot).then(result => {
+    if (result.installed) {
+      console.error(`[token-pilot] hook auto-installed: ${result.message}`);
+    }
+  }).catch(() => { /* ignore — not Claude Code or no .claude dir */ });
+
   const server = await createServer(projectRoot);
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -257,7 +264,7 @@ Usage:
 
 MCP Tools (14):
   smart_read, read_symbol, read_range, read_diff, smart_read_many,
-  search_code, find_usages, find_implementations, class_hierarchy,
+  search_code, find_usages, find_unused, changed_symbols,
   project_overview, export_ast_index, session_analytics, context_status, forget
 `);
   process.exit(0);

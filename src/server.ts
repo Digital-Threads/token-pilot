@@ -19,12 +19,12 @@ import { handleReadRange } from './handlers/read-range.js';
 import { handleReadDiff } from './handlers/read-diff.js';
 import { handleSearchCode } from './handlers/search-code.js';
 import { handleFindUsages } from './handlers/find-usages.js';
-import { handleFindImplementations } from './handlers/find-implementations.js';
-import { handleClassHierarchy } from './handlers/class-hierarchy.js';
 import { handleSmartReadMany } from './handlers/smart-read-many.js';
 import { handleProjectOverview } from './handlers/project-overview.js';
 import { handleNonCodeRead, isNonCodeStructured } from './handlers/non-code.js';
 import { handleExportAstIndex } from './handlers/export-ast-index.js';
+import { handleChangedSymbols } from './handlers/changed-symbols.js';
+import { handleFindUnused } from './handlers/find-unused.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -35,10 +35,10 @@ import {
   validateReadDiffArgs,
   validateSearchCodeArgs,
   validateFindUsagesArgs,
-  validateFindImplementationsArgs,
-  validateClassHierarchyArgs,
   validateSmartReadManyArgs,
   validateExportAstIndexArgs,
+  validateChangedSymbolsArgs,
+  validateFindUnusedArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string) {
@@ -107,10 +107,10 @@ export async function createServer(projectRoot: string) {
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [
-      // --- Phase 1: Core reading tools ---
+      // --- Core reading tools (USE INSTEAD OF Read/cat) ---
       {
         name: 'smart_read',
-        description: 'Read a file as a structural overview (AST-based). Returns classes, functions, methods with signatures and line ranges instead of full content. PREFERRED over Read for files > 80 lines — saves 80-95% tokens.',
+        description: 'ALWAYS use instead of Read/cat for code files. Returns AST structural overview: classes, functions, methods with signatures and line ranges. Saves 80-99% tokens. After reading structure, use read_symbol() to load specific functions.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -124,7 +124,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'read_symbol',
-        description: 'Read the source code of a specific symbol (function, method, class). Use after smart_read to load only the code you need.',
+        description: 'Read source code of a specific function/method/class. Use after smart_read() — loads only the code you need instead of the entire file. Supports Class.method syntax.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -151,7 +151,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'read_diff',
-        description: 'Show only what changed in a file since Token Pilot last served it. Saves 80-95% tokens on re-reads after edits.',
+        description: 'After editing a file, use this instead of re-reading it. Shows only changed hunks since last smart_read. Saves 80-95% tokens on re-reads.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -163,7 +163,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'smart_read_many',
-        description: 'Batch smart_read for multiple files. Returns structural overview for each file in one call. Max 20 files.',
+        description: 'Read multiple files at once. Returns AST structural overview for each file in one call. ALWAYS use instead of multiple Read calls. Max 20 files.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -176,10 +176,10 @@ export async function createServer(projectRoot: string) {
           required: ['paths'],
         },
       },
-      // --- Phase 2: Search & navigation ---
+      // --- Search & navigation ---
       {
         name: 'search_code',
-        description: 'Indexed structural code search. Searches symbols and code using ast-index. Much faster and more accurate than grep for finding functions, classes, and variables.',
+        description: 'AST-indexed code search. Finds functions, classes, variables by name. Use for symbol search; use Grep for exact text patterns.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -193,7 +193,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'find_usages',
-        description: 'Find all usages of a symbol across the project. Groups results by: definitions, calls, imports, references.',
+        description: 'Find all usages of a symbol across the project. Use instead of Grep for symbol references. Groups by: definitions, imports, usages.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -203,30 +203,8 @@ export async function createServer(projectRoot: string) {
         },
       },
       {
-        name: 'find_implementations',
-        description: 'Find all implementations of an interface/abstract class/trait.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            name: { type: 'string', description: 'Interface/abstract class name' },
-          },
-          required: ['name'],
-        },
-      },
-      {
-        name: 'class_hierarchy',
-        description: 'Show class/interface inheritance hierarchy tree.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            name: { type: 'string', description: 'Class or interface name' },
-          },
-          required: ['name'],
-        },
-      },
-      {
         name: 'project_overview',
-        description: 'Show a compact project overview: project info, type, and structure map.',
+        description: 'Start here. Shows project type, architecture, framework detection, directory structure with symbol counts. Use before exploring unfamiliar codebases.',
         inputSchema: {
           type: 'object' as const,
           properties: {},
@@ -235,19 +213,23 @@ export async function createServer(projectRoot: string) {
       // --- Integration ---
       {
         name: 'export_ast_index',
-        description: 'Export AST structural data for cross-tool indexing. Outputs markdown or JSON that can be passed to context-mode\'s index() for BM25-searchable code structure. Use after smart_read to make code structure available via context-mode search.',
+        description: 'Export AST structural data for cross-tool indexing. Outputs markdown or JSON that can be passed to context-mode\'s index() for BM25-searchable code structure. Use all_indexed=true to export all files from ast-index (not just cached ones).',
         inputSchema: {
           type: 'object' as const,
           properties: {
             paths: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Specific file paths to export (default: all cached files)',
+              description: 'Specific file paths to export (default: all cached files, or all indexed files when all_indexed=true)',
             },
             format: {
               type: 'string',
               enum: ['markdown', 'json'],
               description: 'Output format: "markdown" (default, best for BM25) or "json"',
+            },
+            all_indexed: {
+              type: 'boolean',
+              description: 'When true, exports all files from ast-index (not just cached). For large projects (>50 files), returns a file list with hint to filter by paths.',
             },
           },
         },
@@ -280,6 +262,29 @@ export async function createServer(projectRoot: string) {
             path: { type: 'string', description: 'File path to forget' },
             symbol: { type: 'string', description: 'Specific symbol to forget' },
             all: { type: 'boolean', description: 'Forget everything' },
+          },
+        },
+      },
+      // --- Advanced analysis ---
+      {
+        name: 'changed_symbols',
+        description: 'Show symbols that changed since a base branch (git diff). Shows added, modified, and removed functions/classes/methods.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            base: { type: 'string', description: 'Base branch to compare against (default: auto-detected, usually origin/main)' },
+          },
+        },
+      },
+      {
+        name: 'find_unused',
+        description: 'Find potentially unused symbols in the project. Detects dead code — functions, classes, and variables with no references.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            module: { type: 'string', description: 'Filter by module path (e.g., "src/services/")' },
+            export_only: { type: 'boolean', description: 'Only check exported (capitalized) symbols' },
+            limit: { type: 'number', description: 'Max results (default: 30)' },
           },
         },
       },
@@ -378,24 +383,12 @@ export async function createServer(projectRoot: string) {
           return usagesResult;
         }
 
-        case 'find_implementations': {
-          const implArgs = validateFindImplementationsArgs(args);
-          const implResult = await handleFindImplementations(implArgs, astIndex);
-          const implText = implResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'find_implementations', path: implArgs.name, tokensReturned: estimateTokens(implText), tokensWouldBe: estimateTokens(implText), timestamp: Date.now() });
-          return implResult;
+        case 'project_overview': {
+          const overviewResult = await handleProjectOverview(projectRoot, astIndex);
+          const overviewText = overviewResult.content[0]?.text ?? '';
+          overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
+          return overviewResult;
         }
-
-        case 'class_hierarchy': {
-          const hierArgs = validateClassHierarchyArgs(args);
-          const hierResult = await handleClassHierarchy(hierArgs, astIndex);
-          const hierText = hierResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'class_hierarchy', path: hierArgs.name, tokensReturned: estimateTokens(hierText), tokensWouldBe: estimateTokens(hierText), timestamp: Date.now() });
-          return hierResult;
-        }
-
-        case 'project_overview':
-          return await handleProjectOverview(projectRoot, astIndex);
 
         case 'export_ast_index':
           return await handleExportAstIndex(
@@ -403,13 +396,29 @@ export async function createServer(projectRoot: string) {
           );
 
         case 'session_analytics':
-          return { content: [{ type: 'text', text: analytics.report() }] };
+          return { content: [{ type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${analytics.report()}` }] };
 
         case 'context_status':
           return handleContextStatus(contextRegistry, args as { path?: string } | undefined);
 
         case 'forget':
           return handleForget(contextRegistry, fileCache, args as { path?: string; symbol?: string; all?: boolean } | undefined);
+
+        case 'changed_symbols': {
+          const changedArgs = validateChangedSymbolsArgs(args);
+          const changedResult = await handleChangedSymbols(changedArgs, astIndex);
+          const changedText = changedResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'changed_symbols', path: changedArgs.base ?? 'auto', tokensReturned: estimateTokens(changedText), tokensWouldBe: estimateTokens(changedText), timestamp: Date.now() });
+          return changedResult;
+        }
+
+        case 'find_unused': {
+          const unusedArgs = validateFindUnusedArgs(args);
+          const unusedResult = await handleFindUnused(unusedArgs, astIndex);
+          const unusedText = unusedResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: estimateTokens(unusedText), tokensWouldBe: estimateTokens(unusedText), timestamp: Date.now() });
+          return unusedResult;
+        }
 
         default:
           return {
