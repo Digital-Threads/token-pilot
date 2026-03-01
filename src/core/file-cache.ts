@@ -9,10 +9,16 @@ export class FileCache {
   private smallFileThreshold: number;
   private hits = 0;
   private misses = 0;
+  private onSetCallback: ((filePath: string) => void) | null = null;
 
   constructor(maxSizeMB = 100, smallFileThreshold = 80) {
     this.maxSizeBytes = maxSizeMB * 1024 * 1024;
     this.smallFileThreshold = smallFileThreshold;
+  }
+
+  /** Register a callback invoked whenever a file is cached (used by FileWatcher). */
+  onSet(callback: (filePath: string) => void): void {
+    this.onSetCallback = callback;
   }
 
   get(filePath: string): CacheEntry | null {
@@ -41,6 +47,7 @@ export class FileCache {
 
     this.cache.set(filePath, entry);
     this.currentSizeBytes += newSize;
+    this.onSetCallback?.(filePath);
   }
 
   async isSmallFile(filePath: string): Promise<boolean> {

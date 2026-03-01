@@ -84,10 +84,12 @@ export async function createServer(projectRoot: string) {
   }
 
   // File watcher (auto-invalidate cache on file changes)
+  // Watches only files that have been loaded — NOT the entire project root
   let fileWatcher: FileWatcher | null = null;
   if (config.cache.watchFiles) {
     fileWatcher = new FileWatcher(projectRoot, fileCache, contextRegistry, config.ignore);
     fileWatcher.start();
+    fileCache.onSet((filePath) => fileWatcher?.watchFile(filePath));
   }
 
   // Read version from package.json
