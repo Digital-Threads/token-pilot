@@ -322,46 +322,77 @@ export async function createServer(projectRoot: string) {
           return result;
         }
 
-        case 'read_symbol':
-          return await handleReadSymbol(
-            validateReadSymbolArgs(args), projectRoot, symbolResolver, fileCache, contextRegistry
-          );
+        case 'read_symbol': {
+          const symArgs = validateReadSymbolArgs(args);
+          const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry);
+          const symText = symResult.content[0]?.text ?? '';
+          const symTokens = estimateTokens(symText);
+          analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: symTokens * 3, timestamp: Date.now() });
+          return symResult;
+        }
 
-        case 'read_range':
-          return await handleReadRange(
-            validateReadRangeArgs(args), projectRoot, fileCache, contextRegistry
-          );
+        case 'read_range': {
+          const rangeArgs = validateReadRangeArgs(args);
+          const rangeResult = await handleReadRange(rangeArgs, projectRoot, fileCache, contextRegistry);
+          const rangeText = rangeResult.content[0]?.text ?? '';
+          const rangeTokens = estimateTokens(rangeText);
+          analytics.record({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: rangeTokens * 3, timestamp: Date.now() });
+          return rangeResult;
+        }
 
-        case 'read_diff':
-          return await handleReadDiff(
-            validateReadDiffArgs(args), projectRoot, fileCache, contextRegistry
-          );
+        case 'read_diff': {
+          const diffArgs = validateReadDiffArgs(args);
+          const diffResult = await handleReadDiff(diffArgs, projectRoot, fileCache, contextRegistry);
+          const diffText = diffResult.content[0]?.text ?? '';
+          const diffTokens = estimateTokens(diffText);
+          analytics.record({ tool: 'read_diff', path: diffArgs.path, tokensReturned: diffTokens, tokensWouldBe: diffTokens * 5, timestamp: Date.now() });
+          return diffResult;
+        }
 
-        case 'smart_read_many':
-          return await handleSmartReadMany(
-            validateSmartReadManyArgs(args), projectRoot, astIndex, fileCache, contextRegistry, config
-          );
+        case 'smart_read_many': {
+          const manyArgs = validateSmartReadManyArgs(args);
+          const manyResult = await handleSmartReadMany(manyArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
+          const manyText = manyResult.content[0]?.text ?? '';
+          const manyTokens = estimateTokens(manyText);
+          analytics.record({ tool: 'smart_read_many', path: manyArgs.paths.join(', '), tokensReturned: manyTokens, tokensWouldBe: manyTokens * 5, timestamp: Date.now() });
+          return manyResult;
+        }
 
         case 'search_code': {
-          const searchResult = await handleSearchCode(validateSearchCodeArgs(args), astIndex);
+          const searchArgs = validateSearchCodeArgs(args);
+          const searchResult = await handleSearchCode(searchArgs, astIndex);
+          let searchText = searchResult.content[0]?.text ?? '';
           if (contextModeStatus.detected && config.contextMode.adviseDelegation) {
-            const searchText = searchResult.content[0]?.text ?? '';
-            searchResult.content[0] = {
-              type: 'text',
-              text: searchText + '\nCROSS-INDEX: Pass these results to context-mode index(source: "token-pilot-search") for persistent BM25 search.',
-            };
+            searchText += '\nCROSS-INDEX: Pass these results to context-mode index(source: "token-pilot-search") for persistent BM25 search.';
+            searchResult.content[0] = { type: 'text', text: searchText };
           }
+          analytics.record({ tool: 'search_code', path: searchArgs.query, tokensReturned: estimateTokens(searchText), tokensWouldBe: estimateTokens(searchText), timestamp: Date.now() });
           return searchResult;
         }
 
-        case 'find_usages':
-          return await handleFindUsages(validateFindUsagesArgs(args), astIndex);
+        case 'find_usages': {
+          const usagesArgs = validateFindUsagesArgs(args);
+          const usagesResult = await handleFindUsages(usagesArgs, astIndex);
+          const usagesText = usagesResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: estimateTokens(usagesText), tokensWouldBe: estimateTokens(usagesText), timestamp: Date.now() });
+          return usagesResult;
+        }
 
-        case 'find_implementations':
-          return await handleFindImplementations(validateFindImplementationsArgs(args), astIndex);
+        case 'find_implementations': {
+          const implArgs = validateFindImplementationsArgs(args);
+          const implResult = await handleFindImplementations(implArgs, astIndex);
+          const implText = implResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'find_implementations', path: implArgs.name, tokensReturned: estimateTokens(implText), tokensWouldBe: estimateTokens(implText), timestamp: Date.now() });
+          return implResult;
+        }
 
-        case 'class_hierarchy':
-          return await handleClassHierarchy(validateClassHierarchyArgs(args), astIndex);
+        case 'class_hierarchy': {
+          const hierArgs = validateClassHierarchyArgs(args);
+          const hierResult = await handleClassHierarchy(hierArgs, astIndex);
+          const hierText = hierResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'class_hierarchy', path: hierArgs.name, tokensReturned: estimateTokens(hierText), tokensWouldBe: estimateTokens(hierText), timestamp: Date.now() });
+          return hierResult;
+        }
 
         case 'project_overview':
           return await handleProjectOverview(projectRoot, astIndex);

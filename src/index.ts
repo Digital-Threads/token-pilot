@@ -28,10 +28,6 @@ const args = process.argv.slice(2);
 
 switch (args[0]) {
   case 'hook-read':
-    if (!args[1]) {
-      console.error('Usage: token-pilot hook-read <file-path>');
-      process.exit(1);
-    }
     handleHookRead(args[1]);
     break;
 
@@ -91,7 +87,24 @@ async function startServer() {
   });
 }
 
-function handleHookRead(filePath: string) {
+function handleHookRead(filePathArg?: string) {
+  // Resolve file path: from CLI arg or from stdin (Claude Code hook format)
+  let filePath = filePathArg;
+
+  if (!filePath) {
+    try {
+      const stdin = readFileSync(0, 'utf-8');
+      const input = JSON.parse(stdin);
+      filePath = input?.tool_input?.file_path;
+    } catch {
+      process.exit(0);
+    }
+  }
+
+  if (!filePath) {
+    process.exit(0);
+  }
+
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
 
   if (!CODE_EXTENSIONS.has(ext)) {
@@ -110,7 +123,7 @@ function handleHookRead(filePath: string) {
 
   const suggestion = JSON.stringify({
     decision: "suggest",
-    message: `Consider using smart_read instead of Read for "${filePath}" — it returns a structural overview saving 80-95% tokens. Use read_symbol to load specific functions/methods.`,
+    message: `PREFER smart_read for "${filePath}" (${ext}, large file) — returns AST structural overview saving 80-95% tokens. Use read_symbol to load specific functions.`,
   });
 
   process.stdout.write(suggestion);

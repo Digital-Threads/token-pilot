@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-03-01
+
+### Fixed
+- PreToolUse hook: read file path from stdin (Claude Code hook format) instead of `$FILE_PATH` env var
+- Hook now auto-suggests `smart_read` for large code files when Claude tries to use `Read`
+- `session_analytics`: now tracks all tools (read_symbol, read_range, read_diff, smart_read_many, search_code, find_usages, find_implementations, class_hierarchy) — previously only tracked smart_read
+- Empty search/usages/implementations results now show diagnostic hints (ast-index status, fallback suggestions)
+- `ensureIndex()` now logs build progress and errors to stderr
+
 ## [0.1.4] - 2026-03-01
 
 ### Fixed

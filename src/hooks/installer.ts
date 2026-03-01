@@ -9,7 +9,7 @@ const HOOK_CONFIG = {
         hooks: [
           {
             type: "command" as const,
-            command: "token-pilot hook-read $FILE_PATH",
+            command: "token-pilot hook-read",
           },
         ],
       },

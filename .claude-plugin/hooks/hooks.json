@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-read $FILE_PATH"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-read"
           }
         ]
       }

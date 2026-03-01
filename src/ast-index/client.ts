@@ -64,14 +64,44 @@ export class AstIndexClient {
 
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
+
+    let needsRebuild = false;
     try {
-      // Try a quick command to see if index exists
-      await this.exec(['stats']);
-      this.indexed = true;
+      const stats = await this.exec(['stats']);
+      // Parse "Files:  N" from stats output
+      const filesMatch = stats.match(/Files:\s*(\d+)/);
+      const fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+
+      if (fileCount === 0) {
+        console.error('[token-pilot] ast-index: index exists but is empty — rebuilding...');
+        needsRebuild = true;
+      } else {
+        this.indexed = true;
+        console.error(`[token-pilot] ast-index: index ready (${fileCount} files)`);
+        return;
+      }
     } catch {
-      // No index — build it
-      await this.exec(['rebuild'], 60000); // 60s timeout for rebuild
-      this.indexed = true;
+      needsRebuild = true;
+    }
+
+    if (needsRebuild) {
+      console.error('[token-pilot] ast-index: building index (this may take a moment)...');
+      try {
+        await this.exec(['rebuild'], 60000);
+        this.indexed = true;
+        // Verify rebuild produced content
+        try {
+          const stats = await this.exec(['stats']);
+          const filesMatch = stats.match(/Files:\s*(\d+)/);
+          const fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+          console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
+        } catch {
+          console.error('[token-pilot] ast-index: index built (stats unavailable)');
+        }
+      } catch (buildErr) {
+        console.error(`[token-pilot] ast-index: rebuild failed — ${buildErr instanceof Error ? buildErr.message : buildErr}`);
+        throw buildErr;
+      }
     }
   }
 

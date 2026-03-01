@@ -11,12 +11,13 @@ export async function handleFindImplementations(
   const results = await astIndex.implementations(args.name);
 
   if (results.length === 0) {
-    return {
-      content: [{
-        type: 'text',
-        text: `No implementations found for "${args.name}".`,
-      }],
-    };
+    const hints = [`No implementations found for "${args.name}".`];
+    if (!astIndex.isAvailable()) {
+      hints.push('WARNING: ast-index is not available. Install it: cargo install ast-index');
+    } else {
+      hints.push('TIP: Index may not cover this language/project. Run `ast-index build` in the project root.');
+    }
+    return { content: [{ type: 'text', text: hints.join('\n') }] };
   }
 
   const lines: string[] = [
