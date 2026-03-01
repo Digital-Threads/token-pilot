@@ -5,6 +5,22 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-01
+
+### Fixed
+- ast-index integration: `outline` now parses text output (JSON format not supported in v3.24.0)
+- ast-index `symbol` response: handle array format, normalize field names (`line`→`start_line`, `path`→`file`)
+- ast-index `search` response: handle `{content_matches: [...]}` wrapper
+- ast-index `usages` response: map `context`→`text`, `path`→`file`
+- Server version now read dynamically from package.json
+
+### Added
+- `token-pilot doctor` — diagnostics command (checks ast-index, Node.js, config, updates)
+- `token-pilot --version` — print current version
+- Update check on server startup (non-blocking, logs to stderr)
+- `/mcp add` installation method documented for Claude Code chat
+- Troubleshooting section in README
+
 ## [0.1.1] - 2026-03-01
 
 ### Added

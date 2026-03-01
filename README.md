@@ -42,11 +42,22 @@ Settings → MCP Servers → Add:
 
 ### Claude Code
 
+From inside a Claude Code chat session:
+
+```
+/mcp add token-pilot -- npx -y token-pilot
+```
+
+Or from the terminal:
+
 ```bash
-# Global (all projects)
+# Current project only
 claude mcp add token-pilot -- npx -y token-pilot
 
-# Project-only (adds to .mcp.json in current directory)
+# All projects (global)
+claude mcp add --scope user token-pilot -- npx -y token-pilot
+
+# Shared via git (adds to .mcp.json)
 claude mcp add --scope project token-pilot -- npx -y token-pilot
 ```
 
@@ -132,6 +143,8 @@ token-pilot install-ast-index    # Download ast-index binary (auto on first run)
 token-pilot install-hook [root]  # Install PreToolUse hook
 token-pilot uninstall-hook       # Remove hook
 token-pilot hook-read <file>     # Hook handler (called by Claude Code)
+token-pilot doctor               # Run diagnostics (ast-index, config, updates)
+token-pilot --version            # Show version
 token-pilot --help               # Show help
 ```
 
@@ -211,6 +224,36 @@ Token Pilot supports all 23 languages that [ast-index](https://github.com/defend
 TypeScript, JavaScript, Python, Rust, Go, Java, Kotlin, Swift, C#, C++, C, PHP, Ruby, Scala, Dart, Lua, Shell/Bash, SQL, R, Vue, Svelte, Perl, Groovy
 
 Plus structural summaries for non-code files: JSON, YAML, Markdown, TOML, XML, CSV.
+
+## Troubleshooting
+
+### Verify installation
+
+```bash
+npx token-pilot --help          # Should print CLI help with 14 tools
+npx token-pilot --version       # Should print current version
+npx token-pilot doctor          # Run diagnostics (checks ast-index, config, etc.)
+```
+
+### Common issues
+
+| Problem | Fix |
+|---------|-----|
+| `smart_read` returns full file content (no savings) | ast-index not found. Run `npx token-pilot install-ast-index` |
+| `command not found: token-pilot` | Use `npx -y token-pilot` (npx downloads automatically) |
+| MCP server doesn't start in Claude Code | Check `claude mcp list` — server should be listed. Restart Claude Code after adding. |
+| ast-index binary not found | Run `npx token-pilot doctor` to diagnose. Try `npx token-pilot install-ast-index` to re-download. |
+
+### Updating
+
+`npx -y token-pilot` always fetches the latest version from npm. To force a clean update:
+
+```bash
+npx clear-npx-cache              # Clear npx cache
+npx -y token-pilot --version     # Verify new version
+```
+
+Token Pilot also checks for updates on startup and logs a notice to stderr if a newer version is available.
 
 ## Development
 

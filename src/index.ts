@@ -14,6 +14,16 @@ const CODE_EXTENSIONS = new Set([
   'ex', 'exs', 'groovy', 'm', 'proto', 'bsl',
 ]);
 
+function getVersion(): string {
+  try {
+    const pkgPath = new URL('../package.json', import.meta.url).pathname;
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
 const args = process.argv.slice(2);
 
 switch (args[0]) {
@@ -37,6 +47,16 @@ switch (args[0]) {
     handleInstallAstIndex();
     break;
 
+  case 'doctor':
+    handleDoctor();
+    break;
+
+  case '--version':
+  case '-v':
+    console.log(getVersion());
+    process.exit(0);
+    break;
+
   case '--help':
   case '-h':
     printHelp();
@@ -49,6 +69,13 @@ switch (args[0]) {
 
 async function startServer() {
   const projectRoot = args[0] || process.cwd();
+
+  // Non-blocking update check (logs to stderr, never blocks startup)
+  checkLatestVersion().then(latest => {
+    if (latest && latest !== getVersion()) {
+      console.error(`[token-pilot] Update available: ${getVersion()} → ${latest}. Run: npx token-pilot@latest`);
+    }
+  }).catch(() => { /* ignore */ });
 
   const server = await createServer(projectRoot);
   const transport = new StdioServerTransport();
@@ -119,8 +146,70 @@ async function handleInstallAstIndex() {
   }
 }
 
+async function handleDoctor() {
+  const version = getVersion();
+  console.log(`token-pilot v${version}\n`);
+
+  // Check Node.js version
+  const nodeVersion = process.version;
+  const nodeMajor = parseInt(nodeVersion.slice(1), 10);
+  console.log(`Node.js:      ${nodeVersion} ${nodeMajor >= 18 ? '✓' : '✗ (requires >=18)'}`);
+
+  // Check ast-index
+  const astStatus = await findBinary();
+  if (astStatus.available) {
+    console.log(`ast-index:    ${astStatus.version} ✓ (${astStatus.source}: ${astStatus.path})`);
+  } else {
+    console.log(`ast-index:    not found ✗`);
+    console.log(`              Run: npx token-pilot install-ast-index`);
+  }
+
+  // Check for updates
+  const latest = await checkLatestVersion();
+  if (latest) {
+    if (latest !== version) {
+      console.log(`npm version:  ${latest} (current: ${version} — update available!)`);
+      console.log(`              Run: npx clear-npx-cache && npx -y token-pilot@latest`);
+    } else {
+      console.log(`npm version:  ${latest} ✓ (up to date)`);
+    }
+  } else {
+    console.log(`npm version:  could not check (network error)`);
+  }
+
+  // Check config
+  const { existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const cwd = process.cwd();
+  const configPath = join(cwd, '.token-pilot.json');
+  console.log(`config:       ${existsSync(configPath) ? configPath + ' ✓' : 'default (no .token-pilot.json)'}`);
+
+  // Check git
+  const gitDir = join(cwd, '.git');
+  console.log(`git repo:     ${existsSync(gitDir) ? 'yes ✓' : 'no (read_diff/git features unavailable)'}`);
+
+  console.log('');
+  process.exit(0);
+}
+
+async function checkLatestVersion(): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch('https://registry.npmjs.org/token-pilot/latest', {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const data = await resp.json() as { version?: string };
+    return data.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function printHelp() {
-  console.log(`token-pilot — MCP server for token-efficient code reading
+  console.log(`token-pilot v${getVersion()} — MCP server for token-efficient code reading
 
 Usage:
   token-pilot [project-root]        Start MCP server (default: cwd)
@@ -128,6 +217,8 @@ Usage:
   token-pilot install-hook [root]   Install hook into .claude/settings.json
   token-pilot uninstall-hook [root] Remove hook from .claude/settings.json
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
+  token-pilot doctor                Run diagnostics (check ast-index, config, updates)
+  token-pilot --version             Show version
   token-pilot --help                Show this help
 
 MCP Tools (14):
