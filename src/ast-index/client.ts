@@ -6,8 +6,11 @@ import { readFile } from 'node:fs/promises';
 import type { FileStructure, SymbolInfo, SymbolKind, Visibility } from '../types.js';
 import type {
   AstIndexOutlineEntry,
+  AstIndexSymbolRaw,
   AstIndexSymbolDetail,
+  AstIndexSearchResponse,
   AstIndexSearchResult,
+  AstIndexUsageRaw,
   AstIndexUsageResult,
   AstIndexImplementation,
   AstIndexHierarchyNode,
@@ -75,11 +78,86 @@ export class AstIndexClient {
   async outline(filePath: string): Promise<FileStructure | null> {
     try {
       await this.ensureIndex();
-      const result = await this.exec(['outline', filePath, '--format', 'json']);
-      const entries: AstIndexOutlineEntry[] = JSON.parse(result);
+      const result = await this.exec(['outline', filePath]);
+      const entries = this.parseOutlineText(result);
+      if (entries.length === 0) return null;
       return await this.buildFileStructure(filePath, entries);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Parse text output from `ast-index outline`:
+   *   Outline of src/file.ts:
+   *     :10 ClassName [class]
+   *     :11 propName [property]
+   *     :14 methodName [function]
+   */
+  private parseOutlineText(text: string): AstIndexOutlineEntry[] {
+    const lines = text.split('\n');
+    const entries: AstIndexOutlineEntry[] = [];
+    const classStack: { entry: AstIndexOutlineEntry; indent: number }[] = [];
+
+    for (const line of lines) {
+      // Match: optional whitespace, :LINE_NUM, SYMBOL_NAME, [KIND]
+      const match = line.match(/^(\s*):(\d+)\s+(\S+)\s+\[(\w+)\]/);
+      if (!match) continue;
+
+      const indent = match[1].length;
+      const entry: AstIndexOutlineEntry = {
+        name: match[3],
+        kind: match[4],
+        start_line: parseInt(match[2], 10),
+        end_line: 0, // computed later
+      };
+
+      // Pop stack until we find a parent with less indent
+      while (classStack.length > 0 && classStack[classStack.length - 1].indent >= indent) {
+        classStack.pop();
+      }
+
+      if (classStack.length > 0) {
+        // This is a child of the top of stack
+        const parent = classStack[classStack.length - 1].entry;
+        if (!parent.children) parent.children = [];
+        parent.children.push(entry);
+      } else {
+        entries.push(entry);
+      }
+
+      // Push classes/interfaces onto stack as potential parents
+      if (['class', 'interface', 'struct', 'enum', 'impl', 'trait', 'namespace', 'module'].includes(entry.kind.toLowerCase())) {
+        classStack.push({ entry, indent });
+      }
+    }
+
+    // Compute end_line for all entries
+    this.computeEndLines(entries);
+
+    return entries;
+  }
+
+  /** Compute end_line from sequential start positions */
+  private computeEndLines(entries: AstIndexOutlineEntry[]): void {
+    for (let i = 0; i < entries.length; i++) {
+      // Children first (recursive)
+      if (entries[i].children?.length) {
+        this.computeEndLines(entries[i].children!);
+      }
+
+      if (i < entries.length - 1) {
+        // end = next sibling's start - 1
+        entries[i].end_line = entries[i + 1].start_line - 1;
+      } else {
+        // last entry: estimate based on children or use start + reasonable default
+        const children = entries[i].children;
+        if (children?.length) {
+          entries[i].end_line = children[children.length - 1].end_line + 1;
+        } else {
+          entries[i].end_line = entries[i].start_line + 10; // estimated
+        }
+      }
     }
   }
 
@@ -87,7 +165,16 @@ export class AstIndexClient {
     try {
       await this.ensureIndex();
       const result = await this.exec(['symbol', name, '--format', 'json']);
-      return JSON.parse(result);
+      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
+      if (!Array.isArray(raw) || raw.length === 0) return null;
+      const first = raw[0];
+      return {
+        name: first.name,
+        kind: first.kind,
+        file: first.path,
+        start_line: first.line,
+        signature: first.signature,
+      };
     } catch {
       return null;
     }
@@ -101,7 +188,15 @@ export class AstIndexClient {
     if (options?.fuzzy) args.push('--fuzzy');
     try {
       const result = await this.exec(args);
-      return JSON.parse(result);
+      const parsed = JSON.parse(result);
+      // ast-index returns { content_matches: [...] }
+      const matches = parsed.content_matches ?? parsed;
+      if (!Array.isArray(matches)) return [];
+      return matches.map((m: { content?: string; text?: string; line: number; path?: string; file?: string }) => ({
+        file: m.path ?? m.file ?? '',
+        line: m.line,
+        text: m.content ?? m.text ?? '',
+      }));
     } catch {
       return [];
     }
@@ -111,7 +206,14 @@ export class AstIndexClient {
     await this.ensureIndex();
     try {
       const result = await this.exec(['usages', symbolName, '--format', 'json']);
-      return JSON.parse(result);
+      const raw: AstIndexUsageRaw[] = JSON.parse(result);
+      if (!Array.isArray(raw)) return [];
+      return raw.map(u => ({
+        file: u.path,
+        line: u.line,
+        text: u.context,
+        kind: 'reference',
+      }));
     } catch {
       return [];
     }
@@ -167,6 +269,12 @@ export class AstIndexClient {
     const lines = content.split('\n');
     const fileStat = await stat(filePath);
 
+    // Fix last entry end_line to use actual file line count
+    this.fixLastEndLine(entries, lines.length);
+
+    // Enrich entries with signatures from file content
+    this.enrichSignatures(entries, lines);
+
     return {
       path: filePath,
       language: this.detectLanguage(filePath),
@@ -176,10 +284,36 @@ export class AstIndexClient {
         lastModified: fileStat.mtimeMs,
         contentHash: createHash('sha256').update(content).digest('hex'),
       },
-      imports: [], // TODO: extract from ast-index output if available
-      exports: [], // TODO: extract from ast-index output if available
+      imports: [],
+      exports: [],
       symbols: entries.map(e => this.mapOutlineEntry(e)),
     };
+  }
+
+  /** Fix the last entry's end_line to use actual file line count */
+  private fixLastEndLine(entries: AstIndexOutlineEntry[], totalLines: number): void {
+    if (entries.length === 0) return;
+    const last = entries[entries.length - 1];
+    last.end_line = totalLines;
+    // Recursively fix children
+    if (last.children?.length) {
+      this.fixLastEndLine(last.children, last.end_line - 1);
+    }
+  }
+
+  /** Read actual signature lines from file content */
+  private enrichSignatures(entries: AstIndexOutlineEntry[], lines: string[]): void {
+    for (const entry of entries) {
+      if (!entry.signature) {
+        const lineIdx = entry.start_line - 1;
+        if (lineIdx >= 0 && lineIdx < lines.length) {
+          entry.signature = lines[lineIdx].trim();
+        }
+      }
+      if (entry.children?.length) {
+        this.enrichSignatures(entry.children, lines);
+      }
+    }
   }
 
   private mapOutlineEntry(entry: AstIndexOutlineEntry): SymbolInfo {

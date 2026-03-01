@@ -36,13 +36,10 @@ describe('SymbolResolver', () => {
     const mockClient = {
       symbol: vi.fn().mockResolvedValue({
         name: 'myFunc',
-        qualified_name: 'myFunc',
         kind: 'function',
         file: '/test.ts',
         start_line: 5,
-        end_line: 15,
         signature: 'function myFunc()',
-        references: ['otherFunc'],
       }),
     } as unknown as AstIndexClient;
 
@@ -52,8 +49,7 @@ describe('SymbolResolver', () => {
     expect(result).not.toBeNull();
     expect(result!.symbol.name).toBe('myFunc');
     expect(result!.startLine).toBe(5);
-    expect(result!.endLine).toBe(15);
-    expect(result!.symbol.references).toContain('otherFunc');
+    expect(result!.symbol.signature).toBe('function myFunc()');
   });
 
   it('falls back to structure search when ast-index returns null', async () => {

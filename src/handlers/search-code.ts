@@ -32,8 +32,7 @@ export async function handleSearchCode(
   ];
 
   for (const r of results) {
-    const symbol = r.symbol ? ` [${r.symbol_kind ?? 'symbol'}: ${r.symbol}]` : '';
-    lines.push(`  ${r.file}:${r.line}${symbol}`);
+    lines.push(`  ${r.file}:${r.line}`);
     lines.push(`    ${r.text.trim()}`);
   }
 

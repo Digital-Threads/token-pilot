@@ -16,16 +16,23 @@ export class SymbolResolver {
     // Try ast-index first
     const detail = await this.astIndex.symbol(qualifiedName);
     if (detail) {
+      // ast-index only provides start_line; estimate end_line from structure
+      let endLine = detail.start_line + 10;
+      if (structure) {
+        const found = this.findInStructure(qualifiedName, structure.symbols);
+        if (found) endLine = found.location.endLine;
+      }
+
       return {
         symbol: {
           name: detail.name,
-          qualifiedName: detail.qualified_name,
+          qualifiedName: qualifiedName,
           kind: this.mapKind(detail.kind),
           signature: detail.signature ?? detail.name,
           location: {
             startLine: detail.start_line,
-            endLine: detail.end_line,
-            lineCount: detail.end_line - detail.start_line + 1,
+            endLine,
+            lineCount: endLine - detail.start_line + 1,
           },
           visibility: 'default',
           async: false,
@@ -33,11 +40,11 @@ export class SymbolResolver {
           decorators: [],
           children: [],
           doc: null,
-          references: detail.references ?? [],
+          references: [],
         },
         filePath: detail.file,
         startLine: detail.start_line,
-        endLine: detail.end_line,
+        endLine,
       };
     }
 
