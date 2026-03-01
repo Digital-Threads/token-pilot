@@ -10,6 +10,7 @@ import { SymbolResolver } from './core/symbol-resolver.js';
 import { SessionAnalytics } from './core/session-analytics.js';
 import { formatDuration } from './core/format-duration.js';
 import { loadConfig } from './config/loader.js';
+import { readFileSync } from 'node:fs';
 import { GitWatcher } from './git/watcher.js';
 import { FileWatcher } from './git/file-watcher.js';
 import { handleSmartRead } from './handlers/smart-read.js';
@@ -89,8 +90,16 @@ export async function createServer(projectRoot: string) {
     fileWatcher.start();
   }
 
+  // Read version from package.json
+  let pkgVersion = '0.1.1';
+  try {
+    const pkgPath = new URL('../package.json', import.meta.url).pathname;
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    pkgVersion = pkg.version;
+  } catch { /* fallback to hardcoded */ }
+
   const server = new Server(
-    { name: 'token-pilot', version: '0.1.0' },
+    { name: 'token-pilot', version: pkgVersion },
     { capabilities: { tools: {} } }
   );
 
