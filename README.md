@@ -15,17 +15,46 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
 
 **93% reduction** in this example. Files under 80 lines are returned in full automatically (no overhead for small files).
 
-## Quick Start
+## Installation
 
-### Option 1: MCP Server (any AI assistant)
+### npx — Any AI Assistant (Cursor, Cline, Continue, etc.)
+
+Zero install. Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
+
+```json
+{
+  "mcpServers": {
+    "token-pilot": {
+      "command": "npx",
+      "args": ["-y", "token-pilot"]
+    }
+  }
+}
+```
+
+**That's it.** npx downloads the package, ast-index binary is fetched automatically on first run. No Rust, no Cargo, no manual setup.
+
+#### Cursor
+
+Settings → MCP Servers → Add:
+- Command: `npx`
+- Args: `-y token-pilot`
+
+### Claude Code — Plugin (recommended)
 
 ```bash
-git clone <repo-url> token-pilot
+claude mcp add token-pilot -- npx -y token-pilot
+```
+
+This registers the MCP server + PreToolUse hook that auto-suggests `smart_read` for large files.
+
+### From Source
+
+```bash
+git clone https://github.com/Digital-Threads/token-pilot.git
 cd token-pilot
 npm install && npm run build
 ```
-
-Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
 
 ```json
 {
@@ -38,31 +67,24 @@ Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
 }
 ```
 
-**ast-index** is downloaded automatically on first run. No Rust or Cargo needed.
+### ast-index (auto-installed)
 
-### Option 2: Manual ast-index Install
-
-If auto-download doesn't work for your environment:
+ast-index is downloaded automatically on first run. If you prefer manual install:
 
 ```bash
 # Homebrew (macOS / Linux)
-brew tap defendend/ast-index
-brew install ast-index
+brew tap defendend/ast-index && brew install ast-index
 
-# Or download binary manually
+# Or via Token Pilot CLI
 npx token-pilot install-ast-index
-
-# Or build from source
-cargo install ast-index
 ```
 
-### PreToolUse Hook (optional, recommended)
+### PreToolUse Hook (optional)
 
-The hook intercepts `Read` calls for large code files and suggests `smart_read` instead:
+Intercepts `Read` calls for large code files and suggests `smart_read`:
 
 ```bash
 npx token-pilot install-hook            # Current project
-npx token-pilot install-hook /path/to   # Specific project
 npx token-pilot uninstall-hook          # Remove
 ```
 

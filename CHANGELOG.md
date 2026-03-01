@@ -5,6 +5,19 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-01
+
+### Added
+- `npx -y token-pilot` — zero-install for any MCP client (Cursor, Cline, Continue, etc.)
+- Claude Code plugin marketplace support (`.claude-plugin/marketplace.json`)
+- `start.sh` bootstrap script — auto `npm install` + `npm run build` on first run
+- `npm publish` ready (`files` field, `prepublishOnly` script)
+- Universal install instructions in README for Claude Code, Cursor, Cline
+
+### Changed
+- `.mcp.json` now uses `start.sh` for reliable bootstrap
+- README reorganized: npx as primary install, from-source as fallback
+
 ## [0.1.0] - 2026-03-01
 
 ### Added

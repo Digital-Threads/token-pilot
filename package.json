@@ -1,28 +1,48 @@
 {
   "name": "token-pilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that reduces token consumption in AI coding assistants via AST-aware lazy file reading",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "token-pilot": "dist/index.js"
   },
+  "files": [
+    "dist/",
+    "start.sh",
+    ".claude-plugin/",
+    ".mcp.json",
+    "skills/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
     "token",
     "ast",
     "claude",
+    "cursor",
     "ai",
-    "coding-assistant"
+    "coding-assistant",
+    "context-optimization"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Digital-Threads/token-pilot.git"
+  },
+  "homepage": "https://github.com/Digital-Threads/token-pilot#readme",
+  "bugs": {
+    "url": "https://github.com/Digital-Threads/token-pilot/issues"
+  },
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
