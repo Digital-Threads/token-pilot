@@ -40,13 +40,17 @@ Settings → MCP Servers → Add:
 - Command: `npx`
 - Args: `-y token-pilot`
 
-### Claude Code — Plugin (recommended)
+### Claude Code
 
 ```bash
+# Global (all projects)
 claude mcp add token-pilot -- npx -y token-pilot
+
+# Project-only (adds to .mcp.json in current directory)
+claude mcp add --scope project token-pilot -- npx -y token-pilot
 ```
 
-This registers the MCP server + PreToolUse hook that auto-suggests `smart_read` for large files.
+This registers the MCP server. The PreToolUse hook auto-suggests `smart_read` for large files.
 
 ### From Source
 
