@@ -29,6 +29,7 @@ import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
 import {
+  resolveSafePath,
   validateSmartReadArgs,
   validateReadSymbolArgs,
   validateReadRangeArgs,
@@ -258,6 +259,20 @@ export async function createServer(projectRoot: string) {
     ],
   }));
 
+  // Helper: get real full-file token count for honest analytics
+  async function fullFileTokens(relativePath: string): Promise<number> {
+    try {
+      const absPath = resolveSafePath(projectRoot, relativePath);
+      const cached = fileCache.get(absPath);
+      if (cached) return estimateTokens(cached.content);
+      const { readFile } = await import('node:fs/promises');
+      const content = await readFile(absPath, 'utf-8');
+      return estimateTokens(content);
+    } catch {
+      return 0;
+    }
+  }
+
   // Handle tool calls with validated arguments
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -283,7 +298,8 @@ export async function createServer(projectRoot: string) {
 
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const text = result.content[0]?.text ?? '';
-          analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: estimateTokens(text) * 5, timestamp: Date.now() });
+          const fullTokensSR = await fullFileTokens(validArgs.path);
+          analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: fullTokensSR || estimateTokens(text), timestamp: Date.now() });
           return result;
         }
 
@@ -292,7 +308,8 @@ export async function createServer(projectRoot: string) {
           const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
-          analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: symTokens * 3, timestamp: Date.now() });
+          const fullTokensSym = await fullFileTokens(symArgs.path);
+          analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: fullTokensSym || symTokens, timestamp: Date.now() });
           return symResult;
         }
 
@@ -301,7 +318,8 @@ export async function createServer(projectRoot: string) {
           const rangeResult = await handleReadRange(rangeArgs, projectRoot, fileCache, contextRegistry);
           const rangeText = rangeResult.content[0]?.text ?? '';
           const rangeTokens = estimateTokens(rangeText);
-          analytics.record({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: rangeTokens * 3, timestamp: Date.now() });
+          const fullTokensRange = await fullFileTokens(rangeArgs.path);
+          analytics.record({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: fullTokensRange || rangeTokens, timestamp: Date.now() });
           return rangeResult;
         }
 
@@ -310,7 +328,8 @@ export async function createServer(projectRoot: string) {
           const diffResult = await handleReadDiff(diffArgs, projectRoot, fileCache, contextRegistry);
           const diffText = diffResult.content[0]?.text ?? '';
           const diffTokens = estimateTokens(diffText);
-          analytics.record({ tool: 'read_diff', path: diffArgs.path, tokensReturned: diffTokens, tokensWouldBe: diffTokens * 5, timestamp: Date.now() });
+          const fullTokensDiff = await fullFileTokens(diffArgs.path);
+          analytics.record({ tool: 'read_diff', path: diffArgs.path, tokensReturned: diffTokens, tokensWouldBe: fullTokensDiff || diffTokens, timestamp: Date.now() });
           return diffResult;
         }
 
@@ -319,7 +338,8 @@ export async function createServer(projectRoot: string) {
           const editResult = await handleReadForEdit(editArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
           const editText = editResult.content[0]?.text ?? '';
           const editTokens = estimateTokens(editText);
-          analytics.record({ tool: 'read_for_edit', path: editArgs.path, tokensReturned: editTokens, tokensWouldBe: editTokens * 3, timestamp: Date.now() });
+          const fullTokensEdit = await fullFileTokens(editArgs.path);
+          analytics.record({ tool: 'read_for_edit', path: editArgs.path, tokensReturned: editTokens, tokensWouldBe: fullTokensEdit || editTokens, timestamp: Date.now() });
           return editResult;
         }
 
@@ -328,7 +348,9 @@ export async function createServer(projectRoot: string) {
           const manyResult = await handleSmartReadMany(manyArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const manyText = manyResult.content[0]?.text ?? '';
           const manyTokens = estimateTokens(manyText);
-          analytics.record({ tool: 'smart_read_many', path: manyArgs.paths.join(', '), tokensReturned: manyTokens, tokensWouldBe: manyTokens * 5, timestamp: Date.now() });
+          let fullTokensMany = 0;
+          for (const p of manyArgs.paths) { fullTokensMany += await fullFileTokens(p); }
+          analytics.record({ tool: 'smart_read_many', path: manyArgs.paths.join(', '), tokensReturned: manyTokens, tokensWouldBe: fullTokensMany || manyTokens, timestamp: Date.now() });
           return manyResult;
         }
 
@@ -351,7 +373,7 @@ export async function createServer(projectRoot: string) {
           const relArgs = validateRelatedFilesArgs(args);
           const relResult = await handleRelatedFiles(relArgs, projectRoot, astIndex);
           const relText = relResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: estimateTokens(relText), tokensWouldBe: estimateTokens(relText) * 5, timestamp: Date.now() });
+          analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: estimateTokens(relText), tokensWouldBe: estimateTokens(relText), timestamp: Date.now() });
           return relResult;
         }
 
@@ -359,7 +381,7 @@ export async function createServer(projectRoot: string) {
           const outlineArgs = validateOutlineArgs(args);
           const outlineResult = await handleOutline(outlineArgs, projectRoot, astIndex);
           const outlineText = outlineResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: estimateTokens(outlineText), tokensWouldBe: estimateTokens(outlineText) * 5, timestamp: Date.now() });
+          analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: estimateTokens(outlineText), tokensWouldBe: estimateTokens(outlineText), timestamp: Date.now() });
           return outlineResult;
         }
 

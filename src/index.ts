@@ -9,7 +9,7 @@ import { findBinary, installBinary } from './ast-index/binary-manager.js';
 
 const execFileAsync = promisify(execFile);
 
-const SMALL_FILE_THRESHOLD = 80;
+const SMALL_FILE_THRESHOLD = 200;
 
 const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',

@@ -5,10 +5,22 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-03-02
+
+### Removed
+- **Dead handler files** — deleted `changed-symbols.ts` (removed in v0.5.0) and `find-callers.ts` (removed in v0.4.0). Were never registered in server but lingered as dead code.
+
+## [0.6.1] - 2026-03-02
+
+### Changed
+- **`smallFileThreshold`** — raised from 80 to 200 lines. Benchmark showed medium files (100-300 lines) had negative savings (-25%) because AST outline was larger than the raw file. Files ≤200 lines now pass through as raw content.
+- **`smart_read` adaptive fallback** — after generating outline, compares token count vs raw file. If outline ≥ 90% of raw size, returns raw content instead. Eliminates negative savings on any file size, regardless of language or threshold.
+- **`session_analytics` honest metrics** — replaced all hardcoded multipliers (`*5`, `*3`) with real full-file token counts from file cache. `tokensWouldBe` now reflects actual file size, not fabricated numbers. Non-file tools (related_files, outline, find_usages) report 1:1 (no savings claim).
+
 ## [0.6.0] - 2026-03-02
 
 ### Changed
-- **Read hook** — upgraded from advisory (`decision: "suggest"`) to blocking (`permissionDecision: "deny"`) for unbounded Read calls on large code files (>80 lines). Bounded Read (with offset/limit) is still allowed. Uses official `hookSpecificOutput` format per Claude Code docs.
+- **Read hook** — upgraded from advisory (`decision: "suggest"`) to blocking (`permissionDecision: "deny"`) for unbounded Read calls on large code files (>200 lines). Bounded Read (with offset/limit) is still allowed. Uses official `hookSpecificOutput` format per Claude Code docs.
 - **`read_for_edit` output** — already includes exact `Read(path, offset, limit)` command that passes through the hook, giving AI a clear path: `read_for_edit` → bounded `Read` → `Edit`.
 
 ### Added

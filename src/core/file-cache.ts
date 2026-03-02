@@ -11,7 +11,7 @@ export class FileCache {
   private misses = 0;
   private onSetCallback: ((filePath: string) => void) | null = null;
 
-  constructor(maxSizeMB = 100, smallFileThreshold = 80) {
+  constructor(maxSizeMB = 100, smallFileThreshold = 200) {
     this.maxSizeBytes = maxSizeMB * 1024 * 1024;
     this.smallFileThreshold = smallFileThreshold;
   }

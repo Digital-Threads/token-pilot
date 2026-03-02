@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     watchFiles: true,
   },
   smartRead: {
-    smallFileThreshold: 80,
+    smallFileThreshold: 200,
     showDependencyHints: true,
     advisoryReminders: true,
   },

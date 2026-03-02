@@ -113,9 +113,28 @@ export async function handleSmartRead(
     maxDepth: args.depth ?? config.display.maxDepth,
   });
 
-  // 7. Add token savings
+  // 6b. Adaptive fallback: if outline is not significantly smaller than raw, return raw
   const structureTokens = estimateTokens(output);
   const fullTokens = estimateTokens(content);
+
+  if (structureTokens >= fullTokens * 0.9) {
+    contextRegistry.trackLoad(absPath, {
+      type: 'full',
+      startLine: 1,
+      endLine: lines.length,
+      tokens: fullTokens,
+    });
+    contextRegistry.setContentHash(absPath, cached.hash);
+
+    return {
+      content: [{
+        type: 'text',
+        text: `FILE: ${args.path} (${lines.length} lines — returned in full, outline not smaller)\n\n${content}`,
+      }],
+    };
+  }
+
+  // 7. Add token savings
   const savings = config.display.showTokenSavings
     ? '\n' + formatSavings(structureTokens, fullTokens)
     : '';
