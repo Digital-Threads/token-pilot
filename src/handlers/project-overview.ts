@@ -80,7 +80,7 @@ export async function handleProjectOverview(
     }
   }
 
-  lines.push('HINT: Use smart_read() on files, search_code() for symbols, find_usages() for references.');
+  lines.push('HINT: Use smart_read() on files, find_usages() for symbol references, outline() for directory overview.');
 
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }

@@ -18,11 +18,12 @@ describe('Hook Installer', () => {
   it('installs hook in fresh project (no .claude dir)', async () => {
     const result = await installHook(tempDir);
     expect(result.installed).toBe(true);
-    expect(result.message).toContain('Hook installed');
+    expect(result.message).toContain('Hooks installed');
 
     const settings = JSON.parse(await readFile(join(tempDir, '.claude', 'settings.json'), 'utf-8'));
-    expect(settings.hooks.PreToolUse).toHaveLength(1);
+    expect(settings.hooks.PreToolUse).toHaveLength(2);
     expect(settings.hooks.PreToolUse[0].matcher).toBe('Read');
+    expect(settings.hooks.PreToolUse[1].matcher).toBe('Edit');
   });
 
   it('installs hook alongside existing settings', async () => {
@@ -37,7 +38,7 @@ describe('Hook Installer', () => {
 
     const settings = JSON.parse(await readFile(join(tempDir, '.claude', 'settings.json'), 'utf-8'));
     expect(settings.someOtherSetting).toBe(true);
-    expect(settings.hooks.PreToolUse).toHaveLength(1);
+    expect(settings.hooks.PreToolUse).toHaveLength(2);
   });
 
   it('does not double-install', async () => {

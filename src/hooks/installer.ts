@@ -13,6 +13,15 @@ const HOOK_CONFIG = {
           },
         ],
       },
+      {
+        matcher: "Edit",
+        hooks: [
+          {
+            type: "command" as const,
+            command: "token-pilot hook-edit",
+          },
+        ],
+      },
     ],
   },
 };
@@ -38,20 +47,26 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
       // File doesn't exist or is invalid — start fresh
     }
 
-    // Check if hook already exists
+    // Check which Token Pilot hooks already exist
     const existingHooks = settings.hooks?.PreToolUse;
-    if (Array.isArray(existingHooks)) {
-      const hasTokenPilot = existingHooks.some((h: any) =>
-        h.matcher === 'Read' &&
-        h.hooks?.some((hook: any) => hook.command?.includes('token-pilot'))
-      );
+    const isTokenPilotHook = (h: any) =>
+      h.hooks?.some((hook: any) => hook.command?.includes('token-pilot'));
 
-      if (hasTokenPilot) {
-        return { installed: false, message: 'Token Pilot hook already installed.' };
+    if (Array.isArray(existingHooks)) {
+      const hasRead = existingHooks.some((h: any) => h.matcher === 'Read' && isTokenPilotHook(h));
+      const hasEdit = existingHooks.some((h: any) => h.matcher === 'Edit' && isTokenPilotHook(h));
+
+      if (hasRead && hasEdit) {
+        return { installed: false, message: 'Token Pilot hooks already installed.' };
       }
 
-      // Add to existing PreToolUse hooks
-      existingHooks.push(HOOK_CONFIG.hooks.PreToolUse[0]);
+      // Add missing hooks
+      for (const hookDef of HOOK_CONFIG.hooks.PreToolUse) {
+        const exists = existingHooks.some((h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h));
+        if (!exists) {
+          existingHooks.push(hookDef);
+        }
+      }
     } else {
       // Create hooks section
       if (!settings.hooks) settings.hooks = {};
@@ -62,7 +77,7 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
 
     return {
       installed: true,
-      message: `Hook installed at ${settingsPath}. Token Pilot will suggest smart_read for large code files.`,
+      message: `Hooks installed at ${settingsPath}. Token Pilot will block unbounded Read on large code files and suggest read_for_edit before Edit.`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -85,7 +100,7 @@ export async function uninstallHook(projectRoot: string): Promise<{ removed: boo
     }
 
     settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter((h: any) =>
-      !(h.matcher === 'Read' && h.hooks?.some((hook: any) => hook.command?.includes('token-pilot')))
+      !h.hooks?.some((hook: any) => hook.command?.includes('token-pilot'))
     );
 
     if (settings.hooks.PreToolUse.length === 0) {

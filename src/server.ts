@@ -8,7 +8,7 @@ import { FileCache } from './core/file-cache.js';
 import { ContextRegistry } from './core/context-registry.js';
 import { SymbolResolver } from './core/symbol-resolver.js';
 import { SessionAnalytics } from './core/session-analytics.js';
-import { formatDuration } from './core/format-duration.js';
+
 import { loadConfig } from './config/loader.js';
 import { readFileSync } from 'node:fs';
 import { GitWatcher } from './git/watcher.js';
@@ -17,14 +17,14 @@ import { handleSmartRead } from './handlers/smart-read.js';
 import { handleReadSymbol } from './handlers/read-symbol.js';
 import { handleReadRange } from './handlers/read-range.js';
 import { handleReadDiff } from './handlers/read-diff.js';
-import { handleSearchCode } from './handlers/search-code.js';
 import { handleFindUsages } from './handlers/find-usages.js';
 import { handleSmartReadMany } from './handlers/smart-read-many.js';
 import { handleProjectOverview } from './handlers/project-overview.js';
 import { handleNonCodeRead, isNonCodeStructured } from './handlers/non-code.js';
-import { handleExportAstIndex } from './handlers/export-ast-index.js';
-import { handleChangedSymbols } from './handlers/changed-symbols.js';
 import { handleFindUnused } from './handlers/find-unused.js';
+import { handleReadForEdit } from './handlers/read-for-edit.js';
+import { handleRelatedFiles } from './handlers/related-files.js';
+import { handleOutline } from './handlers/outline.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -33,11 +33,11 @@ import {
   validateReadSymbolArgs,
   validateReadRangeArgs,
   validateReadDiffArgs,
-  validateSearchCodeArgs,
   validateFindUsagesArgs,
   validateSmartReadManyArgs,
-  validateExportAstIndexArgs,
-  validateChangedSymbolsArgs,
+  validateReadForEditArgs,
+  validateRelatedFilesArgs,
+  validateOutlineArgs,
   validateFindUnusedArgs,
 } from './core/validation.js';
 
@@ -132,6 +132,7 @@ export async function createServer(projectRoot: string) {
             symbol: { type: 'string', description: 'Symbol name, e.g. "UserService.updateUser"' },
             context_before: { type: 'number', description: 'Lines of context before (default: 2)' },
             context_after: { type: 'number', description: 'Lines of context after (default: 0)' },
+            show: { type: 'string', enum: ['full', 'head', 'tail', 'outline'], description: 'Display mode: full (all lines), head (first 50), tail (last 30), outline (head + methods + tail). Default: auto (full ≤300 lines, outline >300)' },
           },
           required: ['path', 'symbol'],
         },
@@ -162,6 +163,20 @@ export async function createServer(projectRoot: string) {
         },
       },
       {
+        name: 'read_for_edit',
+        description: 'Get minimal code context for editing. Returns RAW source (no line numbers) around a symbol or line — copy directly as old_string for Edit tool. 97% fewer tokens than reading full file before editing.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: { type: 'string', description: 'File path' },
+            symbol: { type: 'string', description: 'Symbol name to edit (e.g. "UserService.updateUser")' },
+            line: { type: 'number', description: 'Line number to edit (alternative to symbol)' },
+            context: { type: 'number', description: 'Lines of context around target (default: 5)' },
+          },
+          required: ['path'],
+        },
+      },
+      {
         name: 'smart_read_many',
         description: 'Read multiple files at once. Returns AST structural overview for each file in one call. ALWAYS use instead of multiple Read calls. Max 20 files.',
         inputSchema: {
@@ -177,20 +192,6 @@ export async function createServer(projectRoot: string) {
         },
       },
       // --- Search & navigation ---
-      {
-        name: 'search_code',
-        description: 'AST-indexed code search. Finds functions, classes, variables by name. Use for symbol search; use Grep for exact text patterns.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            query: { type: 'string', description: 'Search query (symbol name, pattern)' },
-            in_file: { type: 'string', description: 'Filter results to a specific file path' },
-            max_results: { type: 'number', description: 'Max results (default: 20)' },
-            fuzzy: { type: 'boolean', description: 'Enable fuzzy matching (default: false)' },
-          },
-          required: ['query'],
-        },
-      },
       {
         name: 'find_usages',
         description: 'Find all usages of a symbol across the project. Use instead of Grep for symbol references. Groups by: definitions, imports, usages.',
@@ -210,31 +211,29 @@ export async function createServer(projectRoot: string) {
           properties: {},
         },
       },
-      // --- Integration ---
       {
-        name: 'export_ast_index',
-        description: 'Export AST structural data for cross-tool indexing. Outputs markdown or JSON that can be passed to context-mode\'s index() for BM25-searchable code structure. Use all_indexed=true to export all files from ast-index (not just cached ones).',
+        name: 'related_files',
+        description: 'Show import graph for a file: what it imports, what imports it, and its test files. Saves 3-5 Read calls when exploring module relationships.',
         inputSchema: {
           type: 'object' as const,
           properties: {
-            paths: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific file paths to export (default: all cached files, or all indexed files when all_indexed=true)',
-            },
-            format: {
-              type: 'string',
-              enum: ['markdown', 'json'],
-              description: 'Output format: "markdown" (default, best for BM25) or "json"',
-            },
-            all_indexed: {
-              type: 'boolean',
-              description: 'When true, exports all files from ast-index (not just cached). For large projects (>50 files), returns a file list with hint to filter by paths.',
-            },
+            path: { type: 'string', description: 'File path to analyze' },
           },
+          required: ['path'],
         },
       },
-      // --- Context management & analytics ---
+      {
+        name: 'outline',
+        description: 'Compact overview of all code files in a directory. One call instead of 5-6 smart_read calls. Shows classes, functions, methods, HTTP routes per file.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: { type: 'string', description: 'Directory path' },
+          },
+          required: ['path'],
+        },
+      },
+      // --- Analytics ---
       {
         name: 'session_analytics',
         description: 'Show token savings report for this session: total tokens saved, per-tool breakdown, top files by savings.',
@@ -243,39 +242,7 @@ export async function createServer(projectRoot: string) {
           properties: {},
         },
       },
-      {
-        name: 'context_status',
-        description: 'Show what files/symbols are currently tracked in context.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            path: { type: 'string', description: 'Show details for a specific file (optional)' },
-          },
-        },
-      },
-      {
-        name: 'forget',
-        description: 'Remove a file or symbol from context tracking.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            path: { type: 'string', description: 'File path to forget' },
-            symbol: { type: 'string', description: 'Specific symbol to forget' },
-            all: { type: 'boolean', description: 'Forget everything' },
-          },
-        },
-      },
-      // --- Advanced analysis ---
-      {
-        name: 'changed_symbols',
-        description: 'Show symbols that changed since a base branch (git diff). Shows added, modified, and removed functions/classes/methods.',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            base: { type: 'string', description: 'Base branch to compare against (default: auto-detected, usually origin/main)' },
-          },
-        },
-      },
+      // --- Analysis ---
       {
         name: 'find_unused',
         description: 'Find potentially unused symbols in the project. Detects dead code — functions, classes, and variables with no references.',
@@ -315,14 +282,7 @@ export async function createServer(projectRoot: string) {
           }
 
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
-          let text = result.content[0]?.text ?? '';
-
-          // Cross-index hint when context-mode is active
-          if (contextModeStatus.detected && config.contextMode.adviseDelegation) {
-            text += '\nCROSS-INDEX: Use export_ast_index to make this structure searchable via context-mode.';
-            result.content[0] = { type: 'text', text };
-          }
-
+          const text = result.content[0]?.text ?? '';
           analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: estimateTokens(text) * 5, timestamp: Date.now() });
           return result;
         }
@@ -354,6 +314,15 @@ export async function createServer(projectRoot: string) {
           return diffResult;
         }
 
+        case 'read_for_edit': {
+          const editArgs = validateReadForEditArgs(args);
+          const editResult = await handleReadForEdit(editArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
+          const editText = editResult.content[0]?.text ?? '';
+          const editTokens = estimateTokens(editText);
+          analytics.record({ tool: 'read_for_edit', path: editArgs.path, tokensReturned: editTokens, tokensWouldBe: editTokens * 3, timestamp: Date.now() });
+          return editResult;
+        }
+
         case 'smart_read_many': {
           const manyArgs = validateSmartReadManyArgs(args);
           const manyResult = await handleSmartReadMany(manyArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
@@ -361,18 +330,6 @@ export async function createServer(projectRoot: string) {
           const manyTokens = estimateTokens(manyText);
           analytics.record({ tool: 'smart_read_many', path: manyArgs.paths.join(', '), tokensReturned: manyTokens, tokensWouldBe: manyTokens * 5, timestamp: Date.now() });
           return manyResult;
-        }
-
-        case 'search_code': {
-          const searchArgs = validateSearchCodeArgs(args);
-          const searchResult = await handleSearchCode(searchArgs, astIndex);
-          let searchText = searchResult.content[0]?.text ?? '';
-          if (contextModeStatus.detected && config.contextMode.adviseDelegation) {
-            searchText += '\nCROSS-INDEX: Pass these results to context-mode index(source: "token-pilot-search") for persistent BM25 search.';
-            searchResult.content[0] = { type: 'text', text: searchText };
-          }
-          analytics.record({ tool: 'search_code', path: searchArgs.query, tokensReturned: estimateTokens(searchText), tokensWouldBe: estimateTokens(searchText), timestamp: Date.now() });
-          return searchResult;
         }
 
         case 'find_usages': {
@@ -390,27 +347,24 @@ export async function createServer(projectRoot: string) {
           return overviewResult;
         }
 
-        case 'export_ast_index':
-          return await handleExportAstIndex(
-            validateExportAstIndexArgs(args), astIndex, fileCache
-          );
+        case 'related_files': {
+          const relArgs = validateRelatedFilesArgs(args);
+          const relResult = await handleRelatedFiles(relArgs, projectRoot, astIndex);
+          const relText = relResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: estimateTokens(relText), tokensWouldBe: estimateTokens(relText) * 5, timestamp: Date.now() });
+          return relResult;
+        }
+
+        case 'outline': {
+          const outlineArgs = validateOutlineArgs(args);
+          const outlineResult = await handleOutline(outlineArgs, projectRoot, astIndex);
+          const outlineText = outlineResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: estimateTokens(outlineText), tokensWouldBe: estimateTokens(outlineText) * 5, timestamp: Date.now() });
+          return outlineResult;
+        }
 
         case 'session_analytics':
           return { content: [{ type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${analytics.report()}` }] };
-
-        case 'context_status':
-          return handleContextStatus(contextRegistry, args as { path?: string } | undefined);
-
-        case 'forget':
-          return handleForget(contextRegistry, fileCache, args as { path?: string; symbol?: string; all?: boolean } | undefined);
-
-        case 'changed_symbols': {
-          const changedArgs = validateChangedSymbolsArgs(args);
-          const changedResult = await handleChangedSymbols(changedArgs, astIndex);
-          const changedText = changedResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'changed_symbols', path: changedArgs.base ?? 'auto', tokensReturned: estimateTokens(changedText), tokensWouldBe: estimateTokens(changedText), timestamp: Date.now() });
-          return changedResult;
-        }
 
         case 'find_unused': {
           const unusedArgs = validateFindUnusedArgs(args);
@@ -436,56 +390,4 @@ export async function createServer(projectRoot: string) {
   });
 
   return server;
-}
-
-function handleContextStatus(
-  registry: ContextRegistry,
-  args?: { path?: string },
-): { content: Array<{ type: 'text'; text: string }> } {
-  const summary = registry.summary();
-
-  const lines: string[] = [
-    `CONTEXT STATUS (session: ${formatDuration(summary.sessionDuration)})`,
-    '',
-    `Files tracked: ${summary.files}`,
-    `Total tokens in context: ~${summary.totalTokens}`,
-    '',
-  ];
-
-  for (const entry of summary.entries) {
-    if (args?.path && !entry.path.includes(args.path)) continue;
-
-    lines.push(`  ${entry.path}:`);
-    for (const region of entry.loaded) {
-      const label = region.symbolName ?? region.type;
-      const elapsed = formatDuration(Date.now() - entry.loadedAt);
-      lines.push(`    - ${label} (${region.tokens} tokens) — loaded ${elapsed} ago`);
-    }
-    lines.push('');
-  }
-
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
-}
-
-function handleForget(
-  registry: ContextRegistry,
-  fileCache: FileCache,
-  args?: { path?: string; symbol?: string; all?: boolean },
-): { content: Array<{ type: 'text'; text: string }> } {
-  if (args?.all) {
-    registry.forgetAll();
-    fileCache.invalidate();
-    return { content: [{ type: 'text', text: 'Forgot all tracked content and cleared file cache.' }] };
-  }
-
-  if (args?.path) {
-    registry.forget(args.path, args.symbol);
-    if (!args.symbol) {
-      fileCache.invalidate(args.path);
-    }
-    const what = args.symbol ? `${args.symbol} from ${args.path}` : args.path;
-    return { content: [{ type: 'text', text: `Forgot: ${what}` }] };
-  }
-
-  return { content: [{ type: 'text', text: 'Specify path, symbol, or all=true.' }] };
 }

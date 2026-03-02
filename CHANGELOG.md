@@ -5,6 +5,59 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-02
+
+### Changed
+- **Read hook** — upgraded from advisory (`decision: "suggest"`) to blocking (`permissionDecision: "deny"`) for unbounded Read calls on large code files (>80 lines). Bounded Read (with offset/limit) is still allowed. Uses official `hookSpecificOutput` format per Claude Code docs.
+- **`read_for_edit` output** — already includes exact `Read(path, offset, limit)` command that passes through the hook, giving AI a clear path: `read_for_edit` → bounded `Read` → `Edit`.
+
+### Added
+- **Edit hook** — new PreToolUse hook matching Edit tool. Adds `additionalContext` suggesting `read_for_edit` for minimal code context. Doesn't block Edit — just provides a hint.
+- **Hook installer** — now installs and manages both Read and Edit hooks. Uninstall removes all Token Pilot hooks.
+
+## [0.5.3] - 2026-03-02
+
+### Changed
+- **`find_unused`** — completely rewritten with universal approach. Removed 60+ hardcoded framework-specific names. Now uses ast-index data: constructors filtered by name (`constructor`/`__init__`), Python dunder methods by `__*__` pattern, decorated symbols detected via `outline()` and shown separately with their decorators. No framework-specific knowledge.
+- **`formatFrameworkInfo`** (smart_read display) — removed hardcoded TypeORM (`Column`, `PrimaryGeneratedColumn`) and class-validator (`IsEmail`, `MinLength`) parsing. Now only detects standard HTTP verbs (GET/POST/PUT/DELETE/PATCH) which are protocol-level, not framework-specific. All other decorators shown as-is (`@DecoratorName`).
+- **`outline`** — route detection now universal. Instead of hardcoding `@Controller`, detects any class decorator with a path argument as route prefix. HTTP verb detection uses same universal pattern. Non-HTTP decorators shown as-is.
+
+## [0.5.2] - 2026-03-02
+
+### Fixed
+- **`project_overview`** — HINT no longer references deleted `search_code()`, now suggests `find_usages()` and `outline()`
+- **`related_files` imported_by** — now searches both `imports` AND `usages` from refs (not just imports), with increased limit (30). Cross-language filtering preserves same-family matches while removing false positives.
+- **`find_unused`** — excludes framework-implicit symbols (replaced by universal approach in 0.5.3)
+- **README** — updated handler file list (removed deleted handlers, added new ones)
+
+## [0.5.1] - 2026-03-02
+
+### Fixed
+- **`read_for_edit` symbol mode** — large symbols (>20 lines) now return only the first 20 lines instead of the entire method. Prevents returning 300+ lines when only a signature is needed for editing.
+- **`related_files` imported_by** — filter cross-language false positives. A TypeScript file no longer shows Python/Go/Rust files as importers. Refs are filtered by language family (JS/TS, Python, Go, JVM, etc.).
+- **`session_analytics`** — honest savings metric for `read_for_edit`. Reduced multiplier from 30x to 3x (realistic comparison vs `Read` with offset/limit, not vs full file).
+
+## [0.5.0] - 2026-03-02
+
+### Added
+- **`read_for_edit`** — killer feature for edit workflow. Returns RAW code (no line numbers) around a symbol or line, ready to copy as `old_string` for Edit. 97% fewer tokens than reading full file before editing.
+- **`related_files`** — import graph for any file: what it imports, what imports it, test files. Saves 3-5 Read calls per task.
+- **`outline`** — compact overview of all code files in a directory. One call instead of 5-6 smart_read calls. Framework-aware: shows HTTP routes for NestJS controllers.
+- **`read_symbol` show parameter** — `show: "full"|"head"|"tail"|"outline"` controls truncation. Default: auto (full ≤300 lines, outline >300).
+- **Framework-aware decorators** — smart_read/outline parse NestJS (`@Controller`+`@Get` → HTTP routes), TypeORM (`@Column` → types), class-validator (`@IsEmail` → constraints).
+
+### Removed
+- **`search_code`** — worse than Grep in practice, find_usages + Grep cover all use cases
+- **`export_ast_index`** — never used in real work, infrastructure tool only
+- **`context_status`** — debugging tool, not user-facing
+- **`forget`** — manual context management = poor design, should be automatic
+- **`changed_symbols`** — git diff + smart_read covers this use case
+
+### Changed
+- **12 focused tools** instead of 14 — removed 5 low-value, added 3 high-impact
+- Edit-heavy sessions: 5-10% → 40-50% token savings (via read_for_edit)
+- Average sessions: 20-25% → 45-55% token savings
+
 ## [0.4.1] - 2026-03-02
 
 ### Added

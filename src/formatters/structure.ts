@@ -71,25 +71,35 @@ function formatSymbolTree(
   maxDepth: number,
   showDocs: boolean,
   showDeps: boolean,
+  parentDecorators?: string[],
 ): void {
   const indent = '  '.repeat(depth);
   const asyncPrefix = sym.async ? 'async ' : '';
   const staticPrefix = sym.static ? 'static ' : '';
   const visPrefix = sym.visibility !== 'default' ? `${sym.visibility} ` : '';
 
-  // Decorators
-  for (const dec of sym.decorators) {
-    lines.push(`${indent}@${dec}`);
-  }
+  // Framework-aware: try to show HTTP route instead of raw decorators
+  const frameworkInfo = formatFrameworkInfo(sym.decorators, parentDecorators);
 
-  // Symbol line
-  const loc = `[L${sym.location.startLine}-${sym.location.endLine}]`;
-  const lineCount = `(${sym.location.lineCount} lines)`;
-
-  if (sym.kind === 'class' || sym.kind === 'interface' || sym.kind === 'enum') {
-    lines.push(`${indent}${sym.kind} ${sym.name}: ${loc} ${lineCount}`);
+  if (frameworkInfo) {
+    // Show framework info line (e.g. "GET /admin/users → getUsers()")
+    const loc = `[L${sym.location.startLine}-${sym.location.endLine}]`;
+    lines.push(`${indent}${frameworkInfo} ${loc}`);
   } else {
-    lines.push(`${indent}- ${visPrefix}${staticPrefix}${asyncPrefix}${sym.signature} ${loc} ${lineCount}`);
+    // Regular decorators
+    for (const dec of sym.decorators) {
+      lines.push(`${indent}@${dec}`);
+    }
+
+    // Symbol line
+    const loc = `[L${sym.location.startLine}-${sym.location.endLine}]`;
+    const lineCount = `(${sym.location.lineCount} lines)`;
+
+    if (sym.kind === 'class' || sym.kind === 'interface' || sym.kind === 'enum') {
+      lines.push(`${indent}${sym.kind} ${sym.name}: ${loc} ${lineCount}`);
+    } else {
+      lines.push(`${indent}- ${visPrefix}${staticPrefix}${asyncPrefix}${sym.signature} ${loc} ${lineCount}`);
+    }
   }
 
   // Dependency hints (references)
@@ -106,17 +116,65 @@ function formatSymbolTree(
     if (publicMethods.length > 0) {
       lines.push(`${indent}  Public Methods:`);
       for (const child of publicMethods) {
-        formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps);
+        formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps, sym.decorators);
       }
     }
 
     if (privateMethods.length > 0) {
       lines.push(`${indent}  Private Methods:`);
       for (const child of privateMethods) {
-        formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps);
+        formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps, sym.decorators);
       }
     }
   } else if (sym.children.length > 0) {
     lines.push(`${indent}  (${sym.children.length} members — increase depth to see)`);
   }
+}
+
+/**
+ * Detect HTTP route decorators and format as "METHOD /path".
+ * Uses standard HTTP verbs — not framework-specific.
+ * Works with any framework that uses @Get('/path'), @Post('/path') etc.
+ *
+ * For parent route prefix, looks for any decorator with pattern Name('/path')
+ * on the parent class (e.g. @Controller('/users'), @Router('/api'), @Blueprint('/v1')).
+ *
+ * Returns formatted route string, or null if no HTTP decorator found.
+ * Non-HTTP decorators are shown as-is by the caller (no framework hardcoding).
+ */
+function formatFrameworkInfo(decorators: string[], parentDecorators?: string[]): string | null {
+  if (!decorators || decorators.length === 0) return null;
+
+  // Standard HTTP verbs — these are protocol-level, not framework-specific
+  const HTTP_VERBS = ['Get', 'Post', 'Put', 'Delete', 'Patch', 'Head', 'Options', 'All'];
+  // Common suffixed forms: GetMapping (Spring), get_mapping, etc.
+  const HTTP_VERB_PATTERN = new RegExp(
+    `^(${HTTP_VERBS.join('|')})(?:Mapping)?\\((?:'([^']*)'|"([^"]*)")?\\)$`, 'i',
+  );
+
+  for (const dec of decorators) {
+    const match = dec.match(HTTP_VERB_PATTERN);
+    if (match) {
+      const verb = match[1].toUpperCase();
+      const route = match[2] ?? match[3] ?? '';
+
+      // Extract parent route prefix from any decorator with path pattern on parent
+      let parentRoute = '';
+      if (parentDecorators) {
+        for (const pd of parentDecorators) {
+          // Match: AnyName('/path') or AnyName("/path")
+          const pm = pd.match(/^\w+\((?:'([^']*)'|"([^"]*)")\)$/);
+          if (pm) {
+            parentRoute = pm[1] ?? pm[2] ?? '';
+            break;
+          }
+        }
+      }
+
+      const fullRoute = `${parentRoute}/${route}`.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+      return `${verb.padEnd(7)} ${fullRoute}`;
+    }
+  }
+
+  return null;
 }

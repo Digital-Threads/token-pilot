@@ -5,7 +5,6 @@ import {
   validateReadSymbolArgs,
   validateReadRangeArgs,
   validateReadDiffArgs,
-  validateSearchCodeArgs,
   validateFindUsagesArgs,
   validateSmartReadManyArgs,
 } from '../../src/core/validation.js';
@@ -96,24 +95,6 @@ describe('validateReadDiffArgs', () => {
   it('accepts optional context_lines', () => {
     const result = validateReadDiffArgs({ path: 'f.ts', context_lines: 5 });
     expect(result.context_lines).toBe(5);
-  });
-});
-
-describe('validateSearchCodeArgs', () => {
-  it('accepts valid args', () => {
-    const result = validateSearchCodeArgs({ query: 'handleRequest' });
-    expect(result.query).toBe('handleRequest');
-  });
-
-  it('accepts optional params', () => {
-    const result = validateSearchCodeArgs({ query: 'foo', in_file: 'bar.ts', max_results: 5, fuzzy: true });
-    expect(result.in_file).toBe('bar.ts');
-    expect(result.max_results).toBe(5);
-    expect(result.fuzzy).toBe(true);
-  });
-
-  it('throws on empty query', () => {
-    expect(() => validateSearchCodeArgs({ query: '' })).toThrow('non-empty');
   });
 });
 

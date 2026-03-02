@@ -119,29 +119,33 @@ You have Token Pilot MCP server connected. ALWAYS use it instead of default tool
 ## Reading files
 - ALWAYS use smart_read() instead of Read/cat for code files. It returns AST structure (classes, methods, signatures, line ranges) saving 80-99% tokens.
 - After smart_read, use read_symbol("path", "Class.method") to load only the specific function you need.
+- Before editing, use read_for_edit("path", symbol="method") to get minimal raw code for Edit's old_string. 97% savings vs full Read.
 - Use smart_read_many() instead of multiple Read calls when reading 2+ files.
 - After editing a file, use read_diff() instead of re-reading — shows only changed hunks.
 
-## Searching
-- Use find_usages() instead of Grep when looking for where a symbol is used — groups by definitions, imports, usages.
-- Use search_code() for finding functions/classes by name.
-- Use Grep only for exact text patterns (not symbol names).
+## Navigation
+- Use outline("src/modules/users/") to see all files in a directory at once — one call instead of 5-6 smart_read.
+- Use related_files("file.ts") to see import graph: what it imports, what imports it, test files.
+- Use find_usages() instead of Grep when looking for where a symbol is used.
 
 ## Workflow
 1. project_overview() — start here for unfamiliar projects
-2. smart_read("file.ts") — see structure of a file
-3. read_symbol("file.ts", "ClassName.methodName") — read specific code
-4. read_diff("file.ts") — after edits, see only changes
+2. outline("src/modules/users/") — overview of a module directory
+3. smart_read("file.ts") — see structure of a file
+4. read_symbol("file.ts", "ClassName.methodName") — read specific code
+5. read_for_edit("file.ts", symbol="methodName") — get raw code for editing
+6. read_diff("file.ts") — after edits, see only changes
 ```
 
-## MCP Tools (14)
+## MCP Tools (12)
 
 ### Core Reading
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures and line ranges. 80-99% savings. |
-| `read_symbol` | `Read` + scroll | Load source of a specific symbol (e.g., `UserService.updateUser`). Supports `Class.method`. |
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. 80-99% savings. Framework-aware: shows HTTP routes, column types, validation rules. |
+| `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
+| `read_for_edit` | `Read` before `Edit` | **NEW.** Minimal RAW code around a symbol — copy directly as `old_string` for Edit. 97% savings. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
 | `read_diff` | re-`Read` | Show only what changed since last smart_read. 80-95% savings on re-reads. |
 | `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files in one call. |
@@ -150,20 +154,17 @@ You have Token Pilot MCP server connected. ALWAYS use it instead of default tool
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `search_code` | `Grep` (symbols) | AST-indexed symbol search. Use for function/class names. |
 | `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. |
 | `project_overview` | `ls` + explore | Project type, architecture, frameworks, directory map. |
-| `changed_symbols` | `git diff` | Symbol-level git changes (added/modified/removed) vs base branch. |
+| `related_files` | manual explore | **NEW.** Import graph: what a file imports, what imports it, test files. |
+| `outline` | multiple `smart_read` | **NEW.** Compact overview of all code files in a directory. One call instead of 5-6. |
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 
-### Integration & Analytics
+### Analytics
 
 | Tool | Description |
 |------|-------------|
-| `export_ast_index` | Export AST data as markdown/JSON for cross-tool indexing. |
 | `session_analytics` | Token savings report: total saved, per-tool breakdown, top files. |
-| `context_status` | Show what files/symbols are tracked in context. |
-| `forget` | Remove a file or symbol from context tracking. |
 
 ## CLI Commands
 
@@ -327,13 +328,11 @@ src/
     read-range.ts       — read_range handler
     read-diff.ts        — read_diff handler (O(n) diff)
     smart-read-many.ts  — Batch smart_read
-    search-code.ts      — search_code handler
     find-usages.ts      — find_usages handler (via ast-index refs)
-    find-callers.ts     — find_callers handler
-    changed-symbols.ts  — changed_symbols handler
+    read-for-edit.ts    — read_for_edit handler (minimal edit context)
+    related-files.ts    — related_files handler (import graph)
+    outline.ts          — outline handler (directory overview)
     find-unused.ts      — find_unused handler
-    find-implementations.ts
-    class-hierarchy.ts
     project-overview.ts — project_overview (via ast-index map + conventions)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25

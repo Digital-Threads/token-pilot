@@ -11,6 +11,7 @@ export interface ReadSymbolArgs {
   symbol: string;
   context_before?: number;
   context_after?: number;
+  show?: 'full' | 'head' | 'tail' | 'outline';
 }
 
 export async function handleReadSymbol(
@@ -59,42 +60,69 @@ export async function handleReadSymbol(
   const loc = `[L${resolved.startLine}-${resolved.endLine}]`;
   const lineCount = resolved.endLine - resolved.startLine + 1;
 
-  // Mega-symbol protection: if symbol is too large, show outline + head/tail
+  // Show mode: control how large symbols are displayed
   const MAX_SYMBOL_LINES = 300;
+  const MAX_FULL_LINES = 500;
+  const HEAD = 50;
+  const TAIL = 30;
   let displaySource = source;
   let truncated = false;
 
-  if (lineCount > MAX_SYMBOL_LINES) {
-    const sourceLines = source.split('\n');
-    const HEAD = 50;
-    const TAIL = 30;
-    const head = sourceLines.slice(0, HEAD).join('\n');
-    const tail = sourceLines.slice(-TAIL).join('\n');
-    const omitted = sourceLines.length - HEAD - TAIL;
+  // Determine effective show mode
+  const showMode = args.show ?? (lineCount > MAX_SYMBOL_LINES ? 'outline' : 'full');
 
-    // Build method outline for the symbol if it has children
-    let methodOutline = '';
-    if (resolved.symbol.children && resolved.symbol.children.length > 0) {
-      const methodLines = resolved.symbol.children.map(c => {
-        const mLoc = `[L${c.location.startLine}-${c.location.endLine}]`;
-        return `  ${c.visibility === 'private' ? '🔒 ' : ''}${c.name}${c.kind === 'method' || c.kind === 'function' ? '()' : ''} ${mLoc} (${c.location.lineCount} lines)`;
-      });
-      methodOutline = `\nMETHODS (${resolved.symbol.children.length}):\n${methodLines.join('\n')}\n`;
+  if (showMode === 'full') {
+    if (lineCount > MAX_FULL_LINES) {
+      const sourceLines = source.split('\n');
+      displaySource = sourceLines.slice(0, MAX_FULL_LINES).join('\n');
+      displaySource += `\n\n    ... truncated at ${MAX_FULL_LINES} lines (${lineCount - MAX_FULL_LINES} more). Use show="head"/"tail" for targeted view.`;
+      truncated = true;
     }
+  } else if (showMode === 'head') {
+    const sourceLines = source.split('\n');
+    displaySource = sourceLines.slice(0, HEAD).join('\n');
+    if (lineCount > HEAD) {
+      displaySource += `\n\n    ... ${lineCount - HEAD} more lines. Use show="tail" or read_symbol("${args.path}", "MethodName") for specific parts.`;
+      truncated = true;
+    }
+  } else if (showMode === 'tail') {
+    const sourceLines = source.split('\n');
+    displaySource = sourceLines.slice(-TAIL).join('\n');
+    if (lineCount > TAIL) {
+      displaySource = `    ... ${lineCount - TAIL} lines above ...\n\n` + displaySource;
+      truncated = true;
+    }
+  } else {
+    // 'outline' mode: head + method list + tail
+    if (lineCount > HEAD + TAIL) {
+      const sourceLines = source.split('\n');
+      const head = sourceLines.slice(0, HEAD).join('\n');
+      const tail = sourceLines.slice(-TAIL).join('\n');
+      const omitted = sourceLines.length - HEAD - TAIL;
 
-    displaySource = [
-      head,
-      '',
-      `    ... ${omitted} lines omitted — use read_symbol("${args.path}", "MethodName") to read specific methods ...`,
-      methodOutline,
-      tail,
-    ].join('\n');
-    truncated = true;
+      let methodOutline = '';
+      if (resolved.symbol.children && resolved.symbol.children.length > 0) {
+        const methodLines = resolved.symbol.children.map(c => {
+          const mLoc = `[L${c.location.startLine}-${c.location.endLine}]`;
+          return `  ${c.visibility === 'private' ? '🔒 ' : ''}${c.name}${c.kind === 'method' || c.kind === 'function' ? '()' : ''} ${mLoc} (${c.location.lineCount} lines)`;
+        });
+        methodOutline = `\nMETHODS (${resolved.symbol.children.length}):\n${methodLines.join('\n')}\n`;
+      }
+
+      displaySource = [
+        head,
+        '',
+        `    ... ${omitted} lines omitted — use read_symbol("${args.path}", "MethodName") to read specific methods ...`,
+        methodOutline,
+        tail,
+      ].join('\n');
+      truncated = true;
+    }
   }
 
   const outputLines: string[] = [
     `FILE: ${args.path}`,
-    `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, showing first 50 + last 30` : ''})`,
+    `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ''})`,
     '',
     displaySource,
   ];

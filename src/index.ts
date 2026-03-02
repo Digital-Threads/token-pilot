@@ -35,6 +35,10 @@ switch (args[0]) {
     handleHookRead(args[1]);
     break;
 
+  case 'hook-edit':
+    handleHookEdit();
+    break;
+
   case 'install-hook':
     handleInstallHook(args[1] || process.cwd());
     break;
@@ -116,14 +120,18 @@ async function startServer() {
 }
 
 function handleHookRead(filePathArg?: string) {
-  // Resolve file path: from CLI arg or from stdin (Claude Code hook format)
+  // Parse stdin (Claude Code hook format) to get tool_input
   let filePath = filePathArg;
+  let hasOffset = false;
+  let hasLimit = false;
 
   if (!filePath) {
     try {
       const stdin = readFileSync(0, 'utf-8');
       const input = JSON.parse(stdin);
       filePath = input?.tool_input?.file_path;
+      hasOffset = input?.tool_input?.offset != null;
+      hasLimit = input?.tool_input?.limit != null;
     } catch {
       process.exit(0);
     }
@@ -135,13 +143,21 @@ function handleHookRead(filePathArg?: string) {
 
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
 
+  // Non-code files — allow Read without interference
   if (!CODE_EXTENSIONS.has(ext)) {
     process.exit(0);
   }
 
+  // Bounded Read (has offset or limit) — allow, AI is reading a specific section
+  if (hasOffset || hasLimit) {
+    process.exit(0);
+  }
+
+  // Check file size
+  let lineCount = 0;
   try {
     const content = readFileSync(filePath, 'utf-8');
-    const lineCount = content.split('\n').length;
+    lineCount = content.split('\n').length;
     if (lineCount <= SMALL_FILE_THRESHOLD) {
       process.exit(0);
     }
@@ -149,12 +165,53 @@ function handleHookRead(filePathArg?: string) {
     process.exit(0);
   }
 
-  const suggestion = JSON.stringify({
-    decision: "suggest",
-    message: `PREFER smart_read for "${filePath}" (${ext}, large file) — returns AST structural overview saving 80-95% tokens. Use read_symbol to load specific functions.`,
+  // Large code file, unbounded Read → DENY
+  // permissionDecisionReason is shown to Claude (not user) per official docs
+  const deny = JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: `File "${filePath}" has ${lineCount} lines. Use smart_read("${filePath}") for structural overview, or read_for_edit("${filePath}", symbol="<name>") for edit context. Bounded Read with offset/limit is still allowed.`,
+    },
   });
 
-  process.stdout.write(suggestion);
+  process.stdout.write(deny);
+  process.exit(0);
+}
+
+function handleHookEdit() {
+  // Parse stdin for Edit tool_input
+  let filePath: string | undefined;
+
+  try {
+    const stdin = readFileSync(0, 'utf-8');
+    const input = JSON.parse(stdin);
+    filePath = input?.tool_input?.file_path;
+  } catch {
+    process.exit(0);
+  }
+
+  if (!filePath) {
+    process.exit(0);
+  }
+
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+
+  // Only add context for code files
+  if (!CODE_EXTENSIONS.has(ext)) {
+    process.exit(0);
+  }
+
+  // Add additionalContext suggesting read_for_edit — doesn't block Edit
+  const context = JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      additionalContext: `TIP: Use read_for_edit("${filePath}", symbol="<name>") to get minimal raw code for Edit's old_string — 97% fewer tokens than Read.`,
+    },
+  });
+
+  process.stdout.write(context);
   process.exit(0);
 }
 
@@ -262,10 +319,10 @@ Usage:
   token-pilot --version             Show version
   token-pilot --help                Show this help
 
-MCP Tools (14):
-  smart_read, read_symbol, read_range, read_diff, smart_read_many,
-  search_code, find_usages, find_unused, changed_symbols,
-  project_overview, export_ast_index, session_analytics, context_status, forget
+MCP Tools (12):
+  smart_read, read_symbol, read_range, read_diff, smart_read_many, read_for_edit,
+  find_usages, find_unused, related_files, outline,
+  project_overview, session_analytics
 `);
   process.exit(0);
 }

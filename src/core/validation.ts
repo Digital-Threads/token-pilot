@@ -49,6 +49,7 @@ export function validateReadSymbolArgs(args: unknown): {
   symbol: string;
   context_before?: number;
   context_after?: number;
+  show?: 'full' | 'head' | 'tail' | 'outline';
 } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
@@ -60,11 +61,22 @@ export function validateReadSymbolArgs(args: unknown): {
   if (typeof a.symbol !== 'string' || a.symbol.length === 0) {
     throw new Error('Required parameter "symbol" must be a non-empty string.');
   }
+
+  let show: 'full' | 'head' | 'tail' | 'outline' | undefined;
+  if (a.show !== undefined && a.show !== null) {
+    const valid = ['full', 'head', 'tail', 'outline'];
+    if (typeof a.show !== 'string' || !valid.includes(a.show)) {
+      throw new Error('"show" must be one of: full, head, tail, outline.');
+    }
+    show = a.show as 'full' | 'head' | 'tail' | 'outline';
+  }
+
   return {
     path: a.path,
     symbol: a.symbol,
     context_before: optionalNumber(a.context_before, 'context_before'),
     context_after: optionalNumber(a.context_after, 'context_after'),
+    show,
   };
 }
 
@@ -116,30 +128,6 @@ export function validateReadDiffArgs(args: unknown): {
 }
 
 /**
- * Validate search_code arguments.
- */
-export function validateSearchCodeArgs(args: unknown): {
-  query: string;
-  in_file?: string;
-  max_results?: number;
-  fuzzy?: boolean;
-} {
-  if (!args || typeof args !== 'object') {
-    throw new Error('Arguments must be an object.');
-  }
-  const a = args as Record<string, unknown>;
-  if (typeof a.query !== 'string' || a.query.length === 0) {
-    throw new Error('Required parameter "query" must be a non-empty string.');
-  }
-  return {
-    query: a.query,
-    in_file: optionalString(a.in_file, 'in_file'),
-    max_results: optionalNumber(a.max_results, 'max_results'),
-    fuzzy: optionalBool(a.fuzzy, 'fuzzy'),
-  };
-}
-
-/**
  * Validate find_usages arguments.
  */
 export function validateFindUsagesArgs(args: unknown): { symbol: string } {
@@ -172,37 +160,6 @@ export function validateSmartReadManyArgs(args: unknown): { paths: string[] } {
   return { paths: a.paths as string[] };
 }
 
-export function validateExportAstIndexArgs(args: unknown): {
-  paths?: string[];
-  format?: 'markdown' | 'json';
-  all_indexed?: boolean;
-} {
-  if (!args || typeof args !== 'object') return {};
-  const a = args as Record<string, unknown>;
-
-  const result: { paths?: string[]; format?: 'markdown' | 'json'; all_indexed?: boolean } = {};
-
-  if (Array.isArray(a.paths)) {
-    for (const p of a.paths) {
-      if (typeof p !== 'string') throw new Error('Each path must be a string.');
-    }
-    result.paths = a.paths as string[];
-  }
-
-  if (a.format !== undefined) {
-    if (a.format !== 'markdown' && a.format !== 'json') {
-      throw new Error('"format" must be "markdown" or "json".');
-    }
-    result.format = a.format;
-  }
-
-  if (a.all_indexed !== undefined) {
-    result.all_indexed = Boolean(a.all_indexed);
-  }
-
-  return result;
-}
-
 function optionalString(val: unknown, name: string): string | undefined {
   if (val === undefined || val === null) return undefined;
   if (typeof val !== 'string') throw new Error(`"${name}" must be a string.`);
@@ -221,14 +178,59 @@ function optionalNumber(val: unknown, name: string): number | undefined {
   return val;
 }
 
-export function validateChangedSymbolsArgs(args: unknown): {
-  base?: string;
+/**
+ * Validate read_for_edit arguments.
+ */
+export function validateReadForEditArgs(args: unknown): {
+  path: string;
+  symbol?: string;
+  line?: number;
+  context?: number;
 } {
-  if (!args || typeof args !== 'object') return {};
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object.');
+  }
   const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+  if (!a.symbol && !a.line) {
+    throw new Error('Either "symbol" or "line" must be provided.');
+  }
   return {
-    base: optionalString(a.base, 'base'),
+    path: a.path,
+    symbol: optionalString(a.symbol, 'symbol'),
+    line: optionalNumber(a.line, 'line'),
+    context: optionalNumber(a.context, 'context'),
   };
+}
+
+/**
+ * Validate related_files arguments.
+ */
+export function validateRelatedFilesArgs(args: unknown): { path: string } {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+  return { path: a.path };
+}
+
+/**
+ * Validate outline arguments.
+ */
+export function validateOutlineArgs(args: unknown): { path: string } {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+  return { path: a.path };
 }
 
 export function validateFindUnusedArgs(args: unknown): {
