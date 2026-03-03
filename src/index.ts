@@ -9,7 +9,7 @@ import { findBinary, installBinary } from './ast-index/binary-manager.js';
 
 const execFileAsync = promisify(execFile);
 
-const SMALL_FILE_THRESHOLD = 200;
+const HOOK_DENY_THRESHOLD = 500;
 
 const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',
@@ -158,7 +158,7 @@ function handleHookRead(filePathArg?: string) {
   try {
     const content = readFileSync(filePath, 'utf-8');
     lineCount = content.split('\n').length;
-    if (lineCount <= SMALL_FILE_THRESHOLD) {
+    if (lineCount <= HOOK_DENY_THRESHOLD) {
       process.exit(0);
     }
   } catch {

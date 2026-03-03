@@ -5,6 +5,14 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-03-03
+
+### Changed
+- **Hook deny threshold** — raised from 200 to 500 lines. Files ≤500 lines pass through Read without denial roundtrip. Eliminates token overhead on medium files where hook denial costs more than outline saves.
+- **Adaptive fallback** — lowered from 90% to 70%. If outline ≥70% of raw file size, returns raw content. More aggressive at avoiding outlines that barely save tokens.
+- **Tool descriptions** — trimmed marketing language, percentages, and cross-references. ~250 fewer tokens in tool list per session.
+- **Outline cap** — top-level symbols capped at 40, class members at 30. Prevents outline explosion on files with 100+ methods.
+
 ## [0.6.2] - 2026-03-02
 
 ### Removed

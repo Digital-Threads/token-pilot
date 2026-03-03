@@ -108,10 +108,10 @@ export async function createServer(projectRoot: string) {
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [
-      // --- Core reading tools (USE INSTEAD OF Read/cat) ---
+      // --- Core reading tools ---
       {
         name: 'smart_read',
-        description: 'ALWAYS use instead of Read/cat for code files. Returns AST structural overview: classes, functions, methods with signatures and line ranges. Saves 80-99% tokens. After reading structure, use read_symbol() to load specific functions.',
+        description: 'Read code file structure: classes, functions, methods with signatures and line ranges. Use read_symbol() to load specific code.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -125,7 +125,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'read_symbol',
-        description: 'Read source code of a specific function/method/class. Use after smart_read() — loads only the code you need instead of the entire file. Supports Class.method syntax.',
+        description: 'Read source code of a specific function/method/class. Supports Class.method syntax.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -153,7 +153,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'read_diff',
-        description: 'After editing a file, use this instead of re-reading it. Shows only changed hunks since last smart_read. Saves 80-95% tokens on re-reads.',
+        description: 'Show changed hunks since last smart_read. Use after editing a file.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -165,7 +165,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'read_for_edit',
-        description: 'Get minimal code context for editing. Returns RAW source (no line numbers) around a symbol or line — copy directly as old_string for Edit tool. 97% fewer tokens than reading full file before editing.',
+        description: 'Get raw code around a symbol or line for editing. Copy directly as old_string for Edit tool.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -179,7 +179,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'smart_read_many',
-        description: 'Read multiple files at once. Returns AST structural overview for each file in one call. ALWAYS use instead of multiple Read calls. Max 20 files.',
+        description: 'Read multiple files at once. Returns structure for each file. Max 20 files.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -214,7 +214,7 @@ export async function createServer(projectRoot: string) {
       },
       {
         name: 'related_files',
-        description: 'Show import graph for a file: what it imports, what imports it, and its test files. Saves 3-5 Read calls when exploring module relationships.',
+        description: 'Show import graph: what a file imports, what imports it, and test files.',
         inputSchema: {
           type: 'object' as const,
           properties: {

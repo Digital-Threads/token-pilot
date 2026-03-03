@@ -52,10 +52,16 @@ export function formatOutline(structure: FileStructure, options: FormatOptions =
     lines.push('');
   }
 
-  // Structure
+  // Structure (cap at 40 top-level symbols to prevent outline explosion)
+  const MAX_OUTLINE_SYMBOLS = 40;
   lines.push('STRUCTURE:');
-  for (const sym of structure.symbols) {
+  const symbolsCapped = structure.symbols.length > MAX_OUTLINE_SYMBOLS;
+  const displayedSymbols = symbolsCapped ? structure.symbols.slice(0, MAX_OUTLINE_SYMBOLS) : structure.symbols;
+  for (const sym of displayedSymbols) {
     formatSymbolTree(sym, lines, 1, maxDepth, showDocs, showDependencyHints);
+  }
+  if (symbolsCapped) {
+    lines.push(`  ... and ${structure.symbols.length - MAX_OUTLINE_SYMBOLS} more symbols (use read_symbol for details)`);
   }
 
   lines.push('');
@@ -107,7 +113,8 @@ function formatSymbolTree(
     lines.push(`${indent}    calls: ${sym.references.join(', ')}`);
   }
 
-  // Children
+  // Children (cap at 30 per group to prevent explosion on large classes)
+  const MAX_CHILDREN = 30;
   if (depth < maxDepth && sym.children.length > 0) {
     // Group by visibility
     const publicMethods = sym.children.filter(c => c.visibility === 'public' || c.visibility === 'default');
@@ -115,15 +122,23 @@ function formatSymbolTree(
 
     if (publicMethods.length > 0) {
       lines.push(`${indent}  Public Methods:`);
-      for (const child of publicMethods) {
+      const pubDisplay = publicMethods.slice(0, MAX_CHILDREN);
+      for (const child of pubDisplay) {
         formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps, sym.decorators);
+      }
+      if (publicMethods.length > MAX_CHILDREN) {
+        lines.push(`${indent}    ... and ${publicMethods.length - MAX_CHILDREN} more public methods`);
       }
     }
 
     if (privateMethods.length > 0) {
       lines.push(`${indent}  Private Methods:`);
-      for (const child of privateMethods) {
+      const privDisplay = privateMethods.slice(0, MAX_CHILDREN);
+      for (const child of privDisplay) {
         formatSymbolTree(child, lines, depth + 2, maxDepth, showDocs, showDeps, sym.decorators);
+      }
+      if (privateMethods.length > MAX_CHILDREN) {
+        lines.push(`${indent}    ... and ${privateMethods.length - MAX_CHILDREN} more private methods`);
       }
     }
   } else if (sym.children.length > 0) {

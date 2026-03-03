@@ -117,7 +117,7 @@ export async function handleSmartRead(
   const structureTokens = estimateTokens(output);
   const fullTokens = estimateTokens(content);
 
-  if (structureTokens >= fullTokens * 0.9) {
+  if (structureTokens >= fullTokens * 0.7) {
     contextRegistry.trackLoad(absPath, {
       type: 'full',
       startLine: 1,
