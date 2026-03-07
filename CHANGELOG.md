@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-08
+
+### Added
+- **ast-grep auto-install** — `@ast-grep/cli` added as optional dependency. `code_audit(check="pattern")` now works out-of-the-box without manual `brew install ast-grep`.
+- **MCP instructions: security audit guidance** — instructions now recommend Grep for security patterns (password, token, secret, credential) and `find_unused` for dead code detection.
+
+### Changed
+- **ast-index stats → JSON parsing** — `--format json` for reliable file count extraction instead of regex on text output.
+
 ## [0.8.0] - 2026-03-07
 
 ### Added

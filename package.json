@@ -1,7 +1,7 @@
 {
   "name": "token-pilot",
-  "version": "0.8.0",
-  "description": "MCP server that reduces token consumption in AI coding assistants via AST-aware lazy file reading",
+  "version": "0.8.1",
+  "description": "Save 60-80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -28,18 +28,24 @@
     "prepublishOnly": "npm run build && chmod +x dist/index.js"
   },
   "keywords": [
-    "mcp",
-    "token",
-    "ast",
-    "claude",
-    "cursor",
-    "codex",
-    "cline",
-    "ai",
-    "coding-assistant",
+    "token-savings",
+    "token-reduction",
+    "context-window",
+    "save-tokens",
+    "reduce-tokens",
+    "token-efficient",
+    "token-economy",
     "context-optimization",
+    "fewer-tokens",
+    "mcp",
+    "mcp-server",
     "model-context-protocol",
-    "token-savings"
+    "ast",
+    "code-reading",
+    "code-navigation",
+    "smart-read",
+    "ai-coding",
+    "llm-tools"
   ],
   "repository": {
     "type": "git",
@@ -69,5 +75,8 @@
     "ast-index": {
       "optional": true
     }
+  },
+  "optionalDependencies": {
+    "@ast-grep/cli": "^0.41.0"
   }
 }

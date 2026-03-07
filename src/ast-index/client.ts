@@ -115,9 +115,8 @@ export class AstIndexClient {
     // Check if index already exists and has files
     let existingFileCount = 0;
     try {
-      const stats = await this.exec(['stats']);
-      const filesMatch = stats.match(/Files:\s*(\d+)/);
-      existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+      const stats = await this.exec(['--format', 'json', 'stats']);
+      existingFileCount = this.parseFileCount(stats);
     } catch { /* no index yet */ }
 
     // Guard: existing index is oversized (node_modules leak from previous build)
@@ -135,9 +134,7 @@ export class AstIndexClient {
         await this.exec(['update'], 30000);
         // Re-check count after update
         try {
-          const statsText = await this.exec(['stats']);
-          const filesMatch = statsText.match(/Files:\s*(\d+)/);
-          existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : existingFileCount;
+          existingFileCount = this.parseFileCount(await this.exec(['--format', 'json', 'stats']));
         } catch { /* keep previous count */ }
 
         // Guard: update may have grown index beyond limit
@@ -158,7 +155,7 @@ export class AstIndexClient {
     try {
       await this.exec(['rebuild'], 120000);
 
-      const fileCount = this.parseFileCount(await this.exec(['stats']).catch(() => ''));
+      const fileCount = this.parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
 
       // Guard: rebuild produced oversized index
       if (fileCount > AstIndexClient.MAX_INDEX_FILES) {
@@ -171,7 +168,7 @@ export class AstIndexClient {
       // If rebuild failed due to lock, check if index is usable anyway
       const errMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
       if (errMsg.includes('lock') || errMsg.includes('already running')) {
-        const count = this.parseFileCount(await this.exec(['stats']).catch(() => ''));
+        const count = this.parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
         if (count > 0 && count <= AstIndexClient.MAX_INDEX_FILES) {
           this.indexed = true;
           console.error(`[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`);
@@ -200,8 +197,14 @@ export class AstIndexClient {
     );
   }
 
-  /** Extract file count from stats output */
+  /** Extract file count from stats output (JSON or text) */
   private parseFileCount(statsText: string): number {
+    // Try JSON first (--format json)
+    try {
+      const json = JSON.parse(statsText);
+      if (json?.stats?.file_count !== undefined) return json.stats.file_count;
+    } catch { /* not JSON, fall through */ }
+    // Fallback: text format
     const match = statsText.match(/Files:\s*(\d+)/);
     return match ? parseInt(match[1], 10) : 0;
   }
