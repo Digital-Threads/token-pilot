@@ -5,6 +5,24 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-03-07
+
+### Fixed
+- **CRITICAL: Hook installer** — malformed `settings.json` no longer silently destroyed. Distinguishes ENOENT (create fresh) from JSON parse error (abort with message). Uninstall also reports specific errors.
+- **CRITICAL: Server startup** — `startServer()` now has `.catch()` handler. Unhandled promise rejections no longer crash the process silently.
+- **Non-code handler** — removed `.xml` and `.csv` from `isNonCodeStructured` (no handler existed for them, fell through to null).
+- **Symbol resolver** — removed dangerous basename-only fallback in `pathMatches` (`index.ts` no longer matches any `index.ts`). Fixed hardcoded `endLine = start_line + 10` → uses `end_line` from ast-index or 50-line fallback.
+- **Config loader** — added prototype pollution guard (`__proto__`, `constructor`, `prototype` keys skipped in deepMerge). Parse errors now logged instead of silently swallowed.
+- **File cache** — size tracking now uses `Buffer.byteLength()` instead of `string.length` (chars ≠ bytes for non-ASCII). Removed dead `isSmallFile()` method.
+- **Validation** — `optionalNumber` now rejects `NaN` and `Infinity`.
+- **Token estimation** — `smart_read_many` now uses `estimateTokens()` instead of `length/4`.
+- **Analytics** — `project_overview` calls now tracked in session analytics.
+- **read_for_edit** — raised `MAX_EDIT_LINES` from 20 to 60 (20 was too aggressive, truncated most functions).
+- **related_files** — raised symbol search limit from 5 to 10 for reverse import detection.
+
+### Removed
+- Dead config options `cache.ttlMinutes` and `context.autoForgetMinutes` (declared but never used).
+
 ## [0.6.3] - 2026-03-03
 
 ### Changed

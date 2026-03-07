@@ -62,7 +62,7 @@ export class SymbolResolver {
     // 2. Try ast-index with full qualified name
     const detail = await this.astIndex.symbol(qualifiedName);
     if (detail && (!filePath || this.pathMatches(detail.file, filePath))) {
-      let endLine = detail.start_line + 10;
+      let endLine = (detail as any).end_line ?? detail.start_line + 50;
       if (structure) {
         const found = this.findInStructure(qualifiedName, structure.symbols);
         if (found) endLine = found.location.endLine;
@@ -101,7 +101,7 @@ export class SymbolResolver {
       const leafName = parts[parts.length - 1];
       const leafDetail = await this.astIndex.symbol(leafName);
       if (leafDetail && (!filePath || this.pathMatches(leafDetail.file, filePath))) {
-        let endLine = leafDetail.start_line + 10;
+        let endLine = (leafDetail as any).end_line ?? leafDetail.start_line + 50;
         return {
           symbol: {
             name: leafDetail.name,
@@ -210,13 +210,10 @@ export class SymbolResolver {
    * Handles absolute vs relative paths.
    */
   private pathMatches(a: string, b: string): boolean {
-    // Exact match
     if (a === b) return true;
-    // One ends with the other (relative vs absolute)
+    // One ends with the other (relative vs absolute), require path separator
+    if (a.endsWith('/' + b) || b.endsWith('/' + a)) return true;
     if (a.endsWith(b) || b.endsWith(a)) return true;
-    // Compare basenames as last resort
-    const baseA = a.split('/').pop();
-    const baseB = b.split('/').pop();
-    return baseA === baseB;
+    return false;
   }
 }

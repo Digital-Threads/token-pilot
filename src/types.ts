@@ -96,7 +96,6 @@ export interface TokenPilotConfig {
   };
   cache: {
     maxSizeMB: number;
-    ttlMinutes: number;
     watchFiles: boolean;
   };
   smartRead: {
@@ -116,7 +115,6 @@ export interface TokenPilotConfig {
   context: {
     estimateTokens: boolean;
     warnOnStale: boolean;
-    autoForgetMinutes: number;
   };
   display: {
     showImports: boolean;

@@ -3,6 +3,7 @@ import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import type { TokenPilotConfig } from '../types.js';
 import { handleSmartRead } from './smart-read.js';
+import { estimateTokens } from '../core/token-estimator.js';
 
 export interface SmartReadManyArgs {
   paths: string[];
@@ -44,8 +45,7 @@ export async function handleSmartReadMany(
       );
       const text = result.content[0]?.text ?? '';
       results.push(text);
-      // Rough count from output length
-      totalTokens += Math.ceil(text.length / 4);
+      totalTokens += estimateTokens(text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.push(`FILE: ${path}\nERROR: ${msg}`);

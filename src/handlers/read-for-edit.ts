@@ -59,16 +59,14 @@ export async function handleReadForEdit(
     }
 
     const symbolLines = resolved.endLine - resolved.startLine + 1;
-    const MAX_EDIT_LINES = 20;
+    const MAX_EDIT_LINES = 60;
 
     startLine = resolved.startLine;
 
     if (symbolLines <= MAX_EDIT_LINES) {
-      // Small symbol — return it all
       endLine = resolved.endLine;
       targetLabel = `${args.symbol} [L${startLine}-${endLine}] (${symbolLines} lines, full)`;
     } else {
-      // Large symbol — return only signature + first lines (enough for old_string)
       endLine = startLine + MAX_EDIT_LINES - 1;
       targetLabel = `${args.symbol} [L${startLine}-${resolved.endLine}] (showing first ${MAX_EDIT_LINES} of ${symbolLines} lines)`;
     }

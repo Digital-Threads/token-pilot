@@ -10,7 +10,7 @@ import type { ContextModeStatus } from '../integration/context-mode-detector.js'
  */
 export function isNonCodeStructured(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase();
-  return ['.json', '.yaml', '.yml', '.md', '.markdown', '.toml', '.xml', '.csv'].includes(ext);
+  return ['.json', '.yaml', '.yml', '.md', '.markdown', '.toml'].includes(ext);
 }
 
 export interface NonCodeOptions {

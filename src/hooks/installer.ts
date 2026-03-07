@@ -42,9 +42,17 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
     // Try to read existing settings
     try {
       const raw = await readFile(settingsPath, 'utf-8');
-      settings = JSON.parse(raw);
-    } catch {
-      // File doesn't exist or is invalid — start fresh
+      try {
+        settings = JSON.parse(raw);
+      } catch {
+        // File exists but has invalid JSON — don't destroy it
+        return { installed: false, message: `Settings file exists but contains invalid JSON: ${settingsPath}. Fix it manually before installing hooks.` };
+      }
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') {
+        return { installed: false, message: `Cannot read settings: ${err?.message ?? err}` };
+      }
+      // ENOENT — file doesn't exist, start fresh
     }
 
     // Check which Token Pilot hooks already exist
@@ -113,7 +121,10 @@ export async function uninstallHook(projectRoot: string): Promise<{ removed: boo
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
     return { removed: true, message: 'Token Pilot hook removed.' };
-  } catch {
-    return { removed: false, message: 'Settings file not found or invalid.' };
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') {
+      return { removed: false, message: 'Settings file not found.' };
+    }
+    return { removed: false, message: `Failed to process settings: ${err?.message ?? err}` };
   }
 }

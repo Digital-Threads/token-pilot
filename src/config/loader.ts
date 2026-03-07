@@ -10,7 +10,10 @@ export async function loadConfig(projectRoot: string): Promise<TokenPilotConfig>
     const raw = await readFile(configPath, 'utf-8');
     const userConfig = JSON.parse(raw);
     return deepMerge(structuredClone(DEFAULT_CONFIG), userConfig) as TokenPilotConfig;
-  } catch {
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') {
+      console.error(`[token-pilot] Invalid config at ${configPath}: ${err?.message ?? err}. Using defaults.`);
+    }
     return structuredClone(DEFAULT_CONFIG);
   }
 }
@@ -19,6 +22,7 @@ function deepMerge(target: Record<string, any>, source: Record<string, any>): Re
   const result = { ...target };
 
   for (const key of Object.keys(source)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     if (
       source[key] &&
       typeof source[key] === 'object' &&

@@ -265,8 +265,8 @@ export async function createServer(projectRoot: string) {
       const absPath = resolveSafePath(projectRoot, relativePath);
       const cached = fileCache.get(absPath);
       if (cached) return estimateTokens(cached.content);
-      const { readFile } = await import('node:fs/promises');
-      const content = await readFile(absPath, 'utf-8');
+      const { readFile: readFileAsync } = await import('node:fs/promises');
+      const content = await readFileAsync(absPath, 'utf-8');
       return estimateTokens(content);
     } catch {
       return 0;
@@ -366,6 +366,8 @@ export async function createServer(projectRoot: string) {
           const overviewResult = await handleProjectOverview(projectRoot, astIndex);
           const overviewText = overviewResult.content[0]?.text ?? '';
           overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
+          const ovTokens = estimateTokens(overviewResult.content[0].text);
+          analytics.record({ tool: 'project_overview', path: projectRoot, tokensReturned: ovTokens, tokensWouldBe: ovTokens, timestamp: Date.now() });
           return overviewResult;
         }
 

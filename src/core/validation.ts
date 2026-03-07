@@ -174,7 +174,7 @@ function optionalBool(val: unknown, name: string): boolean | undefined {
 
 function optionalNumber(val: unknown, name: string): number | undefined {
   if (val === undefined || val === null) return undefined;
-  if (typeof val !== 'number') throw new Error(`"${name}" must be a number.`);
+  if (typeof val !== 'number' || !Number.isFinite(val)) throw new Error(`"${name}" must be a finite number.`);
   return val;
 }
 

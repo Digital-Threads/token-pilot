@@ -8,7 +8,6 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
   },
   cache: {
     maxSizeMB: 100,
-    ttlMinutes: 30,
     watchFiles: true,
   },
   smartRead: {
@@ -28,7 +27,6 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
   context: {
     estimateTokens: true,
     warnOnStale: true,
-    autoForgetMinutes: 60,
   },
   display: {
     showImports: true,

@@ -57,7 +57,9 @@ export class ContextRegistry {
 
   isStale(path: string, currentHash: string): boolean {
     const entry = this.entries.get(path);
-    if (!entry || !entry.contentHash) return true;
+    if (!entry) return true;
+    // Empty hash means setContentHash was never called — treat as stale
+    if (!entry.contentHash) return true;
     return entry.contentHash !== currentHash;
   }
 

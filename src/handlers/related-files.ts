@@ -77,7 +77,7 @@ export async function handleRelatedFiles(
     if (structure) {
       for (const sym of structure.symbols) {
         exportNames.push(sym.name);
-        if (exportNames.length >= 5) break;
+        if (exportNames.length >= 10) break;
       }
     }
 

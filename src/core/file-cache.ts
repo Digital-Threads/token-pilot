@@ -33,8 +33,8 @@ export class FileCache {
   }
 
   set(filePath: string, entry: CacheEntry): void {
-    const existingSize = this.cache.get(filePath)?.content.length ?? 0;
-    const newSize = entry.content.length;
+    const existingSize = Buffer.byteLength(this.cache.get(filePath)?.content ?? '');
+    const newSize = Buffer.byteLength(entry.content);
 
     // Evict LRU if needed
     while (this.currentSizeBytes - existingSize + newSize > this.maxSizeBytes && this.cache.size > 0) {
@@ -48,15 +48,6 @@ export class FileCache {
     this.cache.set(filePath, entry);
     this.currentSizeBytes += newSize;
     this.onSetCallback?.(filePath);
-  }
-
-  async isSmallFile(filePath: string): Promise<boolean> {
-    try {
-      const content = await readFile(filePath, 'utf-8');
-      return content.split('\n').length <= this.smallFileThreshold;
-    } catch {
-      return false;
-    }
   }
 
   async isStale(filePath: string): Promise<boolean> {
@@ -78,7 +69,7 @@ export class FileCache {
     if (filePath) {
       const entry = this.cache.get(filePath);
       if (entry) {
-        this.currentSizeBytes -= entry.content.length;
+        this.currentSizeBytes -= Buffer.byteLength(entry.content);
         this.cache.delete(filePath);
       }
     } else {
