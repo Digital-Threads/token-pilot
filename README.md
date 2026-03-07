@@ -107,6 +107,10 @@ brew tap defendend/ast-index && brew install ast-index
 npx token-pilot install-ast-index
 ```
 
+### ast-grep (bundled)
+
+[ast-grep](https://ast-grep.github.io/) (`sg`) is included as optional dependency for structural code pattern search via `code_audit(check="pattern")`. Installs automatically with `npm i -g token-pilot`.
+
 ### PreToolUse Hook (Claude Code only)
 
 Optional hook that intercepts `Read` calls for large code files (>500 lines) and suggests `smart_read`. Claude Code only.
