@@ -27,6 +27,17 @@ export async function handleSmartRead(
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
 
+  // 0. Guard: directory passed instead of file
+  const fileStat0 = await stat(absPath).catch(() => null);
+  if (fileStat0?.isDirectory()) {
+    return {
+      content: [{
+        type: 'text',
+        text: `"${args.path}" is a directory. Use outline("${args.path}") for directory overview, or smart_read a specific file inside it.`,
+      }],
+    };
+  }
+
   // 1. Read file content
   const content = await readFile(absPath, 'utf-8');
   const lines = content.split('\n');

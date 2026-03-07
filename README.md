@@ -25,6 +25,8 @@ One command creates `.mcp.json` with token-pilot + context-mode:
 npx -y token-pilot init
 ```
 
+Safe to run in any project — if `.mcp.json` already exists, only adds missing servers without overwriting existing config.
+
 This generates:
 
 ```json
@@ -143,7 +145,7 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (12)
+## MCP Tools (13)
 
 ### Core Reading
 
@@ -165,6 +167,7 @@ For more control, you can add rules to your project:
 | `related_files` | manual explore | Import graph: what a file imports, what imports it, test files. |
 | `outline` | multiple `smart_read` | Compact overview of all code files in a directory. One call instead of 5-6. |
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
+| `code_audit` | multiple `Grep` | Code quality issues in one call: TODO/FIXME comments, deprecated symbols, structural code patterns (via ast-grep), decorator search. |
 
 ### Analytics
 
@@ -177,6 +180,7 @@ For more control, you can add rules to your project:
 ```bash
 token-pilot                      # Start MCP server (uses cwd as project root)
 token-pilot /path/to/project     # Start with specific project root
+token-pilot init [dir]           # Create/update .mcp.json (token-pilot + context-mode)
 token-pilot install-ast-index    # Download ast-index binary (auto on first run)
 token-pilot install-hook [root]  # Install PreToolUse hook
 token-pilot uninstall-hook       # Remove hook
@@ -193,7 +197,7 @@ Create `.token-pilot.json` in your project root to customize behavior:
 ```json
 {
   "smartRead": {
-    "smallFileThreshold": 80,
+    "smallFileThreshold": 200,
     "advisoryReminders": true
   },
   "cache": {
@@ -251,7 +255,6 @@ When both are configured, Token Pilot automatically:
 - Detects context-mode via `.mcp.json`
 - Suggests context-mode for large non-code files
 - Shows combined architecture info in `session_analytics`
-- Provides `export_ast_index` to feed AST data into context-mode's BM25 index
 
 **Combined savings: 60-80%** in a typical coding session.
 
@@ -339,6 +342,7 @@ src/
     related-files.ts    — related_files handler (import graph)
     outline.ts          — outline handler (directory overview)
     find-unused.ts      — find_unused handler
+    code-audit.ts       — code_audit handler (TODOs, deprecated, patterns)
     project-overview.ts — project_overview (via ast-index map + conventions)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25

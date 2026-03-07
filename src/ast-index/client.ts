@@ -23,6 +23,10 @@ import type {
   AstIndexChangedEntry,
   AstIndexUnusedSymbol,
   AstIndexImportEntry,
+  AstIndexAgrepMatch,
+  AstIndexTodoEntry,
+  AstIndexDeprecatedEntry,
+  AstIndexAnnotationEntry,
 } from './types.js';
 import { findBinary, installBinary } from './binary-manager.js';
 
@@ -40,6 +44,7 @@ export class AstIndexClient {
   private timeout: number;
   private configBinaryPath: string | null;
   private autoInstall: boolean;
+  private astGrepAvailable: boolean | null = null;
 
   constructor(projectRoot: string, timeout = 5000, options?: { binaryPath?: string | null; autoInstall?: boolean }) {
     this.projectRoot = projectRoot;
@@ -658,6 +663,175 @@ export class AstIndexClient {
     }
     return entries;
   }
+
+  // --- Code audit commands ---
+
+  /** Check if ast-grep (sg) is available for structural pattern search */
+  private async checkAstGrep(): Promise<boolean> {
+    if (this.astGrepAvailable !== null) return this.astGrepAvailable;
+    try {
+      await execFileAsync('sg', ['--version'], { timeout: 3000 });
+      this.astGrepAvailable = true;
+    } catch {
+      this.astGrepAvailable = false;
+    }
+    return this.astGrepAvailable;
+  }
+
+  /** Structural pattern search via ast-grep. Requires ast-grep (sg) installed. */
+  async agrep(pattern: string, options?: { lang?: string; limit?: number }): Promise<AstIndexAgrepMatch[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    const available = await this.checkAstGrep();
+    if (!available) {
+      throw new Error(
+        'ast-grep (sg) not installed — required for structural pattern search.\n' +
+        'Install: brew install ast-grep  OR  npm i -g @ast-grep/cli\n' +
+        'Alternative: use Grep/ripgrep for text-based pattern search.',
+      );
+    }
+
+    const limit = options?.limit ?? 50;
+    const args = ['agrep', pattern];
+    if (options?.lang) args.push('--lang', options.lang);
+    args.push('--limit', String(limit));
+
+    try {
+      const result = await this.exec(args, 15000);
+      return this.parseAgrepText(result).slice(0, limit);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index agrep failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  private parseAgrepText(text: string): AstIndexAgrepMatch[] {
+    const results: AstIndexAgrepMatch[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Format: file:line:matched_text  OR  file:line: matched_text
+      const match = line.match(/^(.+?):(\d+):(.*)$/);
+      if (match) {
+        results.push({
+          file: match[1],
+          line: parseInt(match[2], 10),
+          text: match[3].trim(),
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Find TODO/FIXME/HACK comments in the project */
+  async todo(): Promise<AstIndexTodoEntry[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['todo'], 15000);
+      return this.parseTodoText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index todo failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  private parseTodoText(text: string): AstIndexTodoEntry[] {
+    const results: AstIndexTodoEntry[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try format: file:line: KIND: message  OR  file:line: KIND message
+      const match = line.match(/^(.+?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
+      if (match) {
+        results.push({
+          file: match[1],
+          line: parseInt(match[2], 10),
+          kind: match[3].toUpperCase(),
+          text: match[4].trim(),
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Find @Deprecated symbols in the project */
+  async deprecated(): Promise<AstIndexDeprecatedEntry[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['deprecated'], 15000);
+      return this.parseDeprecatedText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index deprecated failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  private parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
+    const results: AstIndexDeprecatedEntry[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try format: kind name (file:line) - message  OR  kind name (file:line)
+      const match = line.match(/^(\w+)\s+(\S+)\s+\((.+?):(\d+)\)(?:\s*-\s*(.+))?$/);
+      if (match) {
+        results.push({
+          kind: match[1],
+          name: match[2],
+          file: match[3],
+          line: parseInt(match[4], 10),
+          message: match[5]?.trim(),
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Find symbols with a specific annotation/decorator */
+  async annotations(name: string): Promise<AstIndexAnnotationEntry[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['annotations', name], 15000);
+      return this.parseAnnotationsText(result, name);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index annotations failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  private parseAnnotationsText(text: string, annotationName: string): AstIndexAnnotationEntry[] {
+    const results: AstIndexAnnotationEntry[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try format: kind name (file:line)  OR  @Annotation kind name (file:line)
+      const match = line.match(/^(?:@\S+\s+)?(\w+)\s+(\S+)\s+\((.+?):(\d+)\)$/);
+      if (match) {
+        results.push({
+          kind: match[1],
+          name: match[2],
+          file: match[3],
+          line: parseInt(match[4], 10),
+          annotation: annotationName,
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Trigger incremental index update (called by file watcher after edits) */
+  async incrementalUpdate(): Promise<void> {
+    if (!this.indexed || this.indexDisabled || this.indexOversized) return;
+    try {
+      await this.exec(['update'], 15000);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index incremental update failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // --- Utility methods ---
 
   isAvailable(): boolean {
     return this.binaryPath !== null;

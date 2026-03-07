@@ -31,6 +31,7 @@ import { handleFindUnused } from './handlers/find-unused.js';
 import { handleReadForEdit } from './handlers/read-for-edit.js';
 import { handleRelatedFiles } from './handlers/related-files.js';
 import { handleOutline } from './handlers/outline.js';
+import { handleCodeAudit } from './handlers/code-audit.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -46,6 +47,7 @@ import {
   validateRelatedFilesArgs,
   validateOutlineArgs,
   validateFindUnusedArgs,
+  validateCodeAuditArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
@@ -178,7 +180,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   // Watches only files that have been loaded — NOT the entire project root
   let fileWatcher: FileWatcher | null = null;
   if (config.cache.watchFiles) {
-    fileWatcher = new FileWatcher(projectRoot, fileCache, contextRegistry, config.ignore);
+    fileWatcher = new FileWatcher(projectRoot, fileCache, contextRegistry, config.ignore, astIndex);
     fileWatcher.start();
     fileCache.onSet((filePath) => fileWatcher?.watchFile(filePath));
   }
@@ -209,12 +211,21 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• New codebase → project_overview first',
         '• Reading file again → smart_read (returns compact reminder, not full content)',
         '• Multiple files → smart_read_many (batch, max 20)',
+        '• Code quality audit → code_audit (TODOs, deprecated, structural code patterns)',
         '',
         'WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):',
         '• Small files (≤200 lines) → smart_read returns full content anyway, same as Read',
-        '• Regex/pattern search (e.g. TODO.*fix) → use Grep/ripgrep, NOT find_usages',
+        '• Regex text search (e.g. TODO.*fix) → use Grep/ripgrep',
+        '• Counting occurrences (e.g. how many `any` types?) → use Grep count mode',
+        '• Finding code duplication → use Grep to search for repeated patterns',
         '• Non-code files (JSON, YAML, Markdown, configs) → smart_read handles these but default Read works too',
         '• You need exact raw content for copy-paste → use Read',
+        '',
+        'COMBINE BOTH for audits and code review:',
+        '• Structure/navigation → Token Pilot (project_overview, outline, smart_read)',
+        '• Code issues → code_audit (TODOs, deprecated, structural patterns like bare except:)',
+        '• Text pattern search/counting → Grep (regex, count mode)',
+        '• Deep dive into specific code → read_symbol (after finding issues)',
         '',
         'WORKFLOW: project_overview → smart_read → read_symbol → read_for_edit → edit → read_diff',
       ].join('\n'),
@@ -371,6 +382,25 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           },
         },
       },
+      {
+        name: 'code_audit',
+        description: 'Find code quality issues: TODO/FIXME comments, deprecated symbols, structural code patterns (bare except:, print() calls). Use for project-wide audits.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            check: {
+              type: 'string',
+              enum: ['pattern', 'todo', 'deprecated', 'annotations', 'all'],
+              description: 'What to check: "pattern" (structural search via ast-grep, e.g. "except:", "print($$$ARGS)"), "todo" (TODO/FIXME comments), "deprecated" (deprecated symbols), "annotations" (find by decorator name), "all" (todo + deprecated summary)',
+            },
+            pattern: { type: 'string', description: 'Code pattern for check="pattern". ast-grep syntax: "except:" finds bare excepts, "print($$$ARGS)" finds print calls.' },
+            name: { type: 'string', description: 'Decorator/annotation name for check="annotations". Example: "Deprecated", "Controller"' },
+            lang: { type: 'string', description: 'Language filter for check="pattern" (e.g., "python", "typescript")' },
+            limit: { type: 'number', description: 'Max results (default: 50)' },
+          },
+          required: ['check'],
+        },
+      },
     ],
   }));
 
@@ -518,6 +548,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const unusedText = unusedResult.content[0]?.text ?? '';
           analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: estimateTokens(unusedText), tokensWouldBe: estimateTokens(unusedText), timestamp: Date.now() });
           return unusedResult;
+        }
+
+        case 'code_audit': {
+          const auditArgs = validateCodeAuditArgs(args);
+          const auditResult = await handleCodeAudit(auditArgs, projectRoot, astIndex);
+          const auditText = auditResult.content[0]?.text ?? '';
+          analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: estimateTokens(auditText), tokensWouldBe: estimateTokens(auditText), timestamp: Date.now() });
+          return auditResult;
         }
 
         default:

@@ -247,6 +247,46 @@ export function validateFindUnusedArgs(args: unknown): {
   };
 }
 
+export interface CodeAuditArgs {
+  check: 'pattern' | 'todo' | 'deprecated' | 'annotations' | 'all';
+  pattern?: string;
+  name?: string;
+  lang?: string;
+  limit?: number;
+}
+
+export function validateCodeAuditArgs(args: unknown): CodeAuditArgs {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object with a "check" parameter.');
+  }
+  const a = args as Record<string, unknown>;
+
+  const validChecks = ['pattern', 'todo', 'deprecated', 'annotations', 'all'];
+  if (typeof a.check !== 'string' || !validChecks.includes(a.check)) {
+    throw new Error(`Required parameter "check" must be one of: ${validChecks.join(', ')}`);
+  }
+
+  if (a.check === 'pattern') {
+    if (typeof a.pattern !== 'string' || a.pattern.length === 0) {
+      throw new Error('Parameter "pattern" is required when check="pattern". Example: "except:" or "print($$$ARGS)"');
+    }
+  }
+
+  if (a.check === 'annotations') {
+    if (typeof a.name !== 'string' || a.name.length === 0) {
+      throw new Error('Parameter "name" is required when check="annotations". Example: "Deprecated" or "Controller"');
+    }
+  }
+
+  return {
+    check: a.check as CodeAuditArgs['check'],
+    pattern: optionalString(a.pattern, 'pattern'),
+    name: optionalString(a.name, 'name'),
+    lang: optionalString(a.lang, 'lang'),
+    limit: optionalNumber(a.limit, 'limit'),
+  };
+}
+
 /** Detect roots that would cause ast-index to scan the entire filesystem */
 export function isDangerousRoot(root: string): boolean {
   const normalized = root.replace(/\/+$/, '') || '/';

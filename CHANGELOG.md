@@ -5,6 +5,17 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-07
+
+### Added
+- **`code_audit` tool** — find code quality issues in one call: TODO/FIXME comments (`check="todo"`), deprecated symbols (`check="deprecated"`), structural code patterns via ast-grep (`check="pattern"`), decorator search (`check="annotations"`), or combined audit (`check="all"`).
+- **Incremental index update on file changes** — file watcher now triggers `ast-index update` (debounced 2s) after edits. Keeps index fresh for find_usages, find_unused, code_audit.
+- **ast-index client methods** — `agrep()`, `todo()`, `deprecated()`, `annotations()`, `incrementalUpdate()`.
+
+### Fixed
+- **smart_read on directories** — now returns helpful message instead of EISDIR crash.
+- **MCP instructions** — added "COMBINE BOTH" section for audit tasks (Token Pilot + Grep).
+
 ## [0.7.6] - 2026-03-07
 
 ### Added

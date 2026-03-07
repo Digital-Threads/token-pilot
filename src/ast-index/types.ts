@@ -167,3 +167,36 @@ export interface AstIndexImportEntry {
   isDefault?: boolean;
   isNamespace?: boolean;
 }
+
+/** ast-index agrep — structural pattern search via ast-grep */
+export interface AstIndexAgrepMatch {
+  file: string;
+  line: number;
+  text: string;
+}
+
+/** ast-index todo — TODO/FIXME/HACK comments */
+export interface AstIndexTodoEntry {
+  file: string;
+  line: number;
+  kind: string;
+  text: string;
+}
+
+/** ast-index deprecated — @Deprecated symbols */
+export interface AstIndexDeprecatedEntry {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  message?: string;
+}
+
+/** ast-index annotations — symbols with specific decorator/annotation */
+export interface AstIndexAnnotationEntry {
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  annotation: string;
+}
