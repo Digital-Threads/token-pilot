@@ -193,7 +193,31 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
   const server = new Server(
     { name: 'token-pilot', version: pkgVersion },
-    { capabilities: { tools: {} } }
+    {
+      capabilities: { tools: {} },
+      instructions: [
+        'Token Pilot provides token-efficient code reading. Use these rules:',
+        '',
+        'WHEN TO USE TOKEN PILOT (saves 60-80% tokens):',
+        '• Reading code files → smart_read (returns structure, not raw content)',
+        '• Need one function/class → read_symbol (loads only that symbol)',
+        '• Exploring a directory → outline (all symbols in one call)',
+        '• Preparing an edit → read_for_edit (exact text for Edit old_string)',
+        '• Verifying edits → read_diff (only changed hunks, not whole file)',
+        '• Finding symbol references → find_usages (semantic, grouped by type)',
+        '• Understanding file relationships → related_files (imports, dependents, tests)',
+        '• New codebase → project_overview first',
+        '• Reading file again → smart_read (returns compact reminder, not full content)',
+        '• Multiple files → smart_read_many (batch, max 20)',
+        '',
+        'WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):',
+        '• Regex/pattern search (e.g. TODO.*fix) → use Grep/ripgrep, NOT find_usages',
+        '• Non-code files (JSON, YAML, Markdown, configs) → smart_read handles these but default Read works too',
+        '• You need exact raw content for copy-paste → use Read',
+        '',
+        'WORKFLOW: project_overview → smart_read → read_symbol → read_for_edit → edit → read_diff',
+      ].join('\n'),
+    }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
@@ -201,7 +225,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       // --- Core reading tools ---
       {
         name: 'smart_read',
-        description: 'Read code file structure: classes, functions, methods with signatures and line ranges. Use read_symbol() to load specific code.',
+        description: 'Use INSTEAD OF Read/cat for code files. Returns code structure (classes, functions, methods with signatures and line ranges) — 60-80% fewer tokens than raw content. Use read_symbol() to drill into specific code.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -215,7 +239,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'read_symbol',
-        description: 'Read source code of a specific function/method/class. Supports Class.method syntax.',
+        description: 'Read source code of ONE specific function/method/class — INSTEAD OF reading the whole file. Supports Class.method syntax.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -243,7 +267,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'read_diff',
-        description: 'Show changed hunks since last smart_read. Use after editing a file.',
+        description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks since last smart_read — saves tokens by not re-reading unchanged code.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -255,7 +279,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'read_for_edit',
-        description: 'Get raw code around a symbol or line for editing. Copy directly as old_string for Edit tool.',
+        description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -269,7 +293,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'smart_read_many',
-        description: 'Read multiple files at once. Returns structure for each file. Max 20 files.',
+        description: 'Batch smart_read for multiple files at once — INSTEAD OF calling Read on each file. Returns structure for each file. Max 20 files.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -285,7 +309,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       // --- Search & navigation ---
       {
         name: 'find_usages',
-        description: 'Find all usages of a symbol across the project. Use instead of Grep for symbol references. Groups by: definitions, imports, usages.',
+        description: 'Use INSTEAD OF Grep/ripgrep for finding symbol references. Semantic search across the project — groups results by: definitions, imports, usages.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -296,7 +320,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'project_overview',
-        description: 'Start here. Shows project type, architecture, framework detection, directory structure with symbol counts. Use before exploring unfamiliar codebases.',
+        description: 'START HERE for unfamiliar codebases. Shows project type, architecture, framework detection, directory structure with symbol counts. Use before exploring code.',
         inputSchema: {
           type: 'object' as const,
           properties: {},
@@ -304,7 +328,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'related_files',
-        description: 'Show import graph: what a file imports, what imports it, and test files.',
+        description: 'Show import graph for a file: what it imports, what imports it, and test files. Understand dependencies before refactoring.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -315,7 +339,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'outline',
-        description: 'Compact overview of all code files in a directory. One call instead of 5-6 smart_read calls. Shows classes, functions, methods, HTTP routes per file.',
+        description: 'Use INSTEAD OF listing dir + reading each file. One call returns all symbols (classes, functions, methods, routes) for every code file in a directory.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -336,7 +360,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       // --- Analysis ---
       {
         name: 'find_unused',
-        description: 'Find potentially unused symbols in the project. Detects dead code — functions, classes, and variables with no references.',
+        description: 'Find dead code — functions, classes, and variables with no references across the project. Use for cleanup and refactoring.',
         inputSchema: {
           type: 'object' as const,
           properties: {

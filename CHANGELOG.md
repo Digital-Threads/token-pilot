@@ -5,6 +5,12 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-03-07
+
+### Added
+- **MCP Server Instructions** — protocol-level `instructions` field tells AI agents WHEN to use Token Pilot tools instead of built-in Read/cat/Grep. Works universally on Claude Code, Cursor, Codex, Antigravity, and any MCP-compatible client. Includes rules for when NOT to use Token Pilot (regex search, raw content copy-paste).
+- **Improved tool descriptions** — each tool now explicitly states what built-in tool it replaces (e.g. "Use INSTEAD OF Read/cat", "Use INSTEAD OF Grep/ripgrep"). Agents can make informed decisions from description alone, without needing project-level rules files.
+
 ## [0.7.3] - 2026-03-07
 
 ### Fixed
