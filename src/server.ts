@@ -13,6 +13,7 @@ import { loadConfig } from './config/loader.js';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { execFile } from 'node:child_process';
+import { isDangerousRoot } from './core/validation.js';
 import { promisify } from 'node:util';
 import { GitWatcher } from './git/watcher.js';
 
@@ -73,34 +74,82 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
   }
 
-  // Auto-detect project root from the first file path seen (when cwd was /)
+  // Auto-detect project root (when startup root was dangerous like /)
+  // Strategy 1: MCP roots from client (Claude Code sends workspace root)
+  // Strategy 2: Git detect from file path in tool args
   let autoDetectDone = false;
-  async function tryAutoDetectRoot(filePath: string): Promise<void> {
+
+  async function applyDetectedRoot(rootPath: string, source: string): Promise<void> {
+    projectRoot = rootPath;
+    astIndex.updateProjectRoot(rootPath);
+    astIndex.enableIndex();
+    console.error(`[token-pilot] project root: ${rootPath} (${source})`);
+    try {
+      await astIndex.ensureIndex();
+    } catch (e) {
+      console.error(`[token-pilot] ast-index build: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  async function tryAutoDetectRoot(filePath?: string): Promise<void> {
     if (autoDetectDone || !needsAutoDetect) return;
     autoDetectDone = true; // Only try once
 
-    const dir = dirname(filePath);
+    // Strategy 1: MCP roots — client tells us the workspace root
     try {
-      const { stdout } = await execFilePromise('git', ['rev-parse', '--show-toplevel'], {
-        cwd: dir,
-        timeout: 3000,
-      });
-      const gitRoot = stdout.trim();
-      if (gitRoot) {
-        projectRoot = gitRoot;
-        astIndex.updateProjectRoot(gitRoot);
-        astIndex.enableIndex();
-        console.error(`[token-pilot] project root auto-detected: ${gitRoot} (from ${filePath})`);
-        // Build index now
-        try {
-          await astIndex.ensureIndex();
-        } catch (e) {
-          console.error(`[token-pilot] ast-index build after auto-detect: ${e instanceof Error ? e.message : e}`);
+      const caps = server.getClientCapabilities();
+      if (caps?.roots) {
+        const { roots } = await server.listRoots();
+        for (const root of roots) {
+          if (root.uri.startsWith('file://')) {
+            const rootPath = decodeURIComponent(new URL(root.uri).pathname);
+            if (rootPath && !isDangerousRoot(rootPath)) {
+              await applyDetectedRoot(rootPath, 'MCP roots');
+              return;
+            }
+          }
         }
       }
     } catch {
-      console.error(`[token-pilot] auto-detect failed for ${dir} — not a git repo`);
+      // Client doesn't support roots or request failed — try next strategy
     }
+
+    // Strategy 2: Git detect from file path in tool call args
+    if (filePath) {
+      const dir = dirname(filePath);
+      try {
+        const { stdout } = await execFilePromise('git', ['rev-parse', '--show-toplevel'], {
+          cwd: dir,
+          timeout: 3000,
+        });
+        const gitRoot = stdout.trim();
+        if (gitRoot && !isDangerousRoot(gitRoot)) {
+          await applyDetectedRoot(gitRoot, `git from ${filePath}`);
+          return;
+        }
+      } catch {
+        console.error(`[token-pilot] auto-detect failed for ${dir} — not a git repo`);
+      }
+    }
+  }
+
+  /**
+   * Extract any absolute file path from tool call arguments.
+   */
+  function extractFilePath(toolArgs: Record<string, unknown>): string | undefined {
+    const path = toolArgs?.path as string | undefined;
+    if (path && typeof path === 'string' && path.startsWith('/')) return path;
+
+    const paths = toolArgs?.paths as string[] | undefined;
+    if (paths?.[0] && typeof paths[0] === 'string' && paths[0].startsWith('/')) return paths[0];
+
+    const file = toolArgs?.file as string | undefined;
+    if (file && typeof file === 'string' && file.startsWith('/')) return file;
+
+    const mod = toolArgs?.module as string | undefined;
+    if (mod && typeof mod === 'string' && mod.startsWith('/')) return mod;
+
+    return undefined;
   }
 
   // Session analytics
@@ -318,11 +367,11 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
-    // Auto-detect project root from first file path (when cwd was /)
-    const firstPath = (args as Record<string, unknown>)?.path as string | undefined
-      ?? ((args as Record<string, unknown>)?.paths as string[] | undefined)?.[0];
-    if (firstPath && typeof firstPath === 'string' && firstPath.startsWith('/')) {
-      await tryAutoDetectRoot(firstPath);
+    // Auto-detect project root on first tool call (when startup root was /)
+    // Tries: MCP roots → git detect from file path in args
+    if (needsAutoDetect && !autoDetectDone) {
+      const detectedPath = extractFilePath((args ?? {}) as Record<string, unknown>);
+      await tryAutoDetectRoot(detectedPath);
     }
 
     try {

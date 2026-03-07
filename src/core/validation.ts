@@ -246,3 +246,17 @@ export function validateFindUnusedArgs(args: unknown): {
     limit: optionalNumber(a.limit, 'limit'),
   };
 }
+
+/** Detect roots that would cause ast-index to scan the entire filesystem */
+export function isDangerousRoot(root: string): boolean {
+  const normalized = root.replace(/\/+$/, '') || '/';
+  // System roots
+  if (normalized === '/' || normalized === '/tmp' || normalized === '/var') return true;
+  // Home directories (macOS, Linux)
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (home && normalized === home.replace(/\/+$/, '')) return true;
+  // Common dangerous patterns: /Users, /home, /root, C:\, C:\Users
+  if (/^\/(?:Users|home|root)$/.test(normalized)) return true;
+  if (/^[A-Z]:\\(?:Users)?$/i.test(normalized)) return true;
+  return false;
+}

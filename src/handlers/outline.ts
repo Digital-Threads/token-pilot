@@ -39,33 +39,52 @@ export async function handleOutline(
     };
   }
 
-  // List code files (1 level, no recursion)
+  // List code files and subdirectories (1 level)
   const entries = await readdir(absPath, { withFileTypes: true });
   const codeFiles: string[] = [];
+  const subdirs: string[] = [];
 
   for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
-    if (CODE_EXTENSIONS.has(ext)) {
-      codeFiles.push(resolve(absPath, entry.name));
+    if (entry.isDirectory()) {
+      subdirs.push(entry.name);
+    } else if (entry.isFile()) {
+      const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
+      if (CODE_EXTENSIONS.has(ext)) {
+        codeFiles.push(resolve(absPath, entry.name));
+      }
     }
   }
 
-  if (codeFiles.length === 0) {
+  if (codeFiles.length === 0 && subdirs.length === 0) {
     return {
       content: [{
         type: 'text',
-        text: `No code files found in "${args.path}".`,
+        text: `No code files or subdirectories found in "${args.path}".`,
       }],
     };
   }
 
-  // Sort files alphabetically
+  // Sort
   codeFiles.sort();
+  subdirs.sort();
 
   const relDir = relative(projectRoot, absPath) || '.';
-  const sections: string[] = [`OUTLINE: ${relDir}/ (${codeFiles.length} files)`, ''];
+  const totalLabel = codeFiles.length > 0 ? `${codeFiles.length} files` : '';
+  const subLabel = subdirs.length > 0 ? `${subdirs.length} subdirs` : '';
+  const countLabel = [totalLabel, subLabel].filter(Boolean).join(', ');
+  const sections: string[] = [`OUTLINE: ${relDir}/ (${countLabel})`, ''];
 
+  // Show subdirectories with file counts (recursive scan)
+  if (subdirs.length > 0) {
+    for (const sub of subdirs) {
+      const subPath = resolve(absPath, sub);
+      const fileCount = await countCodeFiles(subPath);
+      sections.push(`  ${sub}/ (${fileCount} code files)`);
+    }
+    sections.push('');
+  }
+
+  // Show code files at this level with AST outline
   for (const filePath of codeFiles) {
     const name = basename(filePath);
 
@@ -89,7 +108,7 @@ export async function handleOutline(
     }
   }
 
-  sections.push('HINT: Use smart_read(path) for full structure, read_symbol(path, symbol) for source code.');
+  sections.push('HINT: Use outline(path) on subdirs, smart_read(path) for file structure, read_symbol(path, symbol) for source code.');
 
   return { content: [{ type: 'text', text: sections.join('\n') }] };
 }
@@ -189,4 +208,27 @@ function extractHttpRoute(decorators: string[], parentRoute: string): string | n
     }
   }
   return null;
+}
+
+/**
+ * Recursively count code files in a directory.
+ * Max depth 5 to avoid runaway scans.
+ */
+async function countCodeFiles(dirPath: string, depth = 0): Promise<number> {
+  if (depth > 5) return 0;
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true });
+    let count = 0;
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
+        if (CODE_EXTENSIONS.has(ext)) count++;
+      } else if (entry.isDirectory()) {
+        count += await countCodeFiles(resolve(dirPath, entry.name), depth + 1);
+      }
+    }
+    return count;
+  } catch {
+    return 0;
+  }
 }

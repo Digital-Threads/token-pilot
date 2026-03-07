@@ -5,6 +5,33 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-03-07
+
+### Fixed
+- **read_diff diagnostic** — when cache miss occurs, now shows resolved absolute path and all cached file paths. This reveals path mismatches between smart_read and read_diff calls (e.g. different relative paths resolving to different absolute paths).
+
+## [0.7.2] - 2026-03-07
+
+### Fixed
+- **read_diff on small files** — `smart_read` small-file pass-through (≤150 lines) returned content without caching in fileCache. `read_diff` always showed "No previous read" for small files because the baseline was never stored. Now all files are cached regardless of size.
+
+## [0.7.1] - 2026-03-07
+
+### Fixed
+- **read_diff after read_for_edit** — `read_for_edit` now caches the full file content, so `read_diff` can use it as baseline after edits. Previously returned "No previous read" because read_for_edit didn't populate the file cache.
+- **outline on intermediate directories** — directories with only subdirectories (no direct code files) now show subdirectory listing with recursive code file counts instead of "No code files found". Enables progressive drill-down: `outline("module/") → outline("module/infrastructure/")`.
+
+## [0.7.0] - 2026-03-07
+
+### Fixed
+- **Project root detection** — complete rewrite of how token-pilot discovers the working project:
+  1. **MCP roots** (new, primary) — uses MCP protocol `listRoots()` to get workspace root from Claude Code. Works for all tools including `find_usages`, `find_unused`, `project_overview` (no file path needed).
+  2. **INIT_CWD/PWD env vars** (new) — when started via `npx`, npm sets `INIT_CWD` to the invoking directory. Catches cases where `process.cwd()` is `/` but the real project root is available in env.
+  3. **Git detect from file path** (improved) — now triggers from any tool call args (`path`, `paths`, `file`, `module`), not just `smart_read`.
+- **ast-index tools always disabled** — `find_usages`, `find_unused`, `project_overview` never triggered auto-detect because they have no `path` argument. Now all tools trigger detection via MCP roots.
+- **Error messages** — changed "project root is too broad" to actionable "call smart_read() on any project file first" when MCP roots unavailable.
+- **`isDangerousRoot`** — moved to shared `core/validation.ts` (was duplicated in `index.ts`).
+
 ## [0.6.5] - 2026-03-07
 
 ### Fixed

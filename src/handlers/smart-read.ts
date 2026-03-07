@@ -33,6 +33,7 @@ export async function handleSmartRead(
 
   // 2. Small-file pass-through
   if (lines.length <= config.smartRead.smallFileThreshold) {
+    const hash = createHash('sha256').update(content).digest('hex');
     const tokens = estimateTokens(content);
     contextRegistry.trackLoad(absPath, {
       type: 'full',
@@ -40,7 +41,20 @@ export async function handleSmartRead(
       endLine: lines.length,
       tokens,
     });
-    contextRegistry.setContentHash(absPath, createHash('sha256').update(content).digest('hex'));
+    contextRegistry.setContentHash(absPath, hash);
+
+    // Cache for read_diff baseline (so read_diff works after external edits)
+    if (!fileCache.get(absPath)) {
+      const fileStat = await stat(absPath);
+      fileCache.set(absPath, {
+        structure: {
+          path: absPath, language: 'unknown',
+          meta: { lines: lines.length, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
+          imports: [], exports: [], symbols: [],
+        },
+        content, lines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
+      });
+    }
 
     return {
       content: [{

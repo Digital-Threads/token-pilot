@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { createServer } from './server.js';
 import { installHook, uninstallHook } from './hooks/installer.js';
 import { findBinary, installBinary } from './ast-index/binary-manager.js';
+import { isDangerousRoot } from './core/validation.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -77,20 +78,44 @@ switch (args[0]) {
 async function startServer() {
   let projectRoot = args[0] || process.cwd();
 
-  // Detect git root for reliable project root (avoids cwd=/home/user issues)
+  // Detect git root for reliable project root
+  // Try multiple sources: args[0] → INIT_CWD (npm/npx invoking dir) → PWD → cwd
   if (!args[0]) {
-    try {
-      const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
-        cwd: process.cwd(),
-        timeout: 3000,
-      });
-      const gitRoot = stdout.trim();
-      if (gitRoot) {
-        projectRoot = gitRoot;
-        console.error(`[token-pilot] project root: ${projectRoot} (git)`);
+    const candidates = [
+      process.env.INIT_CWD,   // npm/npx sets this to invoking directory
+      process.env.PWD,         // shell working directory (may differ from cwd)
+      process.cwd(),           // Node.js working directory
+    ].filter((c): c is string => !!c && c !== '/');
+
+    let detected = false;
+    for (const candidate of candidates) {
+      if (isDangerousRoot(candidate)) continue;
+      try {
+        const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+          cwd: candidate,
+          timeout: 3000,
+        });
+        const gitRoot = stdout.trim();
+        if (gitRoot && !isDangerousRoot(gitRoot)) {
+          projectRoot = gitRoot;
+          console.error(`[token-pilot] project root: ${projectRoot} (git from ${candidate === process.env.INIT_CWD ? 'INIT_CWD' : candidate === process.env.PWD ? 'PWD' : 'cwd'})`);
+          detected = true;
+          break;
+        }
+      } catch {
+        // Not a git repo at this candidate — try next
       }
-    } catch {
-      console.error(`[token-pilot] project root: ${projectRoot} (cwd, not a git repo)`);
+    }
+
+    if (!detected) {
+      // Use best non-dangerous candidate as fallback even without git
+      const fallback = candidates.find(c => !isDangerousRoot(c));
+      if (fallback) {
+        projectRoot = fallback;
+        console.error(`[token-pilot] project root: ${projectRoot} (${fallback === process.env.INIT_CWD ? 'INIT_CWD' : 'PWD'}, not a git repo)`);
+      } else {
+        console.error(`[token-pilot] project root: ${projectRoot} (cwd, not a git repo)`);
+      }
     }
   }
 
@@ -230,19 +255,6 @@ function handleHookEdit() {
   process.exit(0);
 }
 
-/** Detect roots that would cause ast-index to scan the entire filesystem */
-function isDangerousRoot(root: string): boolean {
-  const normalized = root.replace(/\/+$/, '') || '/';
-  // System roots
-  if (normalized === '/' || normalized === '/tmp' || normalized === '/var') return true;
-  // Home directories (macOS, Linux)
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  if (home && normalized === home.replace(/\/+$/, '')) return true;
-  // Common dangerous patterns: /Users, /home, /root, C:\, C:\Users
-  if (/^\/(?:Users|home|root)$/.test(normalized)) return true;
-  if (/^[A-Z]:\\(?:Users)?$/i.test(normalized)) return true;
-  return false;
-}
 
 async function handleInstallHook(projectRoot: string) {
   const result = await installHook(projectRoot);

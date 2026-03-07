@@ -26,7 +26,7 @@ export async function handleFindUsages(
   if (astIndex.isDisabled() || astIndex.isOversized()) {
     return { content: [{ type: 'text', text:
       'find_usages is disabled: ' + (astIndex.isDisabled()
-        ? 'project root is too broad (e.g. /). Configure mcpServers with "args": ["/path/to/project"].'
+        ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
         : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
       '\nAlternative: use grep_search to find symbol references.' }] };
   }

@@ -23,10 +23,14 @@ export async function handleReadDiff(
   const cached = fileCache.get(absPath);
 
   if (!cached) {
+    const cachedPaths = fileCache.cachedPaths();
+    const diagnostic = cachedPaths.length > 0
+      ? `Cache has ${cachedPaths.length} files:\n${cachedPaths.map(p => `  - ${p}`).join('\n')}\nResolved path: ${absPath}`
+      : `Cache is empty (no files read yet in this session).`;
     return {
       content: [{
         type: 'text',
-        text: `No previous read of ${args.path}. Use smart_read() first, then read_diff() after changes.`,
+        text: `No previous read of "${args.path}".\n\n${diagnostic}\n\nUse smart_read("${args.path}") first, then edit, then read_diff("${args.path}").`,
       }],
     };
   }

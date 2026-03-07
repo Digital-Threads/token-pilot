@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
@@ -26,7 +27,7 @@ export async function handleReadForEdit(
   const absPath = resolveSafePath(projectRoot, args.path);
   const ctx = args.context ?? DEFAULT_CONTEXT;
 
-  // Get file content
+  // Get file content — also cache for read_diff baseline
   const cached = fileCache.get(absPath);
   let lines: string[];
 
@@ -35,6 +36,25 @@ export async function handleReadForEdit(
   } else {
     const content = await readFile(absPath, 'utf-8');
     lines = content.split('\n');
+
+    // Cache the full file so read_diff can use it as baseline after edits
+    const fileStat = await stat(absPath);
+    const hash = createHash('sha256').update(content).digest('hex');
+    fileCache.set(absPath, {
+      structure: {
+        path: absPath,
+        language: 'unknown',
+        meta: { lines: lines.length, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
+        imports: [],
+        exports: [],
+        symbols: [],
+      },
+      content,
+      lines,
+      mtime: fileStat.mtimeMs,
+      hash,
+      lastAccess: Date.now(),
+    });
   }
 
   let startLine: number;
