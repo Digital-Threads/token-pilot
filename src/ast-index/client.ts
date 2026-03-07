@@ -35,6 +35,7 @@ export class AstIndexClient {
   private projectRoot: string;
   private indexed = false;
   private indexOversized = false;
+  private indexDisabled = false;
   private indexPromise: Promise<void> | null = null;
   private timeout: number;
   private configBinaryPath: string | null;
@@ -77,6 +78,14 @@ export class AstIndexClient {
 
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
+
+    // Project root is too broad (/, home dir) — refuse to build
+    if (this.indexDisabled) {
+      throw new Error(
+        'ast-index: index build disabled — project root is too broad (e.g. /). ' +
+        'Configure mcpServers with "args": ["/path/to/project"] to set the correct project root.'
+      );
+    }
 
     // If a previous build found >50k files, don't retry
     if (this.indexOversized) {
@@ -200,8 +209,8 @@ export class AstIndexClient {
       if (entries.length === 0) return null;
       return await this.buildFileStructure(filePath, entries);
     } catch {
-      // Direct call failed — try building index first (unless oversized)
-      if (this.indexOversized) return null;
+      // Direct call failed — try building index first (unless disabled/oversized)
+      if (this.indexDisabled || this.indexOversized) return null;
       try {
         await this.ensureIndex();
         const result = await this.exec(['outline', filePath]);
@@ -300,8 +309,8 @@ export class AstIndexClient {
       }
     } catch { /* fall through to ensureIndex path */ }
 
-    // Direct call failed — try building index (unless oversized)
-    if (this.indexOversized) return null;
+    // Direct call failed — try building index (unless disabled/oversized)
+    if (this.indexDisabled || this.indexOversized) return null;
     try {
       await this.ensureIndex();
       const result = await this.exec(['symbol', name, '--format', 'json']);
@@ -657,6 +666,16 @@ export class AstIndexClient {
   /** Returns true if the index was built but found >50k files (node_modules leak) */
   isOversized(): boolean {
     return this.indexOversized;
+  }
+
+  /** Returns true if index building is disabled (dangerous root like /) */
+  isDisabled(): boolean {
+    return this.indexDisabled;
+  }
+
+  /** Disable index building (e.g. project root is / or home dir) */
+  disableIndex(): void {
+    this.indexDisabled = true;
   }
 
   private async exec(args: string[], timeoutMs?: number): Promise<string> {

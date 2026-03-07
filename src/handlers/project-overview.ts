@@ -20,7 +20,7 @@ export async function handleProjectOverview(
   }
 
   // 2. ast-index map — directory structure with file counts and symbol kinds
-  if (astIndex.isAvailable() && !astIndex.isOversized()) {
+  if (astIndex.isAvailable() && !astIndex.isOversized() && !astIndex.isDisabled()) {
     const [mapData, convData] = await Promise.all([
       astIndex.map(),
       astIndex.conventions(),
@@ -80,7 +80,13 @@ export async function handleProjectOverview(
     }
   }
 
-  if (astIndex.isOversized()) {
+  if (astIndex.isDisabled()) {
+    lines.push('⚠ ast-index disabled: project root is too broad (e.g. /).');
+    lines.push('  Fix: configure mcpServers with "args": ["/path/to/project"]');
+    lines.push('  Working tools: smart_read, smart_read_many, outline, read_symbol, read_range');
+    lines.push('  Disabled tools: find_unused, find_usages, related_files, project map');
+    lines.push('');
+  } else if (astIndex.isOversized()) {
     lines.push('⚠ ast-index disabled: >50k files indexed (node_modules leak). Ensure node_modules is in .gitignore.');
     lines.push('  Working tools: smart_read, smart_read_many, outline, read_symbol, read_range');
     lines.push('  Disabled tools: find_unused, find_usages, related_files');

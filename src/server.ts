@@ -53,18 +53,18 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   const symbolResolver = new SymbolResolver(astIndex);
 
   // Try to init ast-index (non-fatal if not available)
-  // Skip entirely if project root is dangerous (/, home dir, etc.)
-  if (options?.skipAstIndex) {
-    console.error('[token-pilot] ast-index skipped: project root is too broad');
-  } else {
-    try {
-      await astIndex.init();
-      if (config.astIndex.buildOnStart) {
-        await astIndex.ensureIndex();
-      }
-    } catch (err) {
-      console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
+  try {
+    await astIndex.init(); // Always find binary — fast, harmless
+    if (options?.skipAstIndex) {
+      // Dangerous root (/, home dir) — don't build index, but binary is ready
+      // outline() and symbol() still work (lazy, per-file)
+      astIndex.disableIndex();
+      console.error('[token-pilot] ast-index: index build disabled (project root is too broad)');
+    } else if (config.astIndex.buildOnStart) {
+      await astIndex.ensureIndex();
     }
+  } catch (err) {
+    console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
   }
 
   // Session analytics

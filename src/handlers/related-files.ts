@@ -45,11 +45,12 @@ export async function handleRelatedFiles(
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  if (astIndex.isOversized()) {
+  if (astIndex.isDisabled() || astIndex.isOversized()) {
     return { content: [{ type: 'text', text:
-      'related_files is disabled: ast-index built >50k files (likely includes node_modules).\n' +
-      'Fix: ensure node_modules is in .gitignore, then restart the MCP server.\n' +
-      'Alternative: use smart_read() to see file imports in the outline.' }] };
+      'related_files is disabled: ' + (astIndex.isDisabled()
+        ? 'project root is too broad (e.g. /). Configure mcpServers with "args": ["/path/to/project"].'
+        : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
+      '\nAlternative: use smart_read() to see file imports in the outline.' }] };
   }
 
   const absPath = resolveSafePath(projectRoot, args.path);

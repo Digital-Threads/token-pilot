@@ -28,11 +28,12 @@ export async function handleFindUnused(
   args: FindUnusedArgs,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  if (astIndex.isOversized()) {
+  if (astIndex.isDisabled() || astIndex.isOversized()) {
     return { content: [{ type: 'text', text:
-      'find_unused is disabled: ast-index built >50k files (likely includes node_modules).\n' +
-      'Fix: ensure node_modules is in .gitignore, then restart the MCP server.\n' +
-      'Alternative: use grep_search to find unused exports manually.' }] };
+      'find_unused is disabled: ' + (astIndex.isDisabled()
+        ? 'project root is too broad (e.g. /). Configure mcpServers with "args": ["/path/to/project"].'
+        : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
+      '\nAlternative: use grep_search to find unused exports manually.' }] };
   }
 
   const requestLimit = (args.limit ?? 30) + 20; // extra to compensate for filtering
