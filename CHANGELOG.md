@@ -5,6 +5,11 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-03-08
+
+### Fixed
+- **code_audit pattern search — root cause fix** — `ast-index agrep` does not support `--limit` flag. Token Pilot was passing `--limit 50` which caused the command to fail silently, returning 0 results across v0.8.0–v0.8.2. Removed the flag; results are now limited via `.slice()` after parsing.
+
 ## [0.8.2] - 2026-03-08
 
 ### Fixed

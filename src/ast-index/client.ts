@@ -708,7 +708,6 @@ export class AstIndexClient {
     const limit = options?.limit ?? 50;
     const args = ['agrep', pattern];
     if (options?.lang) args.push('--lang', options.lang);
-    args.push('--limit', String(limit));
 
     try {
       const result = await this.exec(args, 15000);
