@@ -29,9 +29,12 @@ import { findBinary, installBinary } from './binary-manager.js';
 const execFileAsync = promisify(execFile);
 
 export class AstIndexClient {
+  private static readonly MAX_INDEX_FILES = 50_000;
+
   private binaryPath: string | null = null;
   private projectRoot: string;
   private indexed = false;
+  private indexOversized = false;
   private indexPromise: Promise<void> | null = null;
   private timeout: number;
   private configBinaryPath: string | null;
@@ -75,6 +78,14 @@ export class AstIndexClient {
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
 
+    // If a previous build found >50k files, don't retry
+    if (this.indexOversized) {
+      throw new Error(
+        'ast-index disabled: previous build indexed >50k files (likely node_modules). ' +
+        'Ensure node_modules is in .gitignore, then restart the MCP server.'
+      );
+    }
+
     // Deduplicate concurrent calls — all waiters share one build
     if (this.indexPromise) return this.indexPromise;
 
@@ -95,6 +106,14 @@ export class AstIndexClient {
       existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
     } catch { /* no index yet */ }
 
+    // Guard: existing index is oversized (node_modules leak from previous build)
+    if (existingFileCount > AstIndexClient.MAX_INDEX_FILES) {
+      console.error(`[token-pilot] ast-index: existing index has ${existingFileCount} files (>${AstIndexClient.MAX_INDEX_FILES}) — likely includes node_modules. Clearing.`);
+      try { await this.exec(['clear']); } catch { /* best effort */ }
+      existingFileCount = 0;
+      // Fall through to rebuild — maybe .gitignore was fixed
+    }
+
     if (existingFileCount > 0) {
       // Index exists — use incremental update (fast)
       console.error(`[token-pilot] ast-index: updating index (${existingFileCount} files)...`);
@@ -106,6 +125,12 @@ export class AstIndexClient {
           const filesMatch = statsText.match(/Files:\s*(\d+)/);
           existingFileCount = filesMatch ? parseInt(filesMatch[1], 10) : existingFileCount;
         } catch { /* keep previous count */ }
+
+        // Guard: update may have grown index beyond limit
+        if (existingFileCount > AstIndexClient.MAX_INDEX_FILES) {
+          return this.handleOversizedIndex(existingFileCount);
+        }
+
         this.indexed = true;
         console.error(`[token-pilot] ast-index: index ready (${existingFileCount} files)`);
         return;
@@ -119,22 +144,11 @@ export class AstIndexClient {
     try {
       await this.exec(['rebuild'], 120000);
 
-      let fileCount = 0;
-      try {
-        const statsText = await this.exec(['stats']);
-        const filesMatch = statsText.match(/Files:\s*(\d+)/);
-        fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
-      } catch { /* stats unavailable */ }
+      const fileCount = this.parseFileCount(await this.exec(['stats']).catch(() => ''));
 
-      // If very few files, retry with --sub-projects (workspace-style monorepos)
-      if (fileCount < 5) {
-        console.error(`[token-pilot] ast-index: only ${fileCount} files — retrying with --sub-projects...`);
-        await this.exec(['rebuild', '--sub-projects'], 120000);
-        try {
-          const statsText = await this.exec(['stats']);
-          const filesMatch = statsText.match(/Files:\s*(\d+)/);
-          fileCount = filesMatch ? parseInt(filesMatch[1], 10) : 0;
-        } catch { /* stats unavailable */ }
+      // Guard: rebuild produced oversized index
+      if (fileCount > AstIndexClient.MAX_INDEX_FILES) {
+        return this.handleOversizedIndex(fileCount);
       }
 
       this.indexed = true;
@@ -143,32 +157,61 @@ export class AstIndexClient {
       // If rebuild failed due to lock, check if index is usable anyway
       const errMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
       if (errMsg.includes('lock') || errMsg.includes('already running')) {
-        try {
-          const stats = await this.exec(['stats']);
-          const filesMatch = stats.match(/Files:\s*(\d+)/);
-          const count = filesMatch ? parseInt(filesMatch[1], 10) : 0;
-          if (count > 0) {
-            this.indexed = true;
-            console.error(`[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`);
-            return;
-          }
-        } catch { /* stats unavailable */ }
+        const count = this.parseFileCount(await this.exec(['stats']).catch(() => ''));
+        if (count > 0 && count <= AstIndexClient.MAX_INDEX_FILES) {
+          this.indexed = true;
+          console.error(`[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`);
+          return;
+        }
+        if (count > AstIndexClient.MAX_INDEX_FILES) {
+          return this.handleOversizedIndex(count);
+        }
       }
       console.error(`[token-pilot] ast-index: rebuild failed — ${errMsg}`);
       throw buildErr;
     }
   }
 
+  /** Mark index as oversized — disables index-dependent tools, outline still works */
+  private async handleOversizedIndex(fileCount: number): Promise<void> {
+    this.indexOversized = true;
+    this.indexed = false;
+    try { await this.exec(['clear']); } catch { /* best effort */ }
+    console.error(
+      `[token-pilot] ast-index: ${fileCount} files indexed (>${AstIndexClient.MAX_INDEX_FILES}) — ` +
+      `likely includes node_modules. Index cleared.\n` +
+      `  → Ensure node_modules is in .gitignore\n` +
+      `  → Tools disabled: find_unused, find_usages, related_files, project_overview\n` +
+      `  → Tools still working: outline, smart_read, smart_read_many, read_symbol`
+    );
+  }
+
+  /** Extract file count from stats output */
+  private parseFileCount(statsText: string): number {
+    const match = statsText.match(/Files:\s*(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
   async outline(filePath: string): Promise<FileStructure | null> {
+    // outline parses a single file — try directly without requiring full index
     try {
-      await this.ensureIndex();
       const result = await this.exec(['outline', filePath]);
       const entries = this.parseOutlineText(result);
       if (entries.length === 0) return null;
       return await this.buildFileStructure(filePath, entries);
-    } catch (err) {
-      console.error(`[token-pilot] ast-index outline failed for ${filePath}: ${err instanceof Error ? err.message : err}`);
-      return null;
+    } catch {
+      // Direct call failed — try building index first (unless oversized)
+      if (this.indexOversized) return null;
+      try {
+        await this.ensureIndex();
+        const result = await this.exec(['outline', filePath]);
+        const entries = this.parseOutlineText(result);
+        if (entries.length === 0) return null;
+        return await this.buildFileStructure(filePath, entries);
+      } catch (err) {
+        console.error(`[token-pilot] ast-index outline failed for ${filePath}: ${err instanceof Error ? err.message : err}`);
+        return null;
+      }
     }
   }
 
@@ -247,19 +290,25 @@ export class AstIndexClient {
   }
 
   async symbol(name: string): Promise<AstIndexSymbolDetail | null> {
+    // Try directly first (works if index exists from a previous session)
+    try {
+      const result = await this.exec(['symbol', name, '--format', 'json']);
+      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
+      if (Array.isArray(raw) && raw.length > 0) {
+        const first = raw[0];
+        return { name: first.name, kind: first.kind, file: first.path, start_line: first.line, signature: first.signature };
+      }
+    } catch { /* fall through to ensureIndex path */ }
+
+    // Direct call failed — try building index (unless oversized)
+    if (this.indexOversized) return null;
     try {
       await this.ensureIndex();
       const result = await this.exec(['symbol', name, '--format', 'json']);
       const raw: AstIndexSymbolRaw[] = JSON.parse(result);
       if (!Array.isArray(raw) || raw.length === 0) return null;
       const first = raw[0];
-      return {
-        name: first.name,
-        kind: first.kind,
-        file: first.path,
-        start_line: first.line,
-        signature: first.signature,
-      };
+      return { name: first.name, kind: first.kind, file: first.path, start_line: first.line, signature: first.signature };
     } catch (err) {
       console.error(`[token-pilot] ast-index symbol failed: ${err instanceof Error ? err.message : err}`);
       return null;
@@ -603,6 +652,11 @@ export class AstIndexClient {
 
   isAvailable(): boolean {
     return this.binaryPath !== null;
+  }
+
+  /** Returns true if the index was built but found >50k files (node_modules leak) */
+  isOversized(): boolean {
+    return this.indexOversized;
   }
 
   private async exec(args: string[], timeoutMs?: number): Promise<string> {

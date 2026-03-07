@@ -23,6 +23,13 @@ export async function handleFindUsages(
   args: FindUsagesArgs,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  if (astIndex.isOversized()) {
+    return { content: [{ type: 'text', text:
+      'find_usages is disabled: ast-index built >50k files (likely includes node_modules).\n' +
+      'Fix: ensure node_modules is in .gitignore, then restart the MCP server.\n' +
+      'Alternative: use grep_search to find symbol references.' }] };
+  }
+
   // Run refs + search in parallel
   const [refs, searchResults] = await Promise.all([
     astIndex.refs(args.symbol),

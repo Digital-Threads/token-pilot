@@ -20,7 +20,7 @@ export async function handleProjectOverview(
   }
 
   // 2. ast-index map — directory structure with file counts and symbol kinds
-  if (astIndex.isAvailable()) {
+  if (astIndex.isAvailable() && !astIndex.isOversized()) {
     const [mapData, convData] = await Promise.all([
       astIndex.map(),
       astIndex.conventions(),
@@ -78,6 +78,13 @@ export async function handleProjectOverview(
         }
       } catch { /* ignore */ }
     }
+  }
+
+  if (astIndex.isOversized()) {
+    lines.push('⚠ ast-index disabled: >50k files indexed (node_modules leak). Ensure node_modules is in .gitignore.');
+    lines.push('  Working tools: smart_read, smart_read_many, outline, read_symbol, read_range');
+    lines.push('  Disabled tools: find_unused, find_usages, related_files');
+    lines.push('');
   }
 
   lines.push('HINT: Use smart_read() on files, find_usages() for symbol references, outline() for directory overview.');

@@ -45,6 +45,13 @@ export async function handleRelatedFiles(
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+  if (astIndex.isOversized()) {
+    return { content: [{ type: 'text', text:
+      'related_files is disabled: ast-index built >50k files (likely includes node_modules).\n' +
+      'Fix: ensure node_modules is in .gitignore, then restart the MCP server.\n' +
+      'Alternative: use smart_read() to see file imports in the outline.' }] };
+  }
+
   const absPath = resolveSafePath(projectRoot, args.path);
   const fileName = basename(absPath);
   const fileBase = fileName.replace(/\.\w+$/, '');
