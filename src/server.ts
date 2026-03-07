@@ -42,7 +42,7 @@ import {
   validateFindUnusedArgs,
 } from './core/validation.js';
 
-export async function createServer(projectRoot: string) {
+export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
   const config = await loadConfig(projectRoot);
   const astIndex = new AstIndexClient(projectRoot, config.astIndex.timeout, {
     binaryPath: config.astIndex.binaryPath,
@@ -53,13 +53,18 @@ export async function createServer(projectRoot: string) {
   const symbolResolver = new SymbolResolver(astIndex);
 
   // Try to init ast-index (non-fatal if not available)
-  try {
-    await astIndex.init();
-    if (config.astIndex.buildOnStart) {
-      await astIndex.ensureIndex();
+  // Skip entirely if project root is dangerous (/, home dir, etc.)
+  if (options?.skipAstIndex) {
+    console.error('[token-pilot] ast-index skipped: project root is too broad');
+  } else {
+    try {
+      await astIndex.init();
+      if (config.astIndex.buildOnStart) {
+        await astIndex.ensureIndex();
+      }
+    } catch (err) {
+      console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
     }
-  } catch (err) {
-    console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
   }
 
   // Session analytics

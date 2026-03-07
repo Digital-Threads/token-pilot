@@ -94,6 +94,16 @@ async function startServer() {
     }
   }
 
+  // Guard: refuse to use dangerous roots that would index the entire disk
+  if (isDangerousRoot(projectRoot)) {
+    console.error(
+      `[token-pilot] WARNING: project root "${projectRoot}" is too broad (system/home directory).\n` +
+      `  ast-index will be disabled to prevent indexing the entire filesystem.\n` +
+      `  Fix: pass project path explicitly — token-pilot /path/to/project\n` +
+      `  Or configure mcpServers with "args": ["/path/to/project"]`
+    );
+  }
+
   // Non-blocking update check (logs to stderr, never blocks startup)
   checkLatestVersion().then(latest => {
     if (latest && latest !== getVersion()) {
@@ -108,7 +118,9 @@ async function startServer() {
     }
   }).catch(() => { /* ignore — not Claude Code or no .claude dir */ });
 
-  const server = await createServer(projectRoot);
+  const server = await createServer(projectRoot, {
+    skipAstIndex: isDangerousRoot(projectRoot),
+  });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -216,6 +228,20 @@ function handleHookEdit() {
 
   process.stdout.write(context);
   process.exit(0);
+}
+
+/** Detect roots that would cause ast-index to scan the entire filesystem */
+function isDangerousRoot(root: string): boolean {
+  const normalized = root.replace(/\/+$/, '') || '/';
+  // System roots
+  if (normalized === '/' || normalized === '/tmp' || normalized === '/var') return true;
+  // Home directories (macOS, Linux)
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (home && normalized === home.replace(/\/+$/, '')) return true;
+  // Common dangerous patterns: /Users, /home, /root, C:\, C:\Users
+  if (/^\/(?:Users|home|root)$/.test(normalized)) return true;
+  if (/^[A-Z]:\\(?:Users)?$/i.test(normalized)) return true;
+  return false;
 }
 
 async function handleInstallHook(projectRoot: string) {
