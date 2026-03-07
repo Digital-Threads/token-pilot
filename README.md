@@ -1,6 +1,6 @@
 # Token Pilot
 
-MCP server that reduces token consumption in AI coding assistants by **80-95%** via AST-aware lazy file reading.
+MCP server that reduces token consumption in AI coding assistants by **60-80%** via AST-aware lazy file reading.
 
 Instead of dumping entire files into the LLM context, Token Pilot returns structural overviews (classes, functions, signatures, line ranges) and lets the AI load only the specific symbols it needs.
 
@@ -13,11 +13,11 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
               After edit: read_diff("user-service.ts")  →  ~20 tokens
 ```
 
-**93% reduction** in this example. Files under 80 lines are returned in full automatically (no overhead for small files).
+**~80% reduction** in this example. Files under 80 lines are returned in full automatically (no overhead for small files).
 
 ## Installation
 
-### npx — Any AI Assistant (Cursor, Cline, Continue, etc.)
+### npx — Any MCP-compatible AI Assistant
 
 Zero install. Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
 
@@ -34,21 +34,15 @@ Zero install. Add to your `.mcp.json` (project-level or `~/.mcp.json` for global
 
 **That's it.** npx downloads the package, ast-index binary is fetched automatically on first run. No Rust, no Cargo, no manual setup.
 
+Works with: **Cursor**, **Cline**, **Continue**, **Codex**, **Antigravity**, and any MCP-compatible client.
+
 #### Cursor
 
 Settings → MCP Servers → Add:
 - Command: `npx`
 - Args: `-y token-pilot`
 
-### Claude Code
-
-From inside a Claude Code chat session:
-
-```
-/mcp add token-pilot -- npx -y token-pilot
-```
-
-Or from the terminal:
+#### Claude Code
 
 ```bash
 # Current project only
@@ -60,8 +54,6 @@ claude mcp add --scope user token-pilot -- npx -y token-pilot
 # Shared via git (adds to .mcp.json)
 claude mcp add --scope project token-pilot -- npx -y token-pilot
 ```
-
-This registers the MCP server. The PreToolUse hook auto-suggests `smart_read` for large files.
 
 ### From Source
 
@@ -94,48 +86,43 @@ brew tap defendend/ast-index && brew install ast-index
 npx token-pilot install-ast-index
 ```
 
-### PreToolUse Hook (auto-installed for Claude Code)
+### PreToolUse Hook (Claude Code only)
 
-Intercepts `Read` calls for large code files and suggests `smart_read`. **Installed automatically** when the MCP server starts. Manual commands:
+Optional hook that intercepts `Read` calls for large code files (>500 lines) and suggests `smart_read`. Claude Code only.
 
 ```bash
-npx token-pilot install-hook            # Force re-install
+npx token-pilot install-hook            # Install
 npx token-pilot uninstall-hook          # Remove
 ```
 
-## AI Instructions (Important)
+> **Note:** With v0.7.4+ MCP instructions, the hook is less critical — AI agents already know to prefer Token Pilot tools.
 
-After installing Token Pilot, add these instructions to your project so the AI uses Token Pilot instead of default tools.
+## How AI Agents Know to Use Token Pilot
 
-**Cursor** — add to `.cursorrules` in project root:
+**No configuration needed.** Token Pilot uses the MCP protocol's `instructions` field to automatically tell AI agents when to use its tools instead of built-in defaults (Read, cat, Grep).
 
-**Claude Code** — add to `CLAUDE.md` in project root:
+When connected, every MCP client receives rules like:
 
 ```
-# Token Pilot — Code Reading Rules
-
-You have Token Pilot MCP server connected. ALWAYS use it instead of default tools for reading code:
-
-## Reading files
-- ALWAYS use smart_read() instead of Read/cat for code files. It returns AST structure (classes, methods, signatures, line ranges) saving 80-99% tokens.
-- After smart_read, use read_symbol("path", "Class.method") to load only the specific function you need.
-- Before editing, use read_for_edit("path", symbol="method") to get minimal raw code for Edit's old_string. 97% savings vs full Read.
-- Use smart_read_many() instead of multiple Read calls when reading 2+ files.
-- After editing a file, use read_diff() instead of re-reading — shows only changed hunks.
-
-## Navigation
-- Use outline("src/modules/users/") to see all files in a directory at once — one call instead of 5-6 smart_read.
-- Use related_files("file.ts") to see import graph: what it imports, what imports it, test files.
-- Use find_usages() instead of Grep when looking for where a symbol is used.
-
-## Workflow
-1. project_overview() — start here for unfamiliar projects
-2. outline("src/modules/users/") — overview of a module directory
-3. smart_read("file.ts") — see structure of a file
-4. read_symbol("file.ts", "ClassName.methodName") — read specific code
-5. read_for_edit("file.ts", symbol="methodName") — get raw code for editing
-6. read_diff("file.ts") — after edits, see only changes
+WHEN TO USE TOKEN PILOT (saves 60-80% tokens):
+• Reading code files → smart_read (returns structure, not raw content)
+• Need one function/class → read_symbol (loads only that symbol)
+• Exploring a directory → outline (all symbols in one call)
+...
+WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):
+• Regex/pattern search → use Grep/ripgrep, NOT find_usages
+• You need exact raw content for copy-paste → use Read
 ```
+
+This works on **Claude Code, Cursor, Codex, Antigravity**, and any MCP-compatible client — no project-level rules files needed.
+
+### Optional: Project-Level Rules
+
+For more control, you can add rules to your project:
+
+- **Claude Code** → `CLAUDE.md` in project root
+- **Cursor** → `.cursorrules` in project root
+- **Codex** → `AGENTS.md` in project root
 
 ## MCP Tools (12)
 
@@ -143,11 +130,11 @@ You have Token Pilot MCP server connected. ALWAYS use it instead of default tool
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. 80-99% savings. Framework-aware: shows HTTP routes, column types, validation rules. |
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. 60-80% savings. Framework-aware: shows HTTP routes, column types, validation rules. |
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
-| `read_for_edit` | `Read` before `Edit` | **NEW.** Minimal RAW code around a symbol — copy directly as `old_string` for Edit. 97% savings. |
+| `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
-| `read_diff` | re-`Read` | Show only what changed since last smart_read. 80-95% savings on re-reads. |
+| `read_diff` | re-`Read` | Show only what changed since last smart_read. Saves tokens on re-reads. |
 | `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files in one call. |
 
 ### Search & Navigation
@@ -156,8 +143,8 @@ You have Token Pilot MCP server connected. ALWAYS use it instead of default tool
 |------|-----------|-------------|
 | `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. |
 | `project_overview` | `ls` + explore | Project type, architecture, frameworks, directory map. |
-| `related_files` | manual explore | **NEW.** Import graph: what a file imports, what imports it, test files. |
-| `outline` | multiple `smart_read` | **NEW.** Compact overview of all code files in a directory. One call instead of 5-6. |
+| `related_files` | manual explore | Import graph: what a file imports, what imports it, test files. |
+| `outline` | multiple `smart_read` | Compact overview of all code files in a directory. One call instead of 5-6. |
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 
 ### Analytics
@@ -247,7 +234,7 @@ When both are configured, Token Pilot automatically:
 - Shows combined architecture info in `session_analytics`
 - Provides `export_ast_index` to feed AST data into context-mode's BM25 index
 
-**Combined savings: ~80%** in a typical coding session.
+**Combined savings: 60-80%** in a typical coding session.
 
 ## Supported Languages
 
@@ -262,7 +249,7 @@ Plus structural summaries for non-code files: JSON, YAML, Markdown, TOML, XML, C
 ### Verify installation
 
 ```bash
-npx token-pilot --help          # Should print CLI help with 17 tools
+npx token-pilot --help          # Should print CLI help
 npx token-pilot --version       # Should print current version
 npx token-pilot doctor          # Run diagnostics (checks ast-index, config, etc.)
 ```
@@ -302,7 +289,7 @@ npm run dev          # TypeScript watch mode
 ```
 src/
   index.ts              — CLI entry point (6 commands)
-  server.ts             — MCP server (17 tools)
+  server.ts             — MCP server setup, tool definitions, instructions
   types.ts              — Core domain types
   ast-index/
     client.ts           — ast-index CLI wrapper
