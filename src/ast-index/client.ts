@@ -45,6 +45,7 @@ export class AstIndexClient {
   private configBinaryPath: string | null;
   private autoInstall: boolean;
   private astGrepAvailable: boolean | null = null;
+  private astGrepBinDir: string | null = null;
 
   constructor(projectRoot: string, timeout = 5000, options?: { binaryPath?: string | null; autoInstall?: boolean }) {
     this.projectRoot = projectRoot;
@@ -672,13 +673,22 @@ export class AstIndexClient {
   /** Check if ast-grep (sg) is available for structural pattern search */
   private async checkAstGrep(): Promise<boolean> {
     if (this.astGrepAvailable !== null) return this.astGrepAvailable;
+    // Try system PATH first
     try {
       await execFileAsync('sg', ['--version'], { timeout: 3000 });
       this.astGrepAvailable = true;
-    } catch {
-      this.astGrepAvailable = false;
-    }
-    return this.astGrepAvailable;
+      return true;
+    } catch { /* not in PATH */ }
+    // Try node_modules/.bin/sg (from optionalDependencies or source installs)
+    try {
+      const localBinDir = new URL('../../node_modules/.bin', import.meta.url).pathname;
+      await execFileAsync(localBinDir + '/sg', ['--version'], { timeout: 3000 });
+      this.astGrepBinDir = localBinDir;
+      this.astGrepAvailable = true;
+      return true;
+    } catch { /* not found locally either */ }
+    this.astGrepAvailable = false;
+    return false;
   }
 
   /** Structural pattern search via ast-grep. Requires ast-grep (sg) installed. */
@@ -871,6 +881,12 @@ export class AstIndexClient {
       throw new Error('ast-index not initialized. Call init() first.');
     }
 
+    // If ast-grep was found in node_modules/.bin, inject it into PATH
+    // so ast-index can find sg when running agrep
+    const env = this.astGrepBinDir
+      ? { ...process.env, PATH: `${this.astGrepBinDir}:${process.env.PATH ?? ''}` }
+      : undefined;
+
     const { stdout, stderr } = await execFileAsync(
       this.binaryPath,
       args,
@@ -878,6 +894,7 @@ export class AstIndexClient {
         timeout: timeoutMs ?? this.timeout,
         maxBuffer: 10 * 1024 * 1024, // 10MB
         cwd: this.projectRoot,
+        ...(env && { env }),
       }
     );
 

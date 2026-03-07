@@ -26,7 +26,8 @@ export async function handleCodeAudit(
     case 'deprecated':
       return handleDeprecated(limit, projectRoot, astIndex);
     case 'annotations':
-      return handleAnnotations(args.name!, limit, projectRoot, astIndex);
+      // Strip @ prefix — ast-index expects "Injectable" not "@Injectable"
+      return handleAnnotations(args.name!.replace(/^@/, ''), limit, projectRoot, astIndex);
     case 'all':
       return handleAll(limit, projectRoot, astIndex);
     default:
