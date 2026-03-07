@@ -11,7 +11,12 @@ import { SessionAnalytics } from './core/session-analytics.js';
 
 import { loadConfig } from './config/loader.js';
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { GitWatcher } from './git/watcher.js';
+
+const execFilePromise = promisify(execFile);
 import { FileWatcher } from './git/file-watcher.js';
 import { handleSmartRead } from './handlers/smart-read.js';
 import { handleReadSymbol } from './handlers/read-symbol.js';
@@ -53,18 +58,49 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   const symbolResolver = new SymbolResolver(astIndex);
 
   // Try to init ast-index (non-fatal if not available)
+  const needsAutoDetect = !!options?.skipAstIndex;
   try {
     await astIndex.init(); // Always find binary — fast, harmless
-    if (options?.skipAstIndex) {
-      // Dangerous root (/, home dir) — don't build index, but binary is ready
-      // outline() and symbol() still work (lazy, per-file)
+    if (needsAutoDetect) {
+      // Dangerous root (/, home dir) — don't build index yet
+      // Will auto-detect real project root from first file path
       astIndex.disableIndex();
-      console.error('[token-pilot] ast-index: index build disabled (project root is too broad)');
+      console.error('[token-pilot] ast-index: waiting for first file path to auto-detect project root');
     } else if (config.astIndex.buildOnStart) {
       await astIndex.ensureIndex();
     }
   } catch (err) {
     console.error(`[token-pilot] ast-index init warning: ${err instanceof Error ? err.message : err}`);
+  }
+
+  // Auto-detect project root from the first file path seen (when cwd was /)
+  let autoDetectDone = false;
+  async function tryAutoDetectRoot(filePath: string): Promise<void> {
+    if (autoDetectDone || !needsAutoDetect) return;
+    autoDetectDone = true; // Only try once
+
+    const dir = dirname(filePath);
+    try {
+      const { stdout } = await execFilePromise('git', ['rev-parse', '--show-toplevel'], {
+        cwd: dir,
+        timeout: 3000,
+      });
+      const gitRoot = stdout.trim();
+      if (gitRoot) {
+        projectRoot = gitRoot;
+        astIndex.updateProjectRoot(gitRoot);
+        astIndex.enableIndex();
+        console.error(`[token-pilot] project root auto-detected: ${gitRoot} (from ${filePath})`);
+        // Build index now
+        try {
+          await astIndex.ensureIndex();
+        } catch (e) {
+          console.error(`[token-pilot] ast-index build after auto-detect: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+    } catch {
+      console.error(`[token-pilot] auto-detect failed for ${dir} — not a git repo`);
+    }
   }
 
   // Session analytics
@@ -281,6 +317,13 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   // Handle tool calls with validated arguments
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+
+    // Auto-detect project root from first file path (when cwd was /)
+    const firstPath = (args as Record<string, unknown>)?.path as string | undefined
+      ?? ((args as Record<string, unknown>)?.paths as string[] | undefined)?.[0];
+    if (firstPath && typeof firstPath === 'string' && firstPath.startsWith('/')) {
+      await tryAutoDetectRoot(firstPath);
+    }
 
     try {
       switch (name) {

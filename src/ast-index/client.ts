@@ -678,6 +678,17 @@ export class AstIndexClient {
     this.indexDisabled = true;
   }
 
+  /** Re-enable index building after auto-detecting a valid project root */
+  enableIndex(): void {
+    this.indexDisabled = false;
+  }
+
+  /** Update project root (e.g. after auto-detecting from file path) */
+  updateProjectRoot(newRoot: string): void {
+    this.projectRoot = newRoot;
+    this.indexed = false; // Force re-check
+  }
+
   private async exec(args: string[], timeoutMs?: number): Promise<string> {
     if (!this.binaryPath) {
       throw new Error('ast-index not initialized. Call init() first.');
