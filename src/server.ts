@@ -203,7 +203,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Need one function/class → read_symbol (loads only that symbol)',
         '• Exploring a directory → outline (all symbols in one call)',
         '• Preparing an edit → read_for_edit (exact text for Edit old_string)',
-        '• Verifying edits → read_diff (only changed hunks, not whole file)',
+        '• Verifying edits → read_diff (only changed hunks). IMPORTANT: call smart_read BEFORE editing to create baseline.',
         '• Finding symbol references → find_usages (semantic, grouped by type)',
         '• Understanding file relationships → related_files (imports, dependents, tests)',
         '• New codebase → project_overview first',
@@ -211,6 +211,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Multiple files → smart_read_many (batch, max 20)',
         '',
         'WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):',
+        '• Small files (≤200 lines) → smart_read returns full content anyway, same as Read',
         '• Regex/pattern search (e.g. TODO.*fix) → use Grep/ripgrep, NOT find_usages',
         '• Non-code files (JSON, YAML, Markdown, configs) → smart_read handles these but default Read works too',
         '• You need exact raw content for copy-paste → use Read',
@@ -267,7 +268,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'read_diff',
-        description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks since last smart_read — saves tokens by not re-reading unchanged code.',
+        description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks. REQUIRES: call smart_read or read_for_edit BEFORE editing to create baseline snapshot.',
         inputSchema: {
           type: 'object' as const,
           properties: {

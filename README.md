@@ -13,7 +13,7 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
               After edit: read_diff("user-service.ts")  →  ~20 tokens
 ```
 
-**~80% reduction** in this example. Files under 80 lines are returned in full automatically (no overhead for small files).
+**~80% reduction** in this example. Files under 200 lines are returned in full automatically (no overhead for small files). Real savings start at ~200+ lines.
 
 ## Installation
 
@@ -134,7 +134,7 @@ For more control, you can add rules to your project:
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
 | `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
-| `read_diff` | re-`Read` | Show only what changed since last smart_read. Saves tokens on re-reads. |
+| `read_diff` | re-`Read` | Show only changed hunks since last smart_read. Requires smart_read before editing (for baseline). Works with any edit tool. |
 | `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files in one call. |
 
 ### Search & Navigation
@@ -210,7 +210,7 @@ All fields are optional — sensible defaults are used for anything not specifie
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `smartRead.smallFileThreshold` | `80` | Files with fewer lines are returned in full (no AST overhead). |
+| `smartRead.smallFileThreshold` | `200` | Files with fewer lines are returned in full (no AST overhead). |
 | `cache.maxSizeMB` | `100` | Max memory for file cache. LRU eviction when exceeded. |
 | `cache.watchFiles` | `true` | Auto-invalidate cache on file changes (chokidar). |
 | `git.watchHead` | `true` | Watch `.git/HEAD` for branch switches, invalidate changed files. |
