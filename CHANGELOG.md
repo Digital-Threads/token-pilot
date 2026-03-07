@@ -5,18 +5,22 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.5] - 2026-03-07
+## [0.7.6] - 2026-03-07
 
 ### Added
 - **`npx token-pilot init`** — one command creates `.mcp.json` with both token-pilot and context-mode configured. Idempotent — safely updates existing configs without overwriting.
+- **MCP Server Instructions** — protocol-level `instructions` field tells AI agents WHEN to use Token Pilot tools instead of built-in defaults. Works universally on all MCP clients.
+- **Improved tool descriptions** — each tool explicitly states what built-in tool it replaces (e.g. "Use INSTEAD OF Read/cat").
 
 ### Fixed
-- **3 high severity vulnerabilities** — updated hono (cookie injection, SSE injection, arbitrary file access) and express-rate-limit (IPv4-mapped IPv6 bypass).
-- **npm package size** — excluded source maps (.js.map, .d.ts.map) from published package. 505 kB → 286 kB (−43%), 158 → 84 files.
+- **3 high severity vulnerabilities** — updated hono and express-rate-limit.
+- **npm package size** — excluded source maps from package. 505 kB → 286 kB (−43%).
+- **Accurate thresholds** — README and instructions now correctly state smallFileThreshold=200 (was 80).
+- **read_diff documentation** — clarified that smart_read must be called BEFORE editing to create baseline snapshot.
 
 ### Changed
-- **README** — honest metrics (60-80% not 80-95%), added MCP instructions section, added Codex/Antigravity to supported clients, removed stale "NEW" labels.
-- **npm keywords** — added `codex`, `cline`, `model-context-protocol`, `token-savings` for better discoverability.
+- **README** — honest metrics (60-80%), Quick Start with `init` command, MCP instructions section, Codex/Antigravity support.
+- **npm keywords** — added `codex`, `cline`, `model-context-protocol`, `token-savings`.
 
 ## [0.7.4] - 2026-03-07
 

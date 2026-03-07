@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "MCP server that reduces token consumption in AI coding assistants via AST-aware lazy file reading",
   "type": "module",
   "main": "dist/index.js",
