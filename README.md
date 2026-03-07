@@ -53,7 +53,7 @@ Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
 }
 ```
 
-Works with: **Cursor**, **Cline**, **Continue**, **Codex**, **Antigravity**, and any MCP-compatible client.
+Works with: **Claude Code**, **Cursor**, **Codex**, **Antigravity**, **Cline**, and any MCP-compatible client.
 
 #### Cursor
 
