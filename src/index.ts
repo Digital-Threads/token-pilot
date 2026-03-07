@@ -56,6 +56,10 @@ switch (args[0]) {
     handleDoctor();
     break;
 
+  case 'init':
+    handleInit(args[1] || process.cwd());
+    break;
+
   case '--version':
   case '-v':
     console.log(getVersion());
@@ -331,6 +335,67 @@ async function handleDoctor() {
   process.exit(0);
 }
 
+async function handleInit(targetDir: string) {
+  const { existsSync, readFileSync: readFs, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const mcpPath = join(targetDir, '.mcp.json');
+
+  const tokenPilotConfig = {
+    command: 'npx',
+    args: ['-y', 'token-pilot'],
+  };
+
+  const contextModeConfig = {
+    command: 'npx',
+    args: ['-y', 'claude-context-mode'],
+  };
+
+  let config: Record<string, any> = { mcpServers: {} };
+  let existed = false;
+
+  if (existsSync(mcpPath)) {
+    try {
+      config = JSON.parse(readFs(mcpPath, 'utf-8'));
+      if (!config.mcpServers) config.mcpServers = {};
+      existed = true;
+    } catch {
+      console.error(`Error: ${mcpPath} exists but is not valid JSON`);
+      process.exit(1);
+    }
+  }
+
+  const added: string[] = [];
+
+  if (!config.mcpServers['token-pilot']) {
+    config.mcpServers['token-pilot'] = tokenPilotConfig;
+    added.push('token-pilot');
+  }
+
+  if (!config.mcpServers['context-mode']) {
+    config.mcpServers['context-mode'] = contextModeConfig;
+    added.push('context-mode');
+  }
+
+  if (added.length === 0) {
+    console.log(`✓ ${mcpPath} already has both token-pilot and context-mode configured`);
+    process.exit(0);
+  }
+
+  writeFileSync(mcpPath, JSON.stringify(config, null, 2) + '\n');
+
+  if (existed) {
+    console.log(`✓ Updated ${mcpPath} — added: ${added.join(', ')}`);
+  } else {
+    console.log(`✓ Created ${mcpPath} with token-pilot + context-mode`);
+  }
+
+  console.log(`\nConfigured MCP servers:`);
+  console.log(`  • token-pilot   — AST-aware code reading (60-80% token savings)`);
+  console.log(`  • context-mode  — shell output & large data processing (BM25 sandbox)`);
+  console.log(`\nRestart your AI assistant to activate.`);
+  process.exit(0);
+}
+
 async function checkLatestVersion(): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -352,13 +417,16 @@ function printHelp() {
 
 Usage:
   token-pilot [project-root]        Start MCP server (default: cwd)
-  token-pilot hook-read <path>      PreToolUse hook for Claude Code
-  token-pilot install-hook [root]   Install hook into .claude/settings.json
-  token-pilot uninstall-hook [root] Remove hook from .claude/settings.json
+  token-pilot init [dir]            Create .mcp.json with token-pilot + context-mode
+  token-pilot install-hook [root]   Install PreToolUse hook (Claude Code only)
+  token-pilot uninstall-hook [root] Remove PreToolUse hook
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
   token-pilot doctor                Run diagnostics (check ast-index, config, updates)
   token-pilot --version             Show version
   token-pilot --help                Show this help
+
+Quick start:
+  npx token-pilot init              Setup .mcp.json (token-pilot + context-mode)
 
 MCP Tools (12):
   smart_read, read_symbol, read_range, read_diff, smart_read_many, read_for_edit,

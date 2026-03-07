@@ -17,9 +17,30 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
 
 ## Installation
 
-### npx — Any MCP-compatible AI Assistant
+### Quick Start (recommended)
 
-Zero install. Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
+One command creates `.mcp.json` with token-pilot + context-mode:
+
+```bash
+npx -y token-pilot init
+```
+
+This generates:
+
+```json
+{
+  "mcpServers": {
+    "token-pilot": { "command": "npx", "args": ["-y", "token-pilot"] },
+    "context-mode": { "command": "npx", "args": ["-y", "claude-context-mode"] }
+  }
+}
+```
+
+**That's it.** Restart your AI assistant. Both packages are downloaded automatically, ast-index binary is fetched on first run. No Rust, no Cargo, no manual setup.
+
+### Manual Setup
+
+Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
 
 ```json
 {
@@ -31,8 +52,6 @@ Zero install. Add to your `.mcp.json` (project-level or `~/.mcp.json` for global
   }
 }
 ```
-
-**That's it.** npx downloads the package, ast-index binary is fetched automatically on first run. No Rust, no Cargo, no manual setup.
 
 Works with: **Cursor**, **Cline**, **Continue**, **Codex**, **Antigravity**, and any MCP-compatible client.
 

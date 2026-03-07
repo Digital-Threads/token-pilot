@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.5] - 2026-03-07
 
+### Added
+- **`npx token-pilot init`** — one command creates `.mcp.json` with both token-pilot and context-mode configured. Idempotent — safely updates existing configs without overwriting.
+
 ### Fixed
 - **3 high severity vulnerabilities** — updated hono (cookie injection, SSE injection, arbitrary file access) and express-rate-limit (IPv4-mapped IPv6 bypass).
 - **npm package size** — excluded source maps (.js.map, .d.ts.map) from published package. 505 kB → 286 kB (−43%), 158 → 84 files.
