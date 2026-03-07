@@ -5,6 +5,16 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-03-07
+
+### Fixed
+- **3 high severity vulnerabilities** — updated hono (cookie injection, SSE injection, arbitrary file access) and express-rate-limit (IPv4-mapped IPv6 bypass).
+- **npm package size** — excluded source maps (.js.map, .d.ts.map) from published package. 505 kB → 286 kB (−43%), 158 → 84 files.
+
+### Changed
+- **README** — honest metrics (60-80% not 80-95%), added MCP instructions section, added Codex/Antigravity to supported clients, removed stale "NEW" labels.
+- **npm keywords** — added `codex`, `cline`, `model-context-protocol`, `token-savings` for better discoverability.
+
 ## [0.7.4] - 2026-03-07
 
 ### Added

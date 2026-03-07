@@ -8,7 +8,8 @@
     "token-pilot": "dist/index.js"
   },
   "files": [
-    "dist/",
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
     "start.sh",
     ".claude-plugin/",
     ".mcp.json",
@@ -32,9 +33,13 @@
     "ast",
     "claude",
     "cursor",
+    "codex",
+    "cline",
     "ai",
     "coding-assistant",
-    "context-optimization"
+    "context-optimization",
+    "model-context-protocol",
+    "token-savings"
   ],
   "repository": {
     "type": "git",
