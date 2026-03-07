@@ -32,6 +32,7 @@ export class AstIndexClient {
   private binaryPath: string | null = null;
   private projectRoot: string;
   private indexed = false;
+  private indexPromise: Promise<void> | null = null;
   private timeout: number;
   private configBinaryPath: string | null;
   private autoInstall: boolean;
@@ -74,6 +75,18 @@ export class AstIndexClient {
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
 
+    // Deduplicate concurrent calls — all waiters share one build
+    if (this.indexPromise) return this.indexPromise;
+
+    this.indexPromise = this.buildIndex();
+    try {
+      await this.indexPromise;
+    } finally {
+      this.indexPromise = null;
+    }
+  }
+
+  private async buildIndex(): Promise<void> {
     // Check if index already exists and has files
     let existingFileCount = 0;
     try {
@@ -104,7 +117,7 @@ export class AstIndexClient {
     // No index or update failed — full rebuild
     console.error('[token-pilot] ast-index: building index (this may take a moment)...');
     try {
-      await this.exec(['rebuild'], 60000);
+      await this.exec(['rebuild'], 120000);
 
       let fileCount = 0;
       try {
@@ -116,7 +129,7 @@ export class AstIndexClient {
       // If very few files, retry with --sub-projects (workspace-style monorepos)
       if (fileCount < 5) {
         console.error(`[token-pilot] ast-index: only ${fileCount} files — retrying with --sub-projects...`);
-        await this.exec(['rebuild', '--sub-projects'], 60000);
+        await this.exec(['rebuild', '--sub-projects'], 120000);
         try {
           const statsText = await this.exec(['stats']);
           const filesMatch = statsText.match(/Files:\s*(\d+)/);
@@ -127,7 +140,21 @@ export class AstIndexClient {
       this.indexed = true;
       console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
     } catch (buildErr) {
-      console.error(`[token-pilot] ast-index: rebuild failed — ${buildErr instanceof Error ? buildErr.message : buildErr}`);
+      // If rebuild failed due to lock, check if index is usable anyway
+      const errMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
+      if (errMsg.includes('lock') || errMsg.includes('already running')) {
+        try {
+          const stats = await this.exec(['stats']);
+          const filesMatch = stats.match(/Files:\s*(\d+)/);
+          const count = filesMatch ? parseInt(filesMatch[1], 10) : 0;
+          if (count > 0) {
+            this.indexed = true;
+            console.error(`[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`);
+            return;
+          }
+        } catch { /* stats unavailable */ }
+      }
+      console.error(`[token-pilot] ast-index: rebuild failed — ${errMsg}`);
       throw buildErr;
     }
   }
