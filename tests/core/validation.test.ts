@@ -7,6 +7,10 @@ import {
   validateReadDiffArgs,
   validateFindUsagesArgs,
   validateSmartReadManyArgs,
+  validateOutlineArgs,
+  validateProjectOverviewArgs,
+  validateModuleInfoArgs,
+  validateCodeAuditArgs,
 } from '../../src/core/validation.js';
 
 describe('resolveSafePath', () => {
@@ -120,5 +124,141 @@ describe('validateSmartReadManyArgs', () => {
 
   it('throws on empty string in array', () => {
     expect(() => validateSmartReadManyArgs({ paths: ['a.ts', ''] })).toThrow('non-empty');
+  });
+});
+
+describe('validateFindUsagesArgs (v1.1 filters)', () => {
+  it('accepts symbol only (backward compatible)', () => {
+    const result = validateFindUsagesArgs({ symbol: 'Foo' });
+    expect(result.symbol).toBe('Foo');
+    expect(result.scope).toBeUndefined();
+    expect(result.kind).toBeUndefined();
+    expect(result.limit).toBeUndefined();
+    expect(result.lang).toBeUndefined();
+  });
+
+  it('accepts all filter params', () => {
+    const result = validateFindUsagesArgs({
+      symbol: 'MyService',
+      scope: 'src/Domain/',
+      kind: 'usages',
+      limit: 100,
+      lang: 'typescript',
+    });
+    expect(result.scope).toBe('src/Domain/');
+    expect(result.kind).toBe('usages');
+    expect(result.limit).toBe(100);
+    expect(result.lang).toBe('typescript');
+  });
+
+  it('throws on invalid kind', () => {
+    expect(() => validateFindUsagesArgs({ symbol: 'X', kind: 'invalid' })).toThrow('kind');
+  });
+
+  it('throws on limit out of range', () => {
+    expect(() => validateFindUsagesArgs({ symbol: 'X', limit: 0 })).toThrow('limit');
+    expect(() => validateFindUsagesArgs({ symbol: 'X', limit: 501 })).toThrow('limit');
+  });
+});
+
+describe('validateOutlineArgs', () => {
+  it('accepts path only', () => {
+    const result = validateOutlineArgs({ path: 'src/' });
+    expect(result.path).toBe('src/');
+    expect(result.recursive).toBeUndefined();
+    expect(result.max_depth).toBeUndefined();
+  });
+
+  it('accepts recursive + max_depth', () => {
+    const result = validateOutlineArgs({ path: 'src/', recursive: true, max_depth: 3 });
+    expect(result.recursive).toBe(true);
+    expect(result.max_depth).toBe(3);
+  });
+
+  it('throws on missing path', () => {
+    expect(() => validateOutlineArgs({})).toThrow('path');
+  });
+
+  it('throws on max_depth out of range', () => {
+    expect(() => validateOutlineArgs({ path: 'src/', max_depth: 0 })).toThrow('max_depth');
+    expect(() => validateOutlineArgs({ path: 'src/', max_depth: 6 })).toThrow('max_depth');
+  });
+});
+
+describe('validateProjectOverviewArgs', () => {
+  it('returns empty object for no args', () => {
+    const result = validateProjectOverviewArgs({});
+    expect(result.include).toBeUndefined();
+  });
+
+  it('returns empty object for null', () => {
+    const result = validateProjectOverviewArgs(null);
+    expect(result.include).toBeUndefined();
+  });
+
+  it('accepts valid include sections', () => {
+    const result = validateProjectOverviewArgs({ include: ['stack', 'ci'] });
+    expect(result.include).toEqual(['stack', 'ci']);
+  });
+
+  it('throws on invalid include section', () => {
+    expect(() => validateProjectOverviewArgs({ include: ['stack', 'invalid'] })).toThrow('include');
+  });
+
+  it('throws on non-array include', () => {
+    expect(() => validateProjectOverviewArgs({ include: 'stack' })).toThrow('array');
+  });
+});
+
+describe('validateModuleInfoArgs', () => {
+  it('accepts module only (defaults check to all)', () => {
+    const result = validateModuleInfoArgs({ module: 'auth' });
+    expect(result.module).toBe('auth');
+    expect(result.check).toBe('all');
+  });
+
+  it('accepts valid check values', () => {
+    for (const check of ['deps', 'dependents', 'api', 'unused-deps', 'all']) {
+      const result = validateModuleInfoArgs({ module: 'x', check });
+      expect(result.check).toBe(check);
+    }
+  });
+
+  it('throws on missing module', () => {
+    expect(() => validateModuleInfoArgs({})).toThrow('module');
+  });
+
+  it('throws on empty module', () => {
+    expect(() => validateModuleInfoArgs({ module: '' })).toThrow('module');
+  });
+
+  it('throws on invalid check', () => {
+    expect(() => validateModuleInfoArgs({ module: 'x', check: 'invalid' })).toThrow('check');
+  });
+
+  it('throws on null args', () => {
+    expect(() => validateModuleInfoArgs(null)).toThrow('object');
+  });
+});
+
+describe('validateCodeAuditArgs', () => {
+  it('accepts check=todo', () => {
+    const result = validateCodeAuditArgs({ check: 'todo' });
+    expect(result.check).toBe('todo');
+  });
+
+  it('accepts check=pattern with pattern and lang', () => {
+    const result = validateCodeAuditArgs({ check: 'pattern', pattern: 'console.log($$$)', lang: 'typescript' });
+    expect(result.check).toBe('pattern');
+    expect(result.pattern).toBe('console.log($$$)');
+    expect(result.lang).toBe('typescript');
+  });
+
+  it('throws on missing check', () => {
+    expect(() => validateCodeAuditArgs({})).toThrow('check');
+  });
+
+  it('throws on invalid check value', () => {
+    expect(() => validateCodeAuditArgs({ check: 'invalid' })).toThrow('check');
   });
 });

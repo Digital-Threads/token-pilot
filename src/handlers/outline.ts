@@ -47,6 +47,9 @@ export async function handleOutline(
   return { content: [{ type: 'text', text: sections.join('\n') }] };
 }
 
+/** Max output lines to prevent runaway recursive outlines */
+const MAX_OUTLINE_LINES = 500;
+
 /**
  * Outline a single directory. When depth < maxDepth and recursive,
  * recurse into subdirectories. Otherwise show file counts only.
@@ -59,6 +62,14 @@ async function outlineDir(
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<void> {
+  // Guard: stop if output is already too large
+  if (sections.length >= MAX_OUTLINE_LINES) {
+    if (!sections[sections.length - 1]?.startsWith('⚠')) {
+      sections.push(`⚠ Output truncated at ${MAX_OUTLINE_LINES} lines. Use outline() on specific subdirectories for details.`);
+    }
+    return;
+  }
+
   // List code files and subdirectories
   const entries = await readdir(absPath, { withFileTypes: true });
   const codeFiles: string[] = [];

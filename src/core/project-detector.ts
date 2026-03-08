@@ -353,7 +353,7 @@ export async function detectQualityTools(projectRoot: string): Promise<string[]>
     { files: ['.prettierrc', '.prettierrc.js', '.prettierrc.json', 'prettier.config.js'], name: 'Prettier' },
     { files: ['deptrac.yaml', 'deptrac.yml'], name: 'Deptrac' },
     { files: ['rector.php'], name: 'Rector' },
-    { files: ['pyproject.toml'], name: 'Ruff' }, // Only if [tool.ruff] section exists
+    { files: ['ruff.toml', '.ruff.toml'], name: 'Ruff' },
   ];
 
   const results = await Promise.allSettled(
@@ -361,17 +361,26 @@ export async function detectQualityTools(projectRoot: string): Promise<string[]>
       for (const file of check.files) {
         try {
           await access(resolve(projectRoot, file));
-          // Special case for Ruff: only if pyproject.toml has [tool.ruff]
-          if (check.name === 'Ruff') {
-            const content = await readFile(resolve(projectRoot, file), 'utf-8');
-            if (!content.includes('[tool.ruff]')) return null;
-          }
           return check.name;
         } catch { /* file doesn't exist */ }
       }
       return null;
     }),
   );
+
+  // Special case: Ruff can also be configured in pyproject.toml [tool.ruff]
+  // Only check if ruff.toml/.ruff.toml not already found
+  const ruffFound = results.some(r => r.status === 'fulfilled' && r.value === 'Ruff');
+  if (!ruffFound) {
+    try {
+      const pyprojectPath = resolve(projectRoot, 'pyproject.toml');
+      const content = await readFile(pyprojectPath, 'utf-8');
+      if (content.includes('[tool.ruff]')) {
+        // Inject Ruff into results manually below
+        results.push({ status: 'fulfilled', value: 'Ruff' } as PromiseFulfilledResult<string>);
+      }
+    } catch { /* no pyproject.toml or can't read */ }
+  }
 
   for (const r of results) {
     if (r.status === 'fulfilled' && r.value) {

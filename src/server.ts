@@ -597,7 +597,9 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const moduleArgs = validateModuleInfoArgs(args);
           const moduleResult = await handleModuleInfo(moduleArgs, projectRoot, astIndex);
           const moduleText = moduleResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: estimateTokens(moduleText), tokensWouldBe: estimateTokens(moduleText), timestamp: Date.now() });
+          // Estimate: manual analysis would require reading all module files + grepping deps
+          const moduleWouldBe = estimateTokens(moduleText) * 5;
+          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: estimateTokens(moduleText), tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
           return moduleResult;
         }
 

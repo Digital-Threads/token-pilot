@@ -165,8 +165,7 @@ function formatConfigStacks(detection: ProjectDetection): string {
       const [primary] = parts.splice(primaryIdx, 1);
       parts.unshift(primary);
     }
-    // Join with " + ... frontend/secondary" hint
-    return parts[0] + (parts.length > 1 ? ` + ${parts.slice(1).join(', ')} frontend` : '');
+    return parts[0] + (parts.length > 1 ? ` + ${parts.slice(1).join(', ')}` : '');
   }
 
   return parts.join(', ');
