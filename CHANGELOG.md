@@ -5,6 +5,24 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-08
+
+### Added
+- **`module_info` tool** — analyze module dependencies, dependents, public API, and unused deps. Uses ast-index v3.27.0 module commands (`modules`, `module-deps`, `module-dependents`, `module-api`, `unused-deps`). Includes degradation check when ast-index is unavailable.
+- **`project_overview` dual-detection** — shows BOTH ast-index type detection AND config-file detection (package.json, composer.json, Cargo.toml, pyproject.toml, go.mod) with CONFIDENCE scoring (high/medium/low/unknown). Detects frameworks, quality tools (PHPStan, ESLint, Vitest, Jest, Biome, etc.), CI pipelines (GitHub Actions, GitLab CI, Jenkins), and Docker.
+- **`project_overview` `include` parameter** — filter sections: `["stack"]` for quick type check, `["quality","ci"]` for tooling overview. Default: all sections.
+- **`find_usages` post-filters** — `scope` (path prefix), `kind` (definitions/imports/usages), `lang` (14 languages by extension), `limit` (per category, 1-500). All filters optional, backward compatible.
+- **`outline` recursive mode** — `recursive=true` with `max_depth` (default 2, max 5) recurses into subdirectories. At max depth shows file counts only.
+- **`src/core/project-detector.ts`** — extracted config-based detection logic into reusable module. Framework detection maps for PHP (7), JS (10), Python (5). Quality tools scanner (13 tools). CI pipeline detector (6 platforms).
+- **ast-index client: 5 module methods** — `modules()`, `moduleDeps()`, `moduleDependents()`, `unusedDeps()`, `moduleApi()` with JSON-first + text fallback parsing.
+- **ast-index types: 4 module interfaces** — `AstIndexModuleEntry`, `AstIndexModuleDep`, `AstIndexUnusedDep`, `AstIndexModuleApi`.
+
+### Changed
+- **14 tools** (was 13) — added `module_info`
+- **Tool descriptions** — updated with `(v1.1: ...)` version hints for enhanced tools
+- **MCP instructions** — added module_info to "COMBINE BOTH" workflow section
+- **Version sync** — package.json, plugin.json, marketplace.json all at 0.9.0
+
 ## [0.8.3] - 2026-03-08
 
 ### Fixed

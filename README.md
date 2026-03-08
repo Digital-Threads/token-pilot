@@ -149,7 +149,7 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (13)
+## MCP Tools (14)
 
 ### Core Reading
 
@@ -166,12 +166,13 @@ For more control, you can add rules to your project:
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. |
-| `project_overview` | `ls` + explore | Project type, architecture, frameworks, directory map. |
+| `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. Filters: `scope` (path prefix), `kind` (definitions/imports/usages), `lang`, `limit`. |
+| `project_overview` | `ls` + explore | Dual-detection (ast-index + config files) with confidence scoring. Project type, frameworks, quality tools, CI, architecture, directory map. Filter sections with `include`. |
 | `related_files` | manual explore | Import graph: what a file imports, what imports it, test files. |
-| `outline` | multiple `smart_read` | Compact overview of all code files in a directory. One call instead of 5-6. |
+| `outline` | multiple `smart_read` | Compact overview of all code files in a directory. One call instead of 5-6. Supports `recursive` mode with `max_depth` for deep exploration. |
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 | `code_audit` | multiple `Grep` | Code quality issues in one call: TODO/FIXME comments, deprecated symbols, structural code patterns (via ast-grep), decorator search. |
+| `module_info` | manual analysis | Module dependency analysis: dependencies, dependents, public API, unused deps. Use for architecture understanding and dependency cleanup. |
 
 ### Analytics
 
@@ -315,13 +316,13 @@ npm run dev          # TypeScript watch mode
 ```
 src/
   index.ts              — CLI entry point (6 commands)
-  server.ts             — MCP server setup, tool definitions, instructions
+  server.ts             — MCP server setup, 14 tool definitions, instructions
   types.ts              — Core domain types
   ast-index/
-    client.ts           — ast-index CLI wrapper
+    client.ts           — ast-index CLI wrapper (22+ methods)
     binary-manager.ts   — Auto-download & manage ast-index binary
     tar-extract.ts      — Minimal tar extractor (zero deps)
-    types.ts            — ast-index response types
+    types.ts            — ast-index response types (20+ interfaces)
   core/
     file-cache.ts       — LRU file cache with staleness detection
     context-registry.ts — Advisory context tracking + compact reminders
@@ -330,6 +331,7 @@ src/
     session-analytics.ts — Token savings tracking
     validation.ts       — Input validators for all tools
     format-duration.ts  — Shared duration formatter
+    project-detector.ts — Config-based project detection (frameworks, CI, quality tools)
   config/
     loader.ts           — Config loading + deep merge
     defaults.ts         — Default config values
@@ -341,13 +343,14 @@ src/
     read-range.ts       — read_range handler
     read-diff.ts        — read_diff handler (O(n) diff)
     smart-read-many.ts  — Batch smart_read
-    find-usages.ts      — find_usages handler (via ast-index refs)
+    find-usages.ts      — find_usages handler (scope/kind/lang/limit filters)
     read-for-edit.ts    — read_for_edit handler (minimal edit context)
     related-files.ts    — related_files handler (import graph)
-    outline.ts          — outline handler (directory overview)
+    outline.ts          — outline handler (recursive directory overview)
     find-unused.ts      — find_unused handler
     code-audit.ts       — code_audit handler (TODOs, deprecated, patterns)
-    project-overview.ts — project_overview (via ast-index map + conventions)
+    project-overview.ts — project_overview (dual-detection + confidence)
+    module-info.ts      — module_info handler (deps, dependents, API, unused)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25
   git/
