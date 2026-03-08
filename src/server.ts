@@ -32,6 +32,7 @@ import { handleReadForEdit } from './handlers/read-for-edit.js';
 import { handleRelatedFiles } from './handlers/related-files.js';
 import { handleOutline } from './handlers/outline.js';
 import { handleCodeAudit } from './handlers/code-audit.js';
+import { handleModuleInfo } from './handlers/module-info.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -48,6 +49,8 @@ import {
   validateOutlineArgs,
   validateFindUnusedArgs,
   validateCodeAuditArgs,
+  validateProjectOverviewArgs,
+  validateModuleInfoArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
@@ -228,6 +231,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Text pattern search/counting → Grep (regex, count mode)',
         '• Security audit → Grep for: password, token, secret, credential, hardcoded, api_key, TODO.*security',
         '• Deep dive into specific code → read_symbol (after finding issues)',
+        '• Module architecture → module_info (deps, dependents, public API, unused deps)',
         '',
         'WORKFLOW: project_overview → smart_read → read_symbol → read_for_edit → edit → read_diff',
       ].join('\n'),
@@ -323,21 +327,31 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       // --- Search & navigation ---
       {
         name: 'find_usages',
-        description: 'Use INSTEAD OF Grep/ripgrep for finding symbol references. Semantic search across the project — groups results by: definitions, imports, usages.',
+        description: 'Use INSTEAD OF Grep/ripgrep for finding symbol references. Semantic search across the project — groups results by: definitions, imports, usages. (v1.1: added scope, kind, limit, lang filters)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             symbol: { type: 'string', description: 'Symbol name to find usages of' },
+            scope: { type: 'string', description: 'Filter results by path prefix (e.g., "src/Domain/")' },
+            kind: { type: 'string', enum: ['definitions', 'imports', 'usages', 'all'], description: 'Show only specific section (default: "all")' },
+            limit: { type: 'number', description: 'Max results per category (default: 50, max: 500)' },
+            lang: { type: 'string', description: 'Filter by language/extension (e.g., "php", "typescript")' },
           },
           required: ['symbol'],
         },
       },
       {
         name: 'project_overview',
-        description: 'START HERE for unfamiliar codebases. Shows project type, architecture, framework detection, directory structure with symbol counts. Use before exploring code.',
+        description: 'START HERE for unfamiliar codebases. Shows project type (dual-detection: ast-index + config files), architecture, framework detection, quality tools, CI, directory map. (v1.1: added include filter)',
         inputSchema: {
           type: 'object' as const,
-          properties: {},
+          properties: {
+            include: {
+              type: 'array',
+              items: { type: 'string', enum: ['stack', 'ci', 'quality', 'architecture'] },
+              description: 'Sections to include (default: all). Use ["stack"] for quick type check, ["quality","ci"] for tooling overview.',
+            },
+          },
         },
       },
       {
@@ -353,11 +367,13 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'outline',
-        description: 'Use INSTEAD OF listing dir + reading each file. One call returns all symbols (classes, functions, methods, routes) for every code file in a directory.',
+        description: 'Use INSTEAD OF listing dir + reading each file. One call returns all symbols (classes, functions, methods, routes) for every code file in a directory. (v1.1: added recursive, max_depth)',
         inputSchema: {
           type: 'object' as const,
           properties: {
             path: { type: 'string', description: 'Directory path' },
+            recursive: { type: 'boolean', description: 'Recursively outline subdirectories (default: false)' },
+            max_depth: { type: 'number', description: 'Max recursion depth when recursive=true (default: 2, max: 5)' },
           },
           required: ['path'],
         },
@@ -401,6 +417,22 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             limit: { type: 'number', description: 'Max results (default: 50)' },
           },
           required: ['check'],
+        },
+      },
+      {
+        name: 'module_info',
+        description: 'Analyze module dependencies, dependents, public API, and unused deps. Use for architecture understanding and dependency cleanup.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            module: { type: 'string', description: 'Module name or path pattern (e.g., "auth", "src/Domain/")' },
+            check: {
+              type: 'string',
+              enum: ['deps', 'dependents', 'api', 'unused-deps', 'all'],
+              description: 'What to check: "deps" (dependencies), "dependents" (who depends on this), "api" (public symbols), "unused-deps" (dead dependencies), "all" (everything). Default: "all"',
+            },
+          },
+          required: ['module'],
         },
       },
     ],
@@ -517,7 +549,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         }
 
         case 'project_overview': {
-          const overviewResult = await handleProjectOverview(projectRoot, astIndex);
+          const overviewArgs = validateProjectOverviewArgs(args);
+          const overviewResult = await handleProjectOverview(overviewArgs, projectRoot, astIndex);
           const overviewText = overviewResult.content[0]?.text ?? '';
           overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
           const ovTokens = estimateTokens(overviewResult.content[0].text);
@@ -558,6 +591,16 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const auditText = auditResult.content[0]?.text ?? '';
           analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: estimateTokens(auditText), tokensWouldBe: estimateTokens(auditText), timestamp: Date.now() });
           return auditResult;
+        }
+
+        case 'module_info': {
+          const moduleArgs = validateModuleInfoArgs(args);
+          const moduleResult = await handleModuleInfo(moduleArgs, projectRoot, astIndex);
+          const moduleText = moduleResult.content[0]?.text ?? '';
+          // Estimate: manual analysis would require reading all module files + grepping deps
+          const moduleWouldBe = estimateTokens(moduleText) * 5;
+          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: estimateTokens(moduleText), tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
+          return moduleResult;
         }
 
         default:

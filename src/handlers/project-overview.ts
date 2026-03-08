@@ -1,85 +1,131 @@
-import { readFile } from 'node:fs/promises';
-import { resolve, basename } from 'node:path';
+import { basename } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
+import { detectProject } from '../core/project-detector.js';
+import type { ProjectDetection, DetectedStack } from '../core/project-detector.js';
+import type { ProjectOverviewArgs } from '../core/validation.js';
 
 export async function handleProjectOverview(
+  args: ProjectOverviewArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const lines: string[] = [];
 
-  // 1. Project info from package.json / Cargo.toml etc.
-  const projectInfo = await detectProjectInfo(projectRoot);
-  if (projectInfo) {
-    lines.push(`PROJECT: ${projectInfo.name} v${projectInfo.version}`);
-    if (projectInfo.description) lines.push(`  ${projectInfo.description}`);
-    lines.push('');
-  } else {
-    lines.push(`PROJECT: ${basename(projectRoot)}`);
-    lines.push('');
-  }
+  // 1. Dual detection: ast-index + config scanner
+  let astIndexType: string | undefined;
+  let mapData: Awaited<ReturnType<AstIndexClient['map']>> | null = null;
+  let convData: Awaited<ReturnType<AstIndexClient['conventions']>> | null = null;
 
-  // 2. ast-index map — directory structure with file counts and symbol kinds
   if (astIndex.isAvailable() && !astIndex.isOversized() && !astIndex.isDisabled()) {
-    const [mapData, convData] = await Promise.all([
+    [mapData, convData] = await Promise.all([
       astIndex.map(),
       astIndex.conventions(),
     ]);
-
     if (mapData) {
-      lines.push(`TYPE: ${mapData.project_type} (${mapData.file_count} files)`);
-      lines.push('');
-
-      // Conventions
-      if (convData) {
-        if (convData.architecture.length > 0) {
-          lines.push(`ARCHITECTURE: ${convData.architecture.join(', ')}`);
-        }
-
-        const fwList: string[] = [];
-        for (const [category, frameworks] of Object.entries(convData.frameworks)) {
-          for (const fw of frameworks) {
-            fwList.push(`${fw.name} (${category})`);
-          }
-        }
-        if (fwList.length > 0) {
-          lines.push(`FRAMEWORKS: ${fwList.join(', ')}`);
-        }
-
-        if (convData.naming_patterns.length > 0) {
-          const patterns = convData.naming_patterns
-            .slice(0, 8)
-            .map(p => `${p.suffix}(${p.count})`)
-            .join(', ');
-          lines.push(`PATTERNS: ${patterns}`);
-        }
-        lines.push('');
-      }
-
-      // Directory map
-      lines.push('MAP:');
-      for (const group of mapData.groups) {
-        const kinds = group.kinds
-          ? ' — ' + Object.entries(group.kinds).map(([k, v]) => `${v} ${k}`).join(', ')
-          : '';
-        lines.push(`  ${group.path} (${group.file_count} files${kinds})`);
-      }
-      lines.push('');
-    } else {
-      // Fallback to stats
-      try {
-        const statsText = await astIndex.stats();
-        if (statsText) {
-          const filesMatch = statsText.match(/Files:\s*(\d+)/);
-          const symbolsMatch = statsText.match(/Symbols:\s*(\d+)/);
-          if (filesMatch) lines.push(`Files indexed: ${filesMatch[1]}`);
-          if (symbolsMatch) lines.push(`Symbols: ${symbolsMatch[1]}`);
-          lines.push('');
-        }
-      } catch { /* ignore */ }
+      astIndexType = mapData.project_type;
     }
   }
 
+  const detection = await detectProject(projectRoot, astIndexType);
+
+  // Determine which sections to include
+  const include = args.include ?? ['stack', 'ci', 'quality', 'architecture'];
+  const showStack = include.includes('stack');
+  const showCI = include.includes('ci');
+  const showQuality = include.includes('quality');
+  const showArch = include.includes('architecture');
+
+  // 2. Project identity
+  lines.push(`PROJECT: ${detection.projectName} v${detection.projectVersion}`);
+  if (detection.projectDescription) lines.push(`  ${detection.projectDescription}`);
+  lines.push('');
+
+  // 3. TYPE — dual detection
+  if (showStack) {
+    if (astIndexType) {
+      lines.push(`TYPE (ast-index): ${astIndexType}${mapData ? ` (${mapData.file_count} files)` : ''}`);
+    }
+
+    if (detection.configStacks.length > 0) {
+      const configLine = formatConfigStacks(detection);
+      lines.push(`TYPE (config): ${configLine}`);
+    }
+
+    if (detection.configStacks.length === 0 && !astIndexType) {
+      lines.push('TYPE: unknown (no config files found)');
+    }
+
+    // Confidence
+    lines.push(`CONFIDENCE: ${detection.confidence}${getConfidenceHint(detection)}`);
+    lines.push('');
+  }
+
+  // 4. Architecture & frameworks (from ast-index conventions)
+  if (showArch && convData) {
+    if (convData.architecture.length > 0) {
+      lines.push(`ARCHITECTURE: ${convData.architecture.join(', ')}`);
+    }
+
+    // Merge framework info: ast-index conventions + config detection
+    const fwList = buildFrameworkList(convData, detection);
+    if (fwList.length > 0) {
+      lines.push(`FRAMEWORKS: ${fwList.join(', ')}`);
+    }
+
+    if (convData.naming_patterns.length > 0) {
+      const patterns = convData.naming_patterns
+        .slice(0, 8)
+        .map(p => `${p.suffix}(${p.count})`)
+        .join(', ');
+      lines.push(`PATTERNS: ${patterns}`);
+    }
+    lines.push('');
+  }
+
+  // 5. Quality tools
+  if (showQuality && detection.qualityTools.length > 0) {
+    lines.push(`QUALITY: ${detection.qualityTools.join(', ')}`);
+  }
+
+  // 6. CI pipelines
+  if (showCI && detection.ciPipelines.length > 0) {
+    lines.push(`CI: ${detection.ciPipelines.join(', ')}`);
+  }
+
+  // Docker
+  if (showCI && detection.hasDocker) {
+    lines.push('DOCKER: yes');
+  }
+
+  if ((showQuality && detection.qualityTools.length > 0) || (showCI && detection.ciPipelines.length > 0)) {
+    lines.push('');
+  }
+
+  // 7. Directory map (from ast-index)
+  if (showArch && mapData) {
+    lines.push('MAP:');
+    for (const group of mapData.groups) {
+      const kinds = group.kinds
+        ? ' — ' + Object.entries(group.kinds).map(([k, v]) => `${v} ${k}`).join(', ')
+        : '';
+      lines.push(`  ${group.path} (${group.file_count} files${kinds})`);
+    }
+    lines.push('');
+  } else if (showArch && !mapData && astIndex.isAvailable() && !astIndex.isDisabled() && !astIndex.isOversized()) {
+    // Fallback to stats
+    try {
+      const statsText = await astIndex.stats();
+      if (statsText) {
+        const filesMatch = statsText.match(/Files:\s*(\d+)/);
+        const symbolsMatch = statsText.match(/Symbols:\s*(\d+)/);
+        if (filesMatch) lines.push(`Files indexed: ${filesMatch[1]}`);
+        if (symbolsMatch) lines.push(`Symbols: ${symbolsMatch[1]}`);
+        lines.push('');
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 8. Degradation warnings
   if (astIndex.isDisabled()) {
     lines.push('⚠ ast-index: project root not detected. Call smart_read() on any project file first.');
     lines.push('  Working tools: smart_read, smart_read_many, outline, read_symbol, read_range');
@@ -97,53 +143,63 @@ export async function handleProjectOverview(
   return { content: [{ type: 'text', text: lines.join('\n') }] };
 }
 
-interface ProjectInfo {
-  name: string;
-  version: string;
-  description?: string;
-  type: string;
+// ──────────────────────────────────────────────
+// Formatters
+// ──────────────────────────────────────────────
+
+function formatConfigStacks(detection: ProjectDetection): string {
+  if (detection.configStacks.length === 0) return 'unknown';
+
+  const parts: string[] = [];
+  for (const stack of detection.configStacks) {
+    let part = stack.type;
+    if (stack.langVersion) part = stack.langVersion;
+    if (stack.framework) part += ` (${stack.framework})`;
+    parts.push(part);
+  }
+
+  if (detection.primaryStack && detection.configStacks.length > 1) {
+    // Put primary first, mark others
+    const primaryIdx = detection.configStacks.indexOf(detection.primaryStack);
+    if (primaryIdx > 0) {
+      const [primary] = parts.splice(primaryIdx, 1);
+      parts.unshift(primary);
+    }
+    return parts[0] + (parts.length > 1 ? ` + ${parts.slice(1).join(', ')}` : '');
+  }
+
+  return parts.join(', ');
 }
 
-async function detectProjectInfo(projectRoot: string): Promise<ProjectInfo | null> {
-  try {
-    const pkg = JSON.parse(await readFile(resolve(projectRoot, 'package.json'), 'utf-8'));
-    return {
-      name: pkg.name ?? basename(projectRoot),
-      version: pkg.version ?? '0.0.0',
-      description: pkg.description,
-      type: 'Node.js/TypeScript',
-    };
-  } catch { /* not a node project */ }
+function getConfidenceHint(detection: ProjectDetection): string {
+  if (detection.confidence === 'low') {
+    return ` — ast-index and config files disagree on project type`;
+  }
+  if (detection.confidence === 'medium' && detection.configStacks.length > 1) {
+    return ` — multi-stack project detected`;
+  }
+  return '';
+}
 
-  try {
-    const composer = JSON.parse(await readFile(resolve(projectRoot, 'composer.json'), 'utf-8'));
-    return {
-      name: composer.name ?? 'unknown',
-      version: composer.version ?? '0.0.0',
-      description: composer.description,
-      type: 'PHP',
-    };
-  } catch { /* not a php project */ }
+function buildFrameworkList(
+  convData: { frameworks: Record<string, Array<{ name: string; count: number }>> },
+  detection: ProjectDetection,
+): string[] {
+  const fwSet = new Set<string>();
 
-  try {
-    const cargo = await readFile(resolve(projectRoot, 'Cargo.toml'), 'utf-8');
-    const name = cargo.match(/^name\s*=\s*"(.+?)"/m)?.[1] ?? 'unknown';
-    const version = cargo.match(/^version\s*=\s*"(.+?)"/m)?.[1] ?? '0.0.0';
-    return { name, version, type: 'Rust' };
-  } catch { /* not a rust project */ }
+  // From ast-index conventions
+  for (const [category, frameworks] of Object.entries(convData.frameworks)) {
+    for (const fw of frameworks) {
+      fwSet.add(`${fw.name} (${category})`);
+    }
+  }
 
-  try {
-    const pyproject = await readFile(resolve(projectRoot, 'pyproject.toml'), 'utf-8');
-    const name = pyproject.match(/^name\s*=\s*"(.+?)"/m)?.[1] ?? 'unknown';
-    const version = pyproject.match(/^version\s*=\s*"(.+?)"/m)?.[1] ?? '0.0.0';
-    return { name, version, type: 'Python' };
-  } catch { /* not a python project */ }
+  // From config detection (may have version info that conventions don't)
+  for (const stack of detection.configStacks) {
+    if (stack.framework && !Array.from(fwSet).some(f => f.includes(stack.framework!.split(' ')[0]))) {
+      fwSet.add(stack.framework);
+    }
+  }
 
-  try {
-    const gomod = await readFile(resolve(projectRoot, 'go.mod'), 'utf-8');
-    const name = gomod.match(/^module\s+(.+)/m)?.[1] ?? 'unknown';
-    return { name, version: '0.0.0', type: 'Go' };
-  } catch { /* not a go project */ }
-
-  return null;
+  return Array.from(fwSet);
 }
