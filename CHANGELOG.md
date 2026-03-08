@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ast-index client: 5 module methods** — `modules()`, `moduleDeps()`, `moduleDependents()`, `unusedDeps()`, `moduleApi()` with JSON-first + text fallback parsing.
 - **ast-index types: 4 module interfaces** — `AstIndexModuleEntry`, `AstIndexModuleDep`, `AstIndexUnusedDep`, `AstIndexModuleApi`.
 
+### Fixed
+- **`module_info` token savings** — `tokensWouldBe` was equal to `tokensReturned` (0% savings). Now estimates manual analysis cost correctly.
+- **`outline` recursive overflow** — added `MAX_OUTLINE_LINES=500` guard to prevent runaway output on large projects with `recursive=true`.
+- **`project_overview` "frontend" label** — removed hardcoded "frontend" suffix for secondary stacks (Node.js is not always frontend).
+- **Ruff detection** — no longer double-reads `pyproject.toml`. Checks `ruff.toml`/`.ruff.toml` first, falls back to `pyproject.toml [tool.ruff]` only if needed.
+- **44 new tests** — validators (23) + project-detector (21). Total: 144 tests (was 100).
+
 ### Changed
 - **14 tools** (was 13) — added `module_info`
 - **Tool descriptions** — updated with `(v1.1: ...)` version hints for enhanced tools
