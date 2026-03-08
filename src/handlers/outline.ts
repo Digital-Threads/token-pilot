@@ -3,10 +3,7 @@ import { resolve, basename, relative } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolInfo } from '../types.js';
 import { resolveSafePath } from '../core/validation.js';
-
-export interface OutlineArgs {
-  path: string;
-}
+import type { OutlineArgs } from '../core/validation.js';
 
 const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',
@@ -39,7 +36,30 @@ export async function handleOutline(
     };
   }
 
-  // List code files and subdirectories (1 level)
+  const recursive = args.recursive ?? false;
+  const maxDepth = args.max_depth ?? 2;
+
+  const sections: string[] = [];
+  await outlineDir(absPath, sections, 0, recursive ? maxDepth : 0, projectRoot, astIndex);
+
+  sections.push('HINT: Use outline(path) on subdirs, smart_read(path) for file structure, read_symbol(path, symbol) for source code.');
+
+  return { content: [{ type: 'text', text: sections.join('\n') }] };
+}
+
+/**
+ * Outline a single directory. When depth < maxDepth and recursive,
+ * recurse into subdirectories. Otherwise show file counts only.
+ */
+async function outlineDir(
+  absPath: string,
+  sections: string[],
+  depth: number,
+  maxDepth: number,
+  projectRoot: string,
+  astIndex: AstIndexClient,
+): Promise<void> {
+  // List code files and subdirectories
   const entries = await readdir(absPath, { withFileTypes: true });
   const codeFiles: string[] = [];
   const subdirs: string[] = [];
@@ -56,12 +76,10 @@ export async function handleOutline(
   }
 
   if (codeFiles.length === 0 && subdirs.length === 0) {
-    return {
-      content: [{
-        type: 'text',
-        text: `No code files or subdirectories found in "${args.path}".`,
-      }],
-    };
+    if (depth === 0) {
+      sections.push(`No code files or subdirectories found in "${relative(projectRoot, absPath) || '.'}".`);
+    }
+    return;
   }
 
   // Sort
@@ -69,48 +87,58 @@ export async function handleOutline(
   subdirs.sort();
 
   const relDir = relative(projectRoot, absPath) || '.';
+  const indent = '  '.repeat(depth);
   const totalLabel = codeFiles.length > 0 ? `${codeFiles.length} files` : '';
   const subLabel = subdirs.length > 0 ? `${subdirs.length} subdirs` : '';
   const countLabel = [totalLabel, subLabel].filter(Boolean).join(', ');
-  const sections: string[] = [`OUTLINE: ${relDir}/ (${countLabel})`, ''];
+  sections.push(`${indent}OUTLINE: ${relDir}/ (${countLabel})`);
+  sections.push('');
 
-  // Show subdirectories with file counts (recursive scan)
+  // Show subdirectories
   if (subdirs.length > 0) {
-    for (const sub of subdirs) {
-      const subPath = resolve(absPath, sub);
-      const fileCount = await countCodeFiles(subPath);
-      sections.push(`  ${sub}/ (${fileCount} code files)`);
+    if (depth < maxDepth) {
+      // Recursive: outline each subdir
+      for (const sub of subdirs) {
+        const subPath = resolve(absPath, sub);
+        await outlineDir(subPath, sections, depth + 1, maxDepth, projectRoot, astIndex);
+      }
+    } else {
+      // Non-recursive: show file counts only
+      for (const sub of subdirs) {
+        const subPath = resolve(absPath, sub);
+        const fileCount = await countCodeFiles(subPath);
+        sections.push(`${indent}  ${sub}/ (${fileCount} code files)`);
+      }
+      sections.push('');
     }
-    sections.push('');
   }
 
   // Show code files at this level with AST outline
+  const fileIndent = '  '.repeat(depth + 1);
+  const symbolIndent = depth + 2;
+
   for (const filePath of codeFiles) {
     const name = basename(filePath);
 
     try {
       const structure = await astIndex.outline(filePath);
       if (!structure) {
-        sections.push(`${name} (no AST)`);
+        sections.push(`${fileIndent}${name} (no AST)`);
         sections.push('');
         continue;
       }
 
-      sections.push(`${name} (${structure.meta.lines} lines)`);
+      sections.push(`${fileIndent}${name} (${structure.meta.lines} lines)`);
 
       for (const sym of structure.symbols) {
-        formatCompactSymbol(sym, sections, 1);
+        formatCompactSymbol(sym, sections, symbolIndent);
       }
       sections.push('');
     } catch {
-      sections.push(`${name} (outline failed)`);
+      sections.push(`${fileIndent}${name} (outline failed)`);
       sections.push('');
     }
   }
-
-  sections.push('HINT: Use outline(path) on subdirs, smart_read(path) for file structure, read_symbol(path, symbol) for source code.');
-
-  return { content: [{ type: 'text', text: sections.join('\n') }] };
 }
 
 /**

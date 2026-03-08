@@ -27,6 +27,10 @@ import type {
   AstIndexTodoEntry,
   AstIndexDeprecatedEntry,
   AstIndexAnnotationEntry,
+  AstIndexModuleEntry,
+  AstIndexModuleDep,
+  AstIndexUnusedDep,
+  AstIndexModuleApi,
 } from './types.js';
 import { findBinary, installBinary } from './binary-manager.js';
 
@@ -841,6 +845,178 @@ export class AstIndexClient {
     } catch (err) {
       console.error(`[token-pilot] ast-index incremental update failed: ${err instanceof Error ? err.message : err}`);
     }
+  }
+
+  // --- Module analysis methods (ast-index v3.27.0) ---
+
+  /** List project modules matching optional pattern */
+  async modules(pattern?: string): Promise<AstIndexModuleEntry[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const cmdArgs = pattern ? ['module', pattern] : ['module'];
+      const result = await this.exec(cmdArgs, 15000);
+      return this.parseModuleListText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index module failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /** Get dependencies of a module */
+  async moduleDeps(module: string): Promise<AstIndexModuleDep[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['deps', module], 15000);
+      return this.parseModuleDepText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index deps failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /** Get modules that depend on this module */
+  async moduleDependents(module: string): Promise<AstIndexModuleDep[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['dependents', module], 15000);
+      return this.parseModuleDepText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index dependents failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /** Find unused dependencies of a module */
+  async unusedDeps(module: string): Promise<AstIndexUnusedDep[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['unused-deps', module], 15000);
+      return this.parseUnusedDepsText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index unused-deps failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  /** Get public API of a module */
+  async moduleApi(module: string): Promise<AstIndexModuleApi[]> {
+    if (this.indexDisabled || this.indexOversized) return [];
+    await this.ensureIndex();
+
+    try {
+      const result = await this.exec(['api', module], 15000);
+      return this.parseModuleApiText(result);
+    } catch (err) {
+      console.error(`[token-pilot] ast-index api failed: ${err instanceof Error ? err.message : err}`);
+      return [];
+    }
+  }
+
+  // Parsers for module commands (text format — JSON may not be supported for all)
+
+  private parseModuleListText(text: string): AstIndexModuleEntry[] {
+    const results: AstIndexModuleEntry[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try JSON first
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) return parsed;
+      } catch { /* not JSON, parse as text */ }
+      // Format: name (path) — N files  OR  name (path)  OR  path
+      const match = line.match(/^(\S+)\s+\((.+?)\)(?:\s*—\s*(\d+)\s+files?)?$/);
+      if (match) {
+        results.push({
+          name: match[1],
+          path: match[2],
+          file_count: match[3] ? parseInt(match[3], 10) : undefined,
+        });
+      } else {
+        // Fallback: treat entire line as a path-based module
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('─')) {
+          const name = trimmed.split('/').pop() ?? trimmed;
+          results.push({ name, path: trimmed });
+        }
+      }
+    }
+    return results;
+  }
+
+  private parseModuleDepText(text: string): AstIndexModuleDep[] {
+    const results: AstIndexModuleDep[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try JSON first
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) return parsed;
+      } catch { /* not JSON, parse as text */ }
+      // Format: → name (path)  OR  ← name (path)  OR  name (path)  OR  name
+      const match = line.match(/^[→←\-\s]*(\S+)(?:\s+\((.+?)\))?(?:\s+\[(direct|transitive)\])?$/);
+      if (match) {
+        results.push({
+          name: match[1],
+          path: match[2] ?? match[1],
+          type: match[3],
+        });
+      }
+    }
+    return results;
+  }
+
+  private parseUnusedDepsText(text: string): AstIndexUnusedDep[] {
+    const results: AstIndexUnusedDep[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try JSON first
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) return parsed;
+      } catch { /* not JSON, parse as text */ }
+      // Format: ⚠ name (path) — reason  OR  name (path)  OR  name — reason
+      const match = line.match(/^[⚠!\s]*(\S+)(?:\s+\((.+?)\))?(?:\s*[—\-]+\s*(.+))?$/);
+      if (match) {
+        results.push({
+          name: match[1],
+          path: match[2] ?? match[1],
+          reason: match[3]?.trim(),
+        });
+      }
+    }
+    return results;
+  }
+
+  private parseModuleApiText(text: string): AstIndexModuleApi[] {
+    const results: AstIndexModuleApi[] = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      // Try JSON first
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) return parsed;
+      } catch { /* not JSON, parse as text */ }
+      // Format: kind name (file:line)  OR  kind name signature (file:line)
+      const match = line.match(/^(\w+)\s+(\S+)(?:\s+(.*?))?\s+\((.+?):(\d+)\)$/);
+      if (match) {
+        results.push({
+          kind: match[1],
+          name: match[2],
+          signature: match[3]?.trim() || undefined,
+          file: match[4],
+          line: parseInt(match[5], 10),
+        });
+      }
+    }
+    return results;
   }
 
   // --- Utility methods ---

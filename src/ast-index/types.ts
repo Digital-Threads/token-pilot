@@ -1,6 +1,6 @@
 /**
  * Types for ast-index CLI JSON output.
- * These map to the ACTUAL JSON responses from ast-index v3.24.0 commands.
+ * These map to the ACTUAL JSON responses from ast-index v3.27.0 commands.
  */
 
 /** ast-index outline — parsed from text output (JSON not supported) */
@@ -199,4 +199,38 @@ export interface AstIndexAnnotationEntry {
   file: string;
   line: number;
   annotation: string;
+}
+
+// ──────────────────────────────────────────────
+// Module analysis types (ast-index v3.27.0)
+// ──────────────────────────────────────────────
+
+/** ast-index module — list project modules */
+export interface AstIndexModuleEntry {
+  name: string;
+  path: string;
+  file_count?: number;
+}
+
+/** ast-index deps / dependents — module dependency */
+export interface AstIndexModuleDep {
+  name: string;
+  path: string;
+  type?: string; // "direct" | "transitive"
+}
+
+/** ast-index unused-deps — unused module dependency */
+export interface AstIndexUnusedDep {
+  name: string;
+  path: string;
+  reason?: string;
+}
+
+/** ast-index api — public API of a module */
+export interface AstIndexModuleApi {
+  name: string;
+  kind: string;
+  signature?: string;
+  file: string;
+  line: number;
 }

@@ -129,8 +129,17 @@ export function validateReadDiffArgs(args: unknown): {
 
 /**
  * Validate find_usages arguments.
+ * v1.1: added scope, kind, limit, lang filters.
  */
-export function validateFindUsagesArgs(args: unknown): { symbol: string } {
+export interface FindUsagesArgs {
+  symbol: string;
+  scope?: string;
+  kind?: 'definitions' | 'imports' | 'usages' | 'all';
+  limit?: number;
+  lang?: string;
+}
+
+export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
   }
@@ -138,7 +147,28 @@ export function validateFindUsagesArgs(args: unknown): { symbol: string } {
   if (typeof a.symbol !== 'string' || a.symbol.length === 0) {
     throw new Error('Required parameter "symbol" must be a non-empty string.');
   }
-  return { symbol: a.symbol };
+
+  let kind: FindUsagesArgs['kind'];
+  if (a.kind !== undefined && a.kind !== null) {
+    const validKinds = ['definitions', 'imports', 'usages', 'all'];
+    if (typeof a.kind !== 'string' || !validKinds.includes(a.kind)) {
+      throw new Error(`"kind" must be one of: ${validKinds.join(', ')}`);
+    }
+    kind = a.kind as FindUsagesArgs['kind'];
+  }
+
+  const limit = optionalNumber(a.limit, 'limit');
+  if (limit !== undefined && (limit < 1 || limit > 500)) {
+    throw new Error('"limit" must be between 1 and 500.');
+  }
+
+  return {
+    symbol: a.symbol,
+    scope: optionalString(a.scope, 'scope'),
+    kind,
+    limit,
+    lang: optionalString(a.lang, 'lang'),
+  };
 }
 
 /**
@@ -221,8 +251,15 @@ export function validateRelatedFilesArgs(args: unknown): { path: string } {
 
 /**
  * Validate outline arguments.
+ * v1.1: added recursive, max_depth.
  */
-export function validateOutlineArgs(args: unknown): { path: string } {
+export interface OutlineArgs {
+  path: string;
+  recursive?: boolean;
+  max_depth?: number;
+}
+
+export function validateOutlineArgs(args: unknown): OutlineArgs {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
   }
@@ -230,7 +267,17 @@ export function validateOutlineArgs(args: unknown): { path: string } {
   if (typeof a.path !== 'string' || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
-  return { path: a.path };
+
+  const maxDepth = optionalNumber(a.max_depth, 'max_depth');
+  if (maxDepth !== undefined && (maxDepth < 1 || maxDepth > 5)) {
+    throw new Error('"max_depth" must be between 1 and 5.');
+  }
+
+  return {
+    path: a.path,
+    recursive: optionalBool(a.recursive, 'recursive'),
+    max_depth: maxDepth,
+  };
 }
 
 export function validateFindUnusedArgs(args: unknown): {
@@ -284,6 +331,67 @@ export function validateCodeAuditArgs(args: unknown): CodeAuditArgs {
     name: optionalString(a.name, 'name'),
     lang: optionalString(a.lang, 'lang'),
     limit: optionalNumber(a.limit, 'limit'),
+  };
+}
+
+/**
+ * Validate project_overview arguments.
+ * v1.1: added include filter.
+ */
+export interface ProjectOverviewArgs {
+  include?: Array<'stack' | 'ci' | 'quality' | 'architecture'>;
+}
+
+const VALID_INCLUDE_SECTIONS = ['stack', 'ci', 'quality', 'architecture'] as const;
+
+export function validateProjectOverviewArgs(args: unknown): ProjectOverviewArgs {
+  if (!args || typeof args !== 'object') return {};
+  const a = args as Record<string, unknown>;
+
+  if (a.include !== undefined && a.include !== null) {
+    if (!Array.isArray(a.include)) {
+      throw new Error('"include" must be an array of section names.');
+    }
+    for (const item of a.include) {
+      if (typeof item !== 'string' || !(VALID_INCLUDE_SECTIONS as readonly string[]).includes(item)) {
+        throw new Error(`Each element of "include" must be one of: ${VALID_INCLUDE_SECTIONS.join(', ')}. Got: "${item}"`);
+      }
+    }
+    return { include: a.include as ProjectOverviewArgs['include'] };
+  }
+
+  return {};
+}
+
+/**
+ * Validate module_info arguments.
+ */
+export interface ModuleInfoArgs {
+  module: string;
+  check?: 'deps' | 'dependents' | 'api' | 'unused-deps' | 'all';
+}
+
+export function validateModuleInfoArgs(args: unknown): ModuleInfoArgs {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object with a "module" parameter.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.module !== 'string' || a.module.length === 0) {
+    throw new Error('Required parameter "module" must be a non-empty string.');
+  }
+
+  let check: ModuleInfoArgs['check'];
+  if (a.check !== undefined && a.check !== null) {
+    const validChecks = ['deps', 'dependents', 'api', 'unused-deps', 'all'];
+    if (typeof a.check !== 'string' || !validChecks.includes(a.check)) {
+      throw new Error(`"check" must be one of: ${validChecks.join(', ')}`);
+    }
+    check = a.check as ModuleInfoArgs['check'];
+  }
+
+  return {
+    module: a.module,
+    check: check ?? 'all',
   };
 }
 
