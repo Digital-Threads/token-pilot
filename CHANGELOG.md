@@ -5,6 +5,30 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-03-14
+
+### Added
+- **Version check for all components** — on startup, checks token-pilot (npm), ast-index (GitHub releases), and context-mode (npm) in parallel. Non-blocking, fire-and-forget. Shows update notifications in stderr.
+- **`autoUpdate` config flag** — `updates.autoUpdate: true` in `.token-pilot.json` auto-downloads new ast-index binary on startup. Default: `false` (notify only). token-pilot and context-mode only notify (separate processes).
+- **`checkBinaryUpdate()`** — compares installed ast-index version vs latest GitHub release.
+- **`isNewerVersion()` utility** — semver comparison: strip `v` prefix, compare segments. Handles different lengths (`1.0` vs `1.0.1`).
+- **Common Lisp extensions** — `.lisp`, `.lsp`, `.cl`, `.asd` added to `CODE_EXTENSIONS` for ast-index v3.28+ compatibility.
+- **9 new tests** — `isNewerVersion()` covering major/minor/patch, same version, older, `v` prefix, different segment lengths, large numbers, real-world versions. Total: 217 tests.
+
+### Changed
+- **`doctor` command** — now shows 3 sections: token-pilot (installed/latest), ast-index (installed/latest/auto-update status), context-mode (detected/latest npm). Previously only showed ast-index binary status.
+- **`install-ast-index` command** — now also updates existing binary if newer version available on GitHub.
+- **`printHelp()`** — fixed tool count: 18 (was incorrectly showing 12 since v0.8.0).
+- **Startup update check** — replaced single `checkLatestVersion()` with `checkAllUpdates()` covering all 3 components via `Promise.allSettled`.
+
+### Fixed
+- **`test_summary` PHPUnit parser** — now counts both `Failures:` and `Errors:` (was only counting failures).
+- **`test_summary` cargo parser** — correctly identifies failure name-list section (no `----` markers) vs detail section.
+- **`test_summary` token estimation** — uses shared `estimateTokens()` instead of local duplicate.
+- **`smart_log` category detection** — `documentation` now matches docs pattern, `tests` (plural) matches test pattern, `optimize`/`optimization` match perf pattern.
+- **`explore_area` path boundary** — `startsWith(path + '/')` prevents `src/auth` matching `src/authorize/`.
+- **Validation consistency** — `validateSmartLogArgs` and `validateTestSummaryArgs` now use `optionalString`/`optionalNumber` helpers, reject empty strings, check integers.
+
 ## [0.11.0] - 2026-03-14
 
 ### Added
