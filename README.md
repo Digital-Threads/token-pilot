@@ -175,6 +175,8 @@ For more control, you can add rules to your project:
 | `module_info` | manual analysis | Module dependency analysis: dependencies, dependents, public API, unused deps. Use for architecture understanding and dependency cleanup. |
 | `smart_diff` | raw `git diff` | Structural diff with AST symbol mapping — shows which functions/classes changed instead of raw patch. Scopes: unstaged, staged, commit, branch. |
 | `explore_area` | outline + related_files + git log | One-call directory exploration: structure, imports, tests, recent changes. Replaces 3-5 separate calls. |
+| `smart_log` | raw `git log` | Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref. |
+| `test_summary` | raw test output | Run tests and get structured summary: total/passed/failed + failure details. Supports vitest, jest, pytest, phpunit, go, cargo, rspec, mocha. |
 
 ### Analytics
 
@@ -355,6 +357,8 @@ src/
     module-info.ts      — module_info handler (deps, dependents, API, unused)
     smart-diff.ts       — smart_diff handler (structural git diff + symbol mapping)
     explore-area.ts     — explore_area handler (outline + imports + tests + changes)
+    smart-log.ts        — smart_log handler (structured git log + category detection)
+    test-summary.ts     — test_summary handler (run tests + parse output)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25
   git/

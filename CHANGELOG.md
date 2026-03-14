@@ -5,6 +5,17 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-03-14
+
+### Added
+- **`smart_log` tool** — structured git log with commit category detection (feat/fix/refactor/docs/test/chore/style/perf). Shows author breakdown, file stats (+/-), per-commit file list. Filters by path and ref. Raw git log → compact summary.
+- **`test_summary` tool** — runs test command and returns structured summary: total/passed/failed/skipped + failure details. Parsers for vitest, jest, pytest, phpunit, go test, cargo test, rspec, mocha + generic fallback. 200 lines of raw output → 10-15 lines.
+- **38 new tests** — smart_log parser (5), categorizer (4), test_summary parsers (17), runner detection (8), validation (4). Total: 208 tests (was 170).
+
+### Changed
+- **18 tools** (was 16) — added `smart_log`, `test_summary`
+- **MCP instructions** — added smart_log and test_summary to workflow guidance
+
 ## [0.10.0] - 2026-03-14
 
 ### Added

@@ -35,6 +35,8 @@ import { handleCodeAudit } from './handlers/code-audit.js';
 import { handleModuleInfo } from './handlers/module-info.js';
 import { handleSmartDiff } from './handlers/smart-diff.js';
 import { handleExploreArea } from './handlers/explore-area.js';
+import { handleSmartLog } from './handlers/smart-log.js';
+import { handleTestSummary } from './handlers/test-summary.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -55,6 +57,8 @@ import {
   validateModuleInfoArgs,
   validateSmartDiffArgs,
   validateExploreAreaArgs,
+  validateSmartLogArgs,
+  validateTestSummaryArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
@@ -221,6 +225,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Code quality audit → code_audit (TODOs, deprecated, structural code patterns)',
         '• Reviewing git changes → smart_diff (structural diff with symbol mapping, not raw patch)',
         '• Starting work on an area → explore_area (outline + imports + tests + git log in one call)',
+        '• Understanding commit history → smart_log (structured git log with categories, not raw output)',
+        '• Running tests → test_summary (structured pass/fail summary, not 200 lines of raw output)',
         '',
         'WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):',
         '• Small files (≤200 lines) → smart_read returns full content anyway, same as Read',
@@ -470,6 +476,31 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           required: ['path'],
         },
       },
+      {
+        name: 'smart_log',
+        description: 'Use INSTEAD OF raw git log. Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: { type: 'string', description: 'Filter to specific file or directory' },
+            count: { type: 'number', description: 'Number of commits (default: 10, max: 50)' },
+            ref: { type: 'string', description: 'Git ref — branch, tag, or commit (default: HEAD)' },
+          },
+        },
+      },
+      {
+        name: 'test_summary',
+        description: 'Run tests and return structured summary: total/passed/failed/skipped + failure details. 200 lines of raw output → 10-15 lines. Supports vitest, jest, pytest, phpunit, go test, cargo test.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            command: { type: 'string', description: 'Test command to run (e.g., "npm test", "pytest", "go test ./...")' },
+            runner: { type: 'string', enum: ['vitest', 'jest', 'pytest', 'phpunit', 'go', 'cargo', 'rspec', 'mocha'], description: 'Force specific parser (auto-detected if omitted)' },
+            timeout: { type: 'number', description: 'Timeout in ms (default: 60000, max: 300000)' },
+          },
+          required: ['command'],
+        },
+      },
     ],
   }));
 
@@ -656,6 +687,24 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const eaWouldBe = eaTokens * 4;
           analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: eaTokens, tokensWouldBe: eaWouldBe, timestamp: Date.now() });
           return eaResult;
+        }
+
+        case 'smart_log': {
+          const slArgs = validateSmartLogArgs(args);
+          const slResult = await handleSmartLog(slArgs, projectRoot);
+          const slText = slResult.content[0]?.text ?? '';
+          const slTokens = estimateTokens(slText);
+          analytics.record({ tool: 'smart_log', path: slArgs.path ?? 'all', tokensReturned: slTokens, tokensWouldBe: slResult.rawTokens || slTokens, timestamp: Date.now() });
+          return { content: slResult.content };
+        }
+
+        case 'test_summary': {
+          const tsArgs = validateTestSummaryArgs(args);
+          const tsResult = await handleTestSummary(tsArgs, projectRoot);
+          const tsText = tsResult.content[0]?.text ?? '';
+          const tsTokens = estimateTokens(tsText);
+          analytics.record({ tool: 'test_summary', path: tsArgs.command, tokensReturned: tsTokens, tokensWouldBe: tsResult.rawTokens || tsTokens, timestamp: Date.now() });
+          return { content: tsResult.content };
         }
 
         default:

@@ -463,6 +463,76 @@ export function validateExploreAreaArgs(args: unknown): ExploreAreaArgs {
   return { path: a.path };
 }
 
+// ── smart_log ──
+
+export interface SmartLogArgs {
+  path?: string;
+  count?: number;
+  ref?: string;
+}
+
+export function validateSmartLogArgs(args: unknown): SmartLogArgs {
+  const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+
+  const result: SmartLogArgs = {};
+
+  if (a.path !== undefined) {
+    if (typeof a.path !== 'string') throw new Error('path must be a string');
+    result.path = a.path;
+  }
+
+  if (a.count !== undefined) {
+    const count = Number(a.count);
+    if (isNaN(count) || count < 1 || count > 50) throw new Error('count must be 1-50');
+    result.count = count;
+  }
+
+  if (a.ref !== undefined) {
+    if (typeof a.ref !== 'string') throw new Error('ref must be a string');
+    result.ref = a.ref;
+  }
+
+  return result;
+}
+
+// ── test_summary ──
+
+export interface TestSummaryArgs {
+  command: string;
+  runner?: string;
+  timeout?: number;
+}
+
+const VALID_RUNNERS = ['vitest', 'jest', 'pytest', 'phpunit', 'go', 'cargo', 'rspec', 'mocha'];
+
+export function validateTestSummaryArgs(args: unknown): TestSummaryArgs {
+  if (!args || typeof args !== 'object') throw new Error('args must be an object');
+  const a = args as Record<string, unknown>;
+
+  if (!a.command || typeof a.command !== 'string') {
+    throw new Error('command is required and must be a string');
+  }
+
+  const result: TestSummaryArgs = { command: a.command };
+
+  if (a.runner !== undefined) {
+    if (typeof a.runner !== 'string' || !VALID_RUNNERS.includes(a.runner)) {
+      throw new Error(`runner must be one of: ${VALID_RUNNERS.join(', ')}`);
+    }
+    result.runner = a.runner;
+  }
+
+  if (a.timeout !== undefined) {
+    const timeout = Number(a.timeout);
+    if (isNaN(timeout) || timeout < 1000 || timeout > 300000) {
+      throw new Error('timeout must be 1000-300000 (ms)');
+    }
+    result.timeout = timeout;
+  }
+
+  return result;
+}
+
 /** Detect roots that would cause ast-index to scan the entire filesystem */
 export function isDangerousRoot(root: string): boolean {
   const normalized = root.replace(/\/+$/, '') || '/';
