@@ -33,6 +33,8 @@ import { handleRelatedFiles } from './handlers/related-files.js';
 import { handleOutline } from './handlers/outline.js';
 import { handleCodeAudit } from './handlers/code-audit.js';
 import { handleModuleInfo } from './handlers/module-info.js';
+import { handleSmartDiff } from './handlers/smart-diff.js';
+import { handleExploreArea } from './handlers/explore-area.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -51,6 +53,8 @@ import {
   validateCodeAuditArgs,
   validateProjectOverviewArgs,
   validateModuleInfoArgs,
+  validateSmartDiffArgs,
+  validateExploreAreaArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
@@ -215,6 +219,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Reading file again → smart_read (returns compact reminder, not full content)',
         '• Multiple files → smart_read_many (batch, max 20)',
         '• Code quality audit → code_audit (TODOs, deprecated, structural code patterns)',
+        '• Reviewing git changes → smart_diff (structural diff with symbol mapping, not raw patch)',
+        '• Starting work on an area → explore_area (outline + imports + tests + git log in one call)',
         '',
         'WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):',
         '• Small files (≤200 lines) → smart_read returns full content anyway, same as Read',
@@ -233,7 +239,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         '• Deep dive into specific code → read_symbol (after finding issues)',
         '• Module architecture → module_info (deps, dependents, public API, unused deps)',
         '',
-        'WORKFLOW: project_overview → smart_read → read_symbol → read_for_edit → edit → read_diff',
+        'WORKFLOW: project_overview → explore_area → smart_read → read_symbol → read_for_edit → edit → smart_diff',
       ].join('\n'),
     }
   );
@@ -435,6 +441,35 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           required: ['module'],
         },
       },
+      // --- Diff & exploration ---
+      {
+        name: 'smart_diff',
+        description: 'Use INSTEAD OF raw git diff. Shows changed files with AST symbol mapping — which functions/classes were modified/added/removed. Small diffs include hunks, large diffs show summary.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            scope: { type: 'string', enum: ['unstaged', 'staged', 'commit', 'branch'], description: 'Diff scope (default: "unstaged")' },
+            path: { type: 'string', description: 'Filter to specific file or directory' },
+            ref: { type: 'string', description: 'Git ref — required for scope="commit" (commit hash) or scope="branch" (branch name)' },
+          },
+        },
+      },
+      {
+        name: 'explore_area',
+        description: 'One-call exploration of a directory: outline (all symbols), imports (external deps + who imports this area), tests (matching test files), recent git changes. Use INSTEAD OF separate outline + related_files + git log calls.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            path: { type: 'string', description: 'Directory path (or file path — will use its parent directory)' },
+            include: {
+              type: 'array',
+              items: { type: 'string', enum: ['outline', 'imports', 'tests', 'changes'] },
+              description: 'Sections to include (default: all)',
+            },
+          },
+          required: ['path'],
+        },
+      },
     ],
   }));
 
@@ -601,6 +636,26 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const moduleWouldBe = estimateTokens(moduleText) * 5;
           analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: estimateTokens(moduleText), tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
           return moduleResult;
+        }
+
+        case 'smart_diff': {
+          const sdArgs = validateSmartDiffArgs(args);
+          const sdResult = await handleSmartDiff(sdArgs, projectRoot, astIndex);
+          const sdText = sdResult.content[0]?.text ?? '';
+          const sdTokens = estimateTokens(sdText);
+          analytics.record({ tool: 'smart_diff', path: sdArgs.path ?? sdArgs.scope ?? 'unstaged', tokensReturned: sdTokens, tokensWouldBe: sdResult.rawTokens || sdTokens, timestamp: Date.now() });
+          return { content: sdResult.content };
+        }
+
+        case 'explore_area': {
+          const eaArgs = validateExploreAreaArgs(args);
+          const eaResult = await handleExploreArea(eaArgs, projectRoot, astIndex);
+          const eaText = eaResult.content[0]?.text ?? '';
+          const eaTokens = estimateTokens(eaText);
+          // Without explore_area, agent would call: outline + related_files + git log = ~3-5x tokens
+          const eaWouldBe = eaTokens * 4;
+          analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: eaTokens, tokensWouldBe: eaWouldBe, timestamp: Date.now() });
+          return eaResult;
         }
 
         default:

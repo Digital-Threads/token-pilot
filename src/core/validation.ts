@@ -395,6 +395,74 @@ export function validateModuleInfoArgs(args: unknown): ModuleInfoArgs {
   };
 }
 
+/**
+ * Validate smart_diff arguments.
+ */
+export interface SmartDiffArgs {
+  scope?: 'unstaged' | 'staged' | 'commit' | 'branch';
+  path?: string;
+  ref?: string;
+}
+
+export function validateSmartDiffArgs(args: unknown): SmartDiffArgs {
+  if (!args || typeof args !== 'object') return { scope: 'unstaged' };
+  const a = args as Record<string, unknown>;
+
+  let scope: SmartDiffArgs['scope'];
+  if (a.scope !== undefined && a.scope !== null) {
+    const validScopes = ['unstaged', 'staged', 'commit', 'branch'];
+    if (typeof a.scope !== 'string' || !validScopes.includes(a.scope)) {
+      throw new Error(`"scope" must be one of: ${validScopes.join(', ')}`);
+    }
+    scope = a.scope as SmartDiffArgs['scope'];
+  }
+
+  const ref = optionalString(a.ref, 'ref');
+  if ((scope === 'commit' || scope === 'branch') && !ref) {
+    throw new Error(`"ref" is required when scope="${scope}".`);
+  }
+
+  return {
+    scope: scope ?? 'unstaged',
+    path: optionalString(a.path, 'path'),
+    ref,
+  };
+}
+
+/**
+ * Validate explore_area arguments.
+ */
+export interface ExploreAreaArgs {
+  path: string;
+  include?: Array<'outline' | 'imports' | 'tests' | 'changes'>;
+}
+
+const VALID_EXPLORE_SECTIONS = ['outline', 'imports', 'tests', 'changes'] as const;
+
+export function validateExploreAreaArgs(args: unknown): ExploreAreaArgs {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object with a "path" parameter.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+
+  if (a.include !== undefined && a.include !== null) {
+    if (!Array.isArray(a.include)) {
+      throw new Error('"include" must be an array of section names.');
+    }
+    for (const item of a.include) {
+      if (typeof item !== 'string' || !(VALID_EXPLORE_SECTIONS as readonly string[]).includes(item)) {
+        throw new Error(`Each element of "include" must be one of: ${VALID_EXPLORE_SECTIONS.join(', ')}. Got: "${item}"`);
+      }
+    }
+    return { path: a.path, include: a.include as ExploreAreaArgs['include'] };
+  }
+
+  return { path: a.path };
+}
+
 /** Detect roots that would cause ast-index to scan the entire filesystem */
 export function isDangerousRoot(root: string): boolean {
   const normalized = root.replace(/\/+$/, '') || '/';

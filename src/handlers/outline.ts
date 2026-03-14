@@ -5,7 +5,7 @@ import type { SymbolInfo } from '../types.js';
 import { resolveSafePath } from '../core/validation.js';
 import type { OutlineArgs } from '../core/validation.js';
 
-const CODE_EXTENSIONS = new Set([
+export const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',
   'swift', 'cs', 'cpp', 'cc', 'cxx', 'hpp', 'c', 'h', 'php', 'rb', 'scala',
   'dart', 'lua', 'sh', 'bash', 'sql', 'r', 'vue', 'svelte', 'pl', 'pm',
@@ -54,7 +54,7 @@ const MAX_OUTLINE_LINES = 500;
  * Outline a single directory. When depth < maxDepth and recursive,
  * recurse into subdirectories. Otherwise show file counts only.
  */
-async function outlineDir(
+export async function outlineDir(
   absPath: string,
   sections: string[],
   depth: number,

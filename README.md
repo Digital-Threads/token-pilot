@@ -173,6 +173,8 @@ For more control, you can add rules to your project:
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 | `code_audit` | multiple `Grep` | Code quality issues in one call: TODO/FIXME comments, deprecated symbols, structural code patterns (via ast-grep), decorator search. |
 | `module_info` | manual analysis | Module dependency analysis: dependencies, dependents, public API, unused deps. Use for architecture understanding and dependency cleanup. |
+| `smart_diff` | raw `git diff` | Structural diff with AST symbol mapping — shows which functions/classes changed instead of raw patch. Scopes: unstaged, staged, commit, branch. |
+| `explore_area` | outline + related_files + git log | One-call directory exploration: structure, imports, tests, recent changes. Replaces 3-5 separate calls. |
 
 ### Analytics
 
@@ -351,6 +353,8 @@ src/
     code-audit.ts       — code_audit handler (TODOs, deprecated, patterns)
     project-overview.ts — project_overview (dual-detection + confidence)
     module-info.ts      — module_info handler (deps, dependents, API, unused)
+    smart-diff.ts       — smart_diff handler (structural git diff + symbol mapping)
+    explore-area.ts     — explore_area handler (outline + imports + tests + changes)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
     export-ast-index.ts — AST export for context-mode BM25
   git/

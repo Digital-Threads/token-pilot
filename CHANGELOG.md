@@ -5,6 +5,18 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-03-14
+
+### Added
+- **`smart_diff` tool** — structural git diff with AST symbol mapping. Shows which functions/classes were modified/added/removed instead of raw patch output. Supports scopes: `unstaged`, `staged`, `commit` (ref required), `branch` (ref required). Small diffs (<=30 lines) include actual hunks, large diffs show summary. Returns `rawTokens` for precise savings analytics.
+- **`explore_area` tool** — one-call directory exploration combining outline + imports + tests + git changes. Replaces 3-5 separate tool calls when starting work on an area. Sections: `outline` (recursive depth 2), `imports` (external deps + who imports this area), `tests` (matching test/spec files), `changes` (recent git log). All sections run in parallel via `Promise.allSettled`.
+- **26 new tests** — smart_diff parser (10), symbol mapping (5), validation (11). Total: 170 tests (was 144).
+
+### Changed
+- **16 tools** (was 14) — added `smart_diff`, `explore_area`
+- **MCP instructions** — updated workflow: `project_overview → explore_area → smart_read → read_symbol → read_for_edit → edit → smart_diff`
+- **`outlineDir` and `CODE_EXTENSIONS` exported** from outline.ts for reuse by explore_area
+
 ## [0.9.0] - 2026-03-08
 
 ### Added
