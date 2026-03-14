@@ -2,7 +2,7 @@
   "name": "token-pilot",
   "displayName": "Token Pilot",
   "description": "Reduces token consumption by 80-95% via AST-aware lazy file reading. 18 MCP tools for structural code reading, symbol navigation, and cross-file search.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "author": "Digital-Threads",
   "repository": "https://github.com/Digital-Threads/token-pilot",
   "license": "MIT",
