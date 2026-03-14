@@ -182,7 +182,7 @@ describe('mapHunksToSymbols', () => {
       },
     ]);
 
-    const hunks = [{ newStart: 15, newCount: 3, lines: ['+a', '+b', '+c'] }];
+    const hunks = [{ newStart: 15, newCount: 3, lines: ['+a', '-b', '+c'] }];
     const result = mapHunksToSymbols(hunks, structure);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('doStuff');

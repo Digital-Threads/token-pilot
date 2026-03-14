@@ -472,27 +472,27 @@ export interface SmartLogArgs {
 }
 
 export function validateSmartLogArgs(args: unknown): SmartLogArgs {
-  const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
+  if (!args || typeof args !== 'object') return {};
+  const a = args as Record<string, unknown>;
 
-  const result: SmartLogArgs = {};
-
-  if (a.path !== undefined) {
-    if (typeof a.path !== 'string') throw new Error('path must be a string');
-    result.path = a.path;
+  const path = optionalString(a.path, 'path');
+  if (path !== undefined && path.length === 0) {
+    throw new Error('"path" must be a non-empty string.');
   }
 
-  if (a.count !== undefined) {
-    const count = Number(a.count);
-    if (isNaN(count) || count < 1 || count > 50) throw new Error('count must be 1-50');
-    result.count = count;
+  const count = optionalNumber(a.count, 'count');
+  if (count !== undefined) {
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      throw new Error('"count" must be an integer between 1 and 50.');
+    }
   }
 
-  if (a.ref !== undefined) {
-    if (typeof a.ref !== 'string') throw new Error('ref must be a string');
-    result.ref = a.ref;
+  const ref = optionalString(a.ref, 'ref');
+  if (ref !== undefined && ref.length === 0) {
+    throw new Error('"ref" must be a non-empty string.');
   }
 
-  return result;
+  return { path, count, ref };
 }
 
 // ── test_summary ──
@@ -506,31 +506,31 @@ export interface TestSummaryArgs {
 const VALID_RUNNERS = ['vitest', 'jest', 'pytest', 'phpunit', 'go', 'cargo', 'rspec', 'mocha'];
 
 export function validateTestSummaryArgs(args: unknown): TestSummaryArgs {
-  if (!args || typeof args !== 'object') throw new Error('args must be an object');
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object with a "command" parameter.');
+  }
   const a = args as Record<string, unknown>;
 
-  if (!a.command || typeof a.command !== 'string') {
-    throw new Error('command is required and must be a string');
+  if (typeof a.command !== 'string' || a.command.length === 0) {
+    throw new Error('Required parameter "command" must be a non-empty string.');
   }
 
-  const result: TestSummaryArgs = { command: a.command };
-
-  if (a.runner !== undefined) {
+  let runner: string | undefined;
+  if (a.runner !== undefined && a.runner !== null) {
     if (typeof a.runner !== 'string' || !VALID_RUNNERS.includes(a.runner)) {
-      throw new Error(`runner must be one of: ${VALID_RUNNERS.join(', ')}`);
+      throw new Error(`"runner" must be one of: ${VALID_RUNNERS.join(', ')}`);
     }
-    result.runner = a.runner;
+    runner = a.runner;
   }
 
-  if (a.timeout !== undefined) {
-    const timeout = Number(a.timeout);
-    if (isNaN(timeout) || timeout < 1000 || timeout > 300000) {
-      throw new Error('timeout must be 1000-300000 (ms)');
+  const timeout = optionalNumber(a.timeout, 'timeout');
+  if (timeout !== undefined) {
+    if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) {
+      throw new Error('"timeout" must be an integer between 1000 and 300000 (ms).');
     }
-    result.timeout = timeout;
   }
 
-  return result;
+  return { command: a.command, runner, timeout };
 }
 
 /** Detect roots that would cause ast-index to scan the entire filesystem */

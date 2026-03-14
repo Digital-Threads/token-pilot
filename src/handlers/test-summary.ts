@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { TestSummaryArgs } from '../core/validation.js';
+import { estimateTokens } from '../core/token-estimator.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,7 +64,7 @@ export async function handleTestSummary(
     }
   }
 
-  const rawTokens = estimateRawTokens(rawOutput);
+  const rawTokens = estimateTokens(rawOutput);
   const runner = args.runner ?? detectRunner(command, rawOutput);
   const result = parseTestOutput(rawOutput, runner);
   const formatted = formatTestSummary(result, command, runner, rawTokens);
@@ -94,7 +95,7 @@ export function detectRunner(command: string, output: string): string {
   const lower = output.toLowerCase();
   if (lower.includes('vitest') || lower.includes('vite')) return 'vitest';
   if (lower.includes('jest')) return 'jest';
-  if (lower.includes('pytest') || lower.includes('===') && lower.includes('passed')) return 'pytest';
+  if (lower.includes('pytest') || (lower.includes('=== ') && lower.includes(' passed'))) return 'pytest';
   if (lower.includes('phpunit')) return 'phpunit';
   if (lower.includes('--- fail:') || lower.includes('--- pass:') || lower.includes('ok  \t')) return 'go';
 
@@ -126,11 +127,11 @@ export function parseTestOutput(output: string, runner: string): TestResult {
 function parseVitestJest(output: string): TestResult {
   const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
 
-  // Test Files  12 passed (12)  OR  Tests  170 passed (170)
-  const testsLine = output.match(/Tests?\s+(?:(\d+)\s+failed\s*\|?\s*)?(\d+)\s+passed\s*(?:\|?\s*(\d+)\s+skipped)?\s*\((\d+)\)/);
+  // Test Files  12 passed (12)  OR  Tests  170 passed (170)  OR  Tests  3 failed (3)
+  const testsLine = output.match(/Tests?\s+(?:(\d+)\s+failed\s*\|?\s*)?(?:(\d+)\s+passed\s*)?(?:\|?\s*(\d+)\s+skipped)?\s*\((\d+)\)/);
   if (testsLine) {
     result.failed = parseInt(testsLine[1] ?? '0', 10);
-    result.passed = parseInt(testsLine[2], 10);
+    result.passed = parseInt(testsLine[2] ?? '0', 10);
     result.skipped = parseInt(testsLine[3] ?? '0', 10);
     result.total = parseInt(testsLine[4], 10);
   }
@@ -210,7 +211,7 @@ function parsePytest(output: string): TestResult {
 function parsePhpunit(output: string): TestResult {
   const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
 
-  // OK (5 tests, 10 assertions) or  FAILURES! Tests: 5, Assertions: 10, Failures: 2
+  // OK (5 tests, 10 assertions) or  FAILURES! Tests: 5, Assertions: 10, Failures: 2, Errors: 1
   const ok = output.match(/OK\s*\((\d+)\s+test/);
   if (ok) {
     result.total = parseInt(ok[1], 10);
@@ -221,7 +222,14 @@ function parsePhpunit(output: string): TestResult {
   if (failures) {
     result.total = parseInt(failures[1], 10);
     result.failed = parseInt(failures[2], 10);
-    result.passed = result.total - result.failed;
+
+    // PHPUnit also reports Errors separately from Failures
+    const errors = output.match(/Errors:\s*(\d+)/);
+    if (errors) {
+      result.failed += parseInt(errors[1], 10);
+    }
+
+    result.passed = result.total - result.failed - result.skipped;
   }
 
   const duration = output.match(/Time:\s*([\d.:]+\s*\w*)/);
@@ -286,15 +294,20 @@ function parseCargoTest(output: string): TestResult {
     result.total = result.passed + result.failed + result.skipped;
   }
 
-  // ---- test_name stdout ----
-  const failPattern = /^failures:\s*\n([\s\S]*?)(?=^test result:|^failures:)/m;
-  const failBlock = output.match(failPattern);
-  if (failBlock) {
-    const failNames = failBlock[1].match(/^\s+(\S+)/gm);
-    if (failNames) {
-      for (const name of failNames.slice(0, 10)) {
-        result.failures.push({ name: name.trim(), error: '' });
+  // Cargo outputs two "failures:" sections:
+  // 1. Detail section: "failures:\n\n---- test_name stdout ----\n..."
+  // 2. Name-list section: "failures:\n    test_name_1\n    test_name_2\n"
+  // We want the name-list section (the last one before "test result:")
+  const failSections = output.split(/^failures:\s*$/m).slice(1);
+  for (const section of failSections) {
+    // The name-list section has indented test names without "---- ... ----"
+    const lines = section.split('\n').filter(l => l.trim());
+    const isNameList = lines.length > 0 && lines.every(l => /^\s+\S+/.test(l) && !l.includes('----'));
+    if (isNameList) {
+      for (const line of lines.slice(0, 10)) {
+        result.failures.push({ name: line.trim(), error: '' });
       }
+      break;
     }
   }
 
@@ -359,11 +372,8 @@ function formatTestSummary(result: TestResult, command: string, runner: string, 
   }
 
   lines.push('');
-  lines.push(`RAW OUTPUT: ~${rawTokens} tokens → test_summary: ~${estimateRawTokens(lines.join('\n'))} tokens`);
+  lines.push(`RAW OUTPUT: ~${rawTokens} tokens → test_summary: ~${estimateTokens(lines.join('\n'))} tokens`);
 
   return lines.join('\n');
 }
 
-function estimateRawTokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
-}

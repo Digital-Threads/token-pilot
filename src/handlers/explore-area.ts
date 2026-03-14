@@ -140,7 +140,7 @@ async function buildImportsSection(
       if (source.startsWith('.') || source.startsWith('/')) {
         // Internal import — track if it's outside this area
         const resolved = resolve(absPath, source);
-        if (!resolved.startsWith(absPath)) {
+        if (!resolved.startsWith(absPath + '/') && resolved !== absPath) {
           const relImport = relative(projectRoot, resolved).replace(/\.[^.]+$/, '');
           internalDeps.add(relImport);
         }
@@ -169,7 +169,7 @@ async function buildImportsSection(
         if (!impFile) continue;
         const relFile = relative(projectRoot, impFile);
         // Only include files outside this area
-        if (!relFile.startsWith(relDir)) {
+        if (!relFile.startsWith(relDir + '/') && relFile !== relDir) {
           importedBy.add(relFile.replace(/\.[^.]+$/, ''));
         }
       }

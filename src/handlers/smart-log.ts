@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { relative } from 'node:path';
 import type { SmartLogArgs } from '../core/validation.js';
+import { estimateTokens } from '../core/token-estimator.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -45,8 +45,8 @@ export async function handleSmartLog(
     `--format=${RECORD_SEPARATOR}%h${FIELD_SEPARATOR}%ad${FIELD_SEPARATOR}%an${FIELD_SEPARATOR}%s`,
     '--date=short',
     '--numstat',
-    `-${count}`,
-    ref,
+    `-n`, `${count}`,
+    '--', ref,
   ];
 
   if (args.path) {
@@ -76,9 +76,9 @@ export async function handleSmartLog(
     };
   }
 
-  const rawTokens = estimateRawTokens(rawOutput);
+  const rawTokens = estimateTokens(rawOutput);
   const entries = parseGitLog(rawOutput);
-  const formatted = formatSmartLog(entries, args.path, projectRoot);
+  const formatted = formatSmartLog(entries, args.path);
 
   return {
     content: [{ type: 'text', text: formatted }],
@@ -118,7 +118,7 @@ export function parseGitLog(raw: string): LogEntry[] {
         const del = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
         insertions += ins;
         deletions += del;
-        files.push(parts[2]);
+        files.push(parts.slice(2).join('\t'));
       }
     }
 
@@ -157,15 +157,15 @@ export function categorizeCommit(message: string): LogEntry['category'] {
   // Version bumps
   if (/^v?\d+\.\d+/.test(lower)) return 'feat';
 
-  // Keyword heuristics (order matters — more specific first)
-  if (lower.includes('fix') || lower.includes('bug') || lower.includes('patch') || lower.includes('hotfix')) return 'fix';
-  if (lower.includes('test') || lower.includes('spec') || lower.includes('coverage')) return 'test';
-  if (lower.includes('refactor') || lower.includes('restructure') || lower.includes('rename') || lower.includes('move') || lower.includes('extract')) return 'refactor';
-  if (lower.includes('doc') || lower.includes('readme') || lower.includes('changelog')) return 'docs';
-  if (lower.includes('add') || lower.includes('new') || lower.includes('implement') || lower.includes('feature')) return 'feat';
-  if (lower.includes('style') || lower.includes('format') || lower.includes('lint')) return 'style';
-  if (lower.includes('perf') || lower.includes('optim') || lower.includes('speed') || lower.includes('fast')) return 'perf';
-  if (lower.includes('chore') || lower.includes('bump') || lower.includes('deps') || lower.includes('ci') || lower.includes('build')) return 'chore';
+  // Keyword heuristics with word boundaries (order matters — more specific first)
+  if (/\b(fix|bug|hotfix)\b/.test(lower) || /\bpatch\b/.test(lower)) return 'fix';
+  if (/\b(tests?|specs?|coverage)\b/.test(lower)) return 'test';
+  if (/\b(refactor|restructure|rename|extract)\b/.test(lower) || /\bmove\b/.test(lower)) return 'refactor';
+  if (/\b(docs?|documentation|readme|changelog)\b/.test(lower)) return 'docs';
+  if (/\b(add|new|implement|feature)\b/.test(lower)) return 'feat';
+  if (/\b(style|format|lint)\b/.test(lower)) return 'style';
+  if (/\b(perf|optimiz\w*|speed|faster?)\b/.test(lower)) return 'perf';
+  if (/\b(chore|bump|deps)\b/.test(lower) || /\bci\b/.test(lower) || /\bbuild\b/.test(lower)) return 'chore';
 
   return 'other';
 }
@@ -174,7 +174,7 @@ export function categorizeCommit(message: string): LogEntry['category'] {
 // Formatter
 // ──────────────────────────────────────────────
 
-function formatSmartLog(entries: LogEntry[], pathFilter: string | undefined, projectRoot: string): string {
+function formatSmartLog(entries: LogEntry[], pathFilter: string | undefined): string {
   if (entries.length === 0) return 'No commits found.';
 
   const lines: string[] = [];
@@ -205,13 +205,11 @@ function formatSmartLog(entries: LogEntry[], pathFilter: string | undefined, pro
   lines.push(`BREAKDOWN: ${catParts.join(', ')} | +${totalIns}/-${totalDel} lines`);
 
   // Authors
-  if (authors.size > 1) {
-    const authorParts = Array.from(authors.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, cnt]) => `${name} (${cnt})`);
-    lines.push(`AUTHORS: ${authorParts.join(', ')}`);
-  }
+  const authorParts = Array.from(authors.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, cnt]) => authors.size > 1 ? `${name} (${cnt})` : name);
+  lines.push(`AUTHORS: ${authorParts.join(', ')}`);
 
   lines.push('');
 
@@ -237,6 +235,3 @@ function formatSmartLog(entries: LogEntry[], pathFilter: string | undefined, pro
   return lines.join('\n');
 }
 
-function estimateRawTokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
-}

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SmartDiffArgs } from '../core/validation.js';
 import type { FileStructure, SymbolInfo } from '../types.js';
@@ -50,7 +50,7 @@ export async function handleSmartDiff(
   astIndex: AstIndexClient,
 ): Promise<{ content: Array<{ type: 'text'; text: string }>; rawTokens: number }> {
   // 1. Build git command
-  const gitArgs = buildGitArgs(args, projectRoot);
+  const gitArgs = buildGitArgs(args);
 
   // 2. Execute git diff
   let rawDiff: string;
@@ -123,22 +123,22 @@ export async function handleSmartDiff(
 // Git command builder
 // ──────────────────────────────────────────────
 
-function buildGitArgs(args: SmartDiffArgs, projectRoot: string): string[] {
+function buildGitArgs(args: SmartDiffArgs): string[] {
   const base: string[] = [];
 
   switch (args.scope) {
     case 'staged':
-      base.push('diff', '--cached');
+      base.push('diff', '--cached', '--no-color');
       break;
     case 'commit':
-      base.push('show', '--format=', args.ref!);
+      base.push('show', '--format=', '--no-color', args.ref!);
       break;
     case 'branch':
-      base.push('diff', `${args.ref!}...HEAD`);
+      base.push('diff', '--no-color', `${args.ref!}...HEAD`);
       break;
     case 'unstaged':
     default:
-      base.push('diff');
+      base.push('diff', '--no-color');
       break;
   }
 
@@ -237,17 +237,28 @@ export function mapHunksToSymbols(hunks: DiffHunk[], structure: FileStructure): 
   const allSymbols = flattenSymbols(structure.symbols);
   const changedSymbols = new Map<string, SymbolChange>();
 
+  // Classify hunks: all-added, all-removed, or mixed
+  const hasAdded = hunks.some(h => h.lines.some(l => l.startsWith('+')));
+  const hasRemoved = hunks.some(h => h.lines.some(l => l.startsWith('-')));
+
   for (const hunk of hunks) {
     const hunkStart = hunk.newStart;
-    const hunkEnd = hunk.newStart + hunk.newCount - 1;
+    const hunkEnd = hunk.newCount > 0
+      ? hunk.newStart + hunk.newCount - 1
+      : hunk.newStart; // pure deletion: use newStart as point
 
     for (const sym of allSymbols) {
       if (hunkStart <= sym.end && hunkEnd >= sym.start) {
         if (!changedSymbols.has(sym.name)) {
+          // Determine changeType from hunk content
+          let changeType: SymbolChange['changeType'] = 'MODIFIED';
+          if (hasAdded && !hasRemoved) changeType = 'ADDED';
+          else if (hasRemoved && !hasAdded) changeType = 'REMOVED';
+
           changedSymbols.set(sym.name, {
             name: sym.name,
             kind: sym.kind,
-            changeType: 'MODIFIED',
+            changeType,
             lineRange: `[L${sym.start}-${sym.end}]`,
           });
         }
@@ -298,7 +309,8 @@ function formatSmartDiff(
     const symbols = symbolChanges.get(fd.path);
     if (symbols && symbols.length > 0) {
       for (const sc of symbols) {
-        lines.push(`  ${sc.changeType}: ${sc.name}() ${sc.lineRange}`);
+        const parens = ['function', 'method'].includes(sc.kind) ? '()' : '';
+        lines.push(`  ${sc.changeType}: ${sc.name}${parens} ${sc.lineRange}`);
       }
     }
 
