@@ -40,6 +40,10 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     adviseDelegation: true,
     largeNonCodeThreshold: 200,
   },
+  updates: {
+    checkOnStartup: true,
+    autoUpdate: false,
+  },
   ignore: [
     'node_modules/**',
     'dist/**',

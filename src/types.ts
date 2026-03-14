@@ -128,5 +128,9 @@ export interface TokenPilotConfig {
     adviseDelegation: boolean;
     largeNonCodeThreshold: number;
   };
+  updates: {
+    checkOnStartup: boolean;
+    autoUpdate: boolean;
+  };
   ignore: string[];
 }

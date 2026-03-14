@@ -105,6 +105,54 @@ export async function installBinary(
   }
 }
 
+/**
+ * Check if a newer version of ast-index is available on GitHub.
+ * Non-blocking, returns null values on any error.
+ */
+export async function checkBinaryUpdate(
+  currentPath: string | null,
+): Promise<{ current: string | null; latest: string | null; updateAvailable: boolean }> {
+  if (!currentPath) {
+    return { current: null, latest: null, updateAvailable: false };
+  }
+
+  try {
+    const [current, release] = await Promise.all([
+      getBinaryVersion(currentPath),
+      fetchLatestRelease(),
+    ]);
+
+    const latest = release.tag.replace(/^v/, '');
+
+    if (!current) {
+      return { current: null, latest, updateAvailable: false };
+    }
+
+    return {
+      current,
+      latest,
+      updateAvailable: isNewerVersion(current, latest),
+    };
+  } catch {
+    return { current: null, latest: null, updateAvailable: false };
+  }
+}
+
+/**
+ * Compare two semver strings. Returns true if `latest` is newer than `current`.
+ */
+export function isNewerVersion(current: string, latest: string): boolean {
+  const c = current.replace(/^v/, '').split('.').map(Number);
+  const l = latest.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < Math.max(c.length, l.length); i++) {
+    const cv = c[i] ?? 0;
+    const lv = l[i] ?? 0;
+    if (lv > cv) return true;
+    if (lv < cv) return false;
+  }
+  return false;
+}
+
 // --- Internal helpers ---
 
 function getPlatform(): string | null {

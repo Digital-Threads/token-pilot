@@ -5,7 +5,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from './server.js';
 import { installHook, uninstallHook } from './hooks/installer.js';
-import { findBinary, installBinary } from './ast-index/binary-manager.js';
+import { findBinary, installBinary, checkBinaryUpdate, isNewerVersion } from './ast-index/binary-manager.js';
+import { loadConfig } from './config/loader.js';
 import { isDangerousRoot } from './core/validation.js';
 
 const execFileAsync = promisify(execFile);
@@ -133,12 +134,10 @@ async function startServer() {
     );
   }
 
-  // Non-blocking update check (logs to stderr, never blocks startup)
-  checkLatestVersion().then(latest => {
-    if (latest && latest !== getVersion()) {
-      console.error(`[token-pilot] Update available: ${getVersion()} → ${latest}. Run: npx token-pilot@latest`);
-    }
-  }).catch(() => { /* ignore */ });
+  // Non-blocking update check for all components (logs to stderr, never blocks startup)
+  const config = await loadConfig(projectRoot);
+  const binaryStatus = await findBinary(config.astIndex.binaryPath);
+  checkAllUpdates(config, binaryStatus).catch(() => { /* ignore */ });
 
   // Auto-install PreToolUse hook (non-blocking, Claude Code only)
   installHook(projectRoot).then(result => {
@@ -275,8 +274,14 @@ async function handleUninstallHook(projectRoot: string) {
 async function handleInstallAstIndex() {
   const status = await findBinary();
   if (status.available) {
-    console.log(`ast-index ${status.version} already available at ${status.path} (${status.source})`);
-    process.exit(0);
+    // Check if update is available
+    const update = await checkBinaryUpdate(status.path);
+    if (update.updateAvailable) {
+      console.log(`ast-index ${update.current} installed, updating to ${update.latest}...`);
+    } else {
+      console.log(`ast-index ${status.version} already up to date at ${status.path} (${status.source})`);
+      process.exit(0);
+    }
   }
 
   try {
@@ -291,47 +296,75 @@ async function handleInstallAstIndex() {
 
 async function handleDoctor() {
   const version = getVersion();
-  console.log(`token-pilot v${version}\n`);
-
-  // Check Node.js version
-  const nodeVersion = process.version;
-  const nodeMajor = parseInt(nodeVersion.slice(1), 10);
-  console.log(`Node.js:      ${nodeVersion} ${nodeMajor >= 18 ? '✓' : '✗ (requires >=18)'}`);
-
-  // Check ast-index
-  const astStatus = await findBinary();
-  if (astStatus.available) {
-    console.log(`ast-index:    ${astStatus.version} ✓ (${astStatus.source}: ${astStatus.path})`);
-  } else {
-    console.log(`ast-index:    not found ✗`);
-    console.log(`              Run: npx token-pilot install-ast-index`);
-  }
-
-  // Check for updates
-  const latest = await checkLatestVersion();
-  if (latest) {
-    if (latest !== version) {
-      console.log(`npm version:  ${latest} (current: ${version} — update available!)`);
-      console.log(`              Run: npx clear-npx-cache && npx -y token-pilot@latest`);
-    } else {
-      console.log(`npm version:  ${latest} ✓ (up to date)`);
-    }
-  } else {
-    console.log(`npm version:  could not check (network error)`);
-  }
-
-  // Check config
   const { existsSync } = await import('node:fs');
   const { join } = await import('node:path');
   const cwd = process.cwd();
+
+  console.log(`token-pilot doctor v${version}\n`);
+
+  // ── Environment ──
+  const nodeVersion = process.version;
+  const nodeMajor = parseInt(nodeVersion.slice(1), 10);
+  console.log(`Node.js:        ${nodeVersion} ${nodeMajor >= 18 ? '✓' : '✗ (requires >=18)'}`);
+
   const configPath = join(cwd, '.token-pilot.json');
-  console.log(`config:       ${existsSync(configPath) ? configPath + ' ✓' : 'default (no .token-pilot.json)'}`);
+  console.log(`config:         ${existsSync(configPath) ? configPath + ' ✓' : 'default (no .token-pilot.json)'}`);
 
-  // Check git
   const gitDir = join(cwd, '.git');
-  console.log(`git repo:     ${existsSync(gitDir) ? 'yes ✓' : 'no (read_diff/git features unavailable)'}`);
-
+  console.log(`git repo:       ${existsSync(gitDir) ? 'yes ✓' : 'no (read_diff/git features unavailable)'}`);
   console.log('');
+
+  // ── token-pilot ──
+  console.log('── token-pilot ──');
+  console.log(`  installed:    ${version}`);
+  const tpLatest = await checkNpmLatest('token-pilot');
+  if (tpLatest) {
+    if (isNewerVersion(version, tpLatest)) {
+      console.log(`  latest:       ${tpLatest} (update available!)`);
+      console.log(`  run:          npx clear-npx-cache && npx -y token-pilot@latest`);
+    } else {
+      console.log(`  latest:       ${tpLatest} ✓ (up to date)`);
+    }
+  } else {
+    console.log(`  latest:       could not check (network error)`);
+  }
+  console.log('');
+
+  // ── ast-index ──
+  console.log('── ast-index ──');
+  const astStatus = await findBinary();
+  if (astStatus.available) {
+    console.log(`  installed:    ${astStatus.version} (${astStatus.source}: ${astStatus.path})`);
+    const astUpdate = await checkBinaryUpdate(astStatus.path);
+    if (astUpdate.updateAvailable) {
+      console.log(`  latest:       ${astUpdate.latest} (update available!)`);
+      console.log(`  run:          npx token-pilot install-ast-index`);
+    } else if (astUpdate.latest) {
+      console.log(`  latest:       ${astUpdate.latest} ✓ (up to date)`);
+    }
+
+    const config = await loadConfig(cwd);
+    console.log(`  auto-update:  ${config.updates.autoUpdate ? 'enabled ✓' : 'disabled (set updates.autoUpdate=true in .token-pilot.json)'}`);
+  } else {
+    console.log(`  installed:    not found ✗`);
+    console.log(`  run:          npx token-pilot install-ast-index`);
+  }
+  console.log('');
+
+  // ── context-mode ──
+  console.log('── context-mode ──');
+  const { detectContextMode } = await import('./integration/context-mode-detector.js');
+  const cmStatus = await detectContextMode(cwd);
+  console.log(`  detected:     ${cmStatus.detected ? `yes (${cmStatus.source})` : 'no'}`);
+  const cmLatest = await checkNpmLatest('claude-context-mode');
+  if (cmLatest) {
+    console.log(`  latest npm:   ${cmLatest}`);
+  }
+  if (!cmStatus.detected) {
+    console.log(`  setup:        npx token-pilot init`);
+  }
+  console.log('');
+
   process.exit(0);
 }
 
@@ -396,11 +429,15 @@ async function handleInit(targetDir: string) {
   process.exit(0);
 }
 
-async function checkLatestVersion(): Promise<string | null> {
+// ──────────────────────────────────────────────
+// Update checking
+// ──────────────────────────────────────────────
+
+async function checkNpmLatest(packageName: string): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const resp = await fetch('https://registry.npmjs.org/token-pilot/latest', {
+    const resp = await fetch(`https://registry.npmjs.org/${packageName}/latest`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -409,6 +446,43 @@ async function checkLatestVersion(): Promise<string | null> {
     return data.version ?? null;
   } catch {
     return null;
+  }
+}
+
+import type { TokenPilotConfig } from './types.js';
+import type { BinaryStatus } from './ast-index/binary-manager.js';
+
+async function checkAllUpdates(config: TokenPilotConfig, binaryStatus: BinaryStatus): Promise<void> {
+  if (!config.updates.checkOnStartup) return;
+
+  const [tpLatest, astUpdate, cmLatest] = await Promise.allSettled([
+    checkNpmLatest('token-pilot'),
+    binaryStatus.available ? checkBinaryUpdate(binaryStatus.path) : Promise.resolve(null),
+    checkNpmLatest('claude-context-mode'),
+  ]);
+
+  // token-pilot
+  const tpVersion = getVersion();
+  if (tpLatest.status === 'fulfilled' && tpLatest.value && isNewerVersion(tpVersion, tpLatest.value)) {
+    console.error(`[token-pilot] Update available: ${tpVersion} → ${tpLatest.value}. Run: npx token-pilot@latest`);
+  }
+
+  // ast-index
+  if (astUpdate.status === 'fulfilled' && astUpdate.value?.updateAvailable) {
+    const { current, latest } = astUpdate.value;
+    if (config.updates.autoUpdate) {
+      console.error(`[token-pilot] Auto-updating ast-index: ${current} → ${latest}...`);
+      installBinary(msg => console.error(`[token-pilot] ${msg}`)).catch(() => {});
+    } else {
+      console.error(`[token-pilot] ast-index update: ${current} → ${latest}. Run: token-pilot install-ast-index`);
+    }
+  }
+
+  // context-mode (notification only — runs as separate MCP server)
+  if (cmLatest.status === 'fulfilled' && cmLatest.value) {
+    // We can't reliably detect the currently installed version of context-mode
+    // (it runs as separate process via npx). Just log latest available for doctor.
+    // On startup, we only notify if explicitly useful.
   }
 }
 
