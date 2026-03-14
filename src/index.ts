@@ -18,6 +18,7 @@ const CODE_EXTENSIONS = new Set([
   'swift', 'cs', 'cpp', 'cc', 'cxx', 'hpp', 'c', 'h', 'php', 'rb', 'scala',
   'dart', 'lua', 'sh', 'bash', 'sql', 'r', 'vue', 'svelte', 'pl', 'pm',
   'ex', 'exs', 'groovy', 'm', 'proto', 'bsl',
+  'lisp', 'lsp', 'cl', 'asd',
 ]);
 
 function getVersion(): string {
