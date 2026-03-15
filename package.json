@@ -1,7 +1,7 @@
 {
   "name": "token-pilot",
   "version": "0.14.1",
-  "description": "Save 60-80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
+  "description": "Save up to 80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -29,24 +29,26 @@
     "prepublishOnly": "npm run build && node --input-type=module -e \"import { chmod } from 'node:fs/promises'; await chmod('dist/index.js', 0o755);\""
   },
   "keywords": [
-    "token-savings",
-    "token-reduction",
-    "context-window",
-    "save-tokens",
-    "reduce-tokens",
-    "token-efficient",
-    "token-economy",
-    "context-optimization",
-    "fewer-tokens",
     "mcp",
     "mcp-server",
     "model-context-protocol",
+    "claude",
+    "claude-code",
+    "cursor",
+    "codex",
+    "cline",
+    "ai-coding",
+    "llm-tools",
+    "token-savings",
+    "token-reduction",
+    "context-window",
+    "context-optimization",
     "ast",
     "code-reading",
     "code-navigation",
     "smart-read",
-    "ai-coding",
-    "llm-tools"
+    "developer-tools",
+    "tree-sitter"
   ],
   "repository": {
     "type": "git",

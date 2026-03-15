@@ -1,6 +1,6 @@
 # Token Pilot
 
-MCP server that reduces token consumption in AI coding assistants by **60-80%** via AST-aware lazy file reading.
+MCP server that reduces token consumption in AI coding assistants by **up to 80%** via AST-aware lazy file reading.
 
 Instead of dumping entire files into the LLM context, Token Pilot returns structural overviews (classes, functions, signatures, line ranges) and lets the AI load only the specific symbols it needs.
 
@@ -13,7 +13,7 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
               After edit: read_diff("user-service.ts")  →  ~20 tokens
 ```
 
-**~80% reduction** in this example. Files under 200 lines are returned in full automatically (no overhead for small files). Real savings start at ~200+ lines.
+**Up to 80% reduction** on large files. Files under 200 lines are returned in full automatically (zero overhead for small files). Typical sessions with a mix of file sizes see **30-50% savings**, scaling higher with repeated reads (session cache, compact reminders) and targeted symbol loading.
 
 ## Installation
 
@@ -132,7 +132,7 @@ npx token-pilot uninstall-hook          # Remove
 When connected, every MCP client receives rules like:
 
 ```
-WHEN TO USE TOKEN PILOT (saves 60-80% tokens):
+WHEN TO USE TOKEN PILOT (saves up to 80% tokens):
 • Reading code files → smart_read (returns structure, not raw content)
 • Need one function/class → read_symbol (loads only that symbol)
 • Exploring a directory → outline (all symbols in one call)
@@ -158,7 +158,7 @@ For more control, you can add rules to your project:
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. 60-80% savings. Framework-aware: shows HTTP routes, column types, validation rules. |
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 80% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. |
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
 | `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
@@ -280,13 +280,13 @@ When both are configured, Token Pilot automatically:
 - Suggests context-mode for large non-code files
 - Shows combined architecture info in `session_analytics`
 
-**Combined savings: 60-80%** in a typical coding session.
+**Combined savings: up to 80%** in a typical coding session.
 
 ## Supported Languages
 
-Token Pilot supports all 23 languages that [ast-index](https://github.com/defendend/Claude-ast-index-search) supports:
+Token Pilot supports all 29 languages that [ast-index](https://github.com/defendend/Claude-ast-index-search) supports:
 
-TypeScript, JavaScript, Python, Rust, Go, Java, Kotlin, Swift, C#, C++, C, PHP, Ruby, Scala, Dart, Lua, Shell/Bash, SQL, R, Vue, Svelte, Perl, Groovy
+TypeScript, JavaScript, Python, Rust, Go, Java, Kotlin, Swift, Objective-C, C#, C++, C, PHP, Ruby, Scala, Dart, Lua, Shell/Bash, SQL, R, Vue, Svelte, Perl, Groovy, Elixir, Common Lisp, Matlab, Protocol Buffers, BSL (1C:Enterprise)
 
 Plus structural summaries for non-code files: JSON, YAML, Markdown, TOML, XML, CSV.
 
@@ -395,7 +395,7 @@ src/
 
 Token Pilot is built on top of these excellent open-source projects:
 
-- **[ast-index](https://github.com/defendend/Claude-ast-index-search)** by [@defendend](https://github.com/defendend) — Rust-based AST indexing engine with tree-sitter, SQLite FTS5, and support for 23 programming languages. Token Pilot uses it as the backend for all code analysis.
+- **[ast-index](https://github.com/defendend/Claude-ast-index-search)** by [@defendend](https://github.com/defendend) — Rust-based AST indexing engine with tree-sitter, SQLite FTS5, and support for 29 programming languages. Token Pilot uses it as the backend for all code analysis.
 - **[claude-context-mode](https://github.com/mksglu/claude-context-mode)** by [@mksglu](https://github.com/mksglu) — Complementary MCP plugin for shell output and data file processing via sandbox + BM25. Token Pilot integrates with it for maximum combined savings.
 - **[Model Context Protocol](https://modelcontextprotocol.io/)** by Anthropic — The protocol that makes all of this possible.
 
