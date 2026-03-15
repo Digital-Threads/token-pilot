@@ -153,6 +153,82 @@ describe('ContextRegistry', () => {
     expect(registry.estimateTokens()).toBe(300);
   });
 
+  describe('isFullyLoaded', () => {
+    it('returns true when type=full region exists', () => {
+      registry.trackLoad('/foo.ts', { type: 'full', startLine: 1, endLine: 100, tokens: 200 });
+      expect(registry.isFullyLoaded('/foo.ts')).toBe(true);
+    });
+
+    it('returns false when only structure/symbol regions exist', () => {
+      registry.trackLoad('/foo.ts', { type: 'structure', startLine: 1, endLine: 100, tokens: 50 });
+      registry.trackLoad('/foo.ts', { type: 'symbol', symbolName: 'fn', startLine: 10, endLine: 20, tokens: 15 });
+      expect(registry.isFullyLoaded('/foo.ts')).toBe(false);
+    });
+
+    it('returns false for untracked file', () => {
+      expect(registry.isFullyLoaded('/missing.ts')).toBe(false);
+    });
+  });
+
+  describe('symbolReminder', () => {
+    it('returns reminder when full file loaded', () => {
+      registry.trackLoad('/foo.ts', { type: 'full', startLine: 1, endLine: 100, tokens: 200 });
+      const reminder = registry.symbolReminder('/foo.ts', 'myFunc');
+      expect(reminder).toContain('DEDUP:');
+      expect(reminder).toContain('"myFunc"');
+      expect(reminder).toContain('full file already in context');
+      expect(reminder).toContain('200 tokens');
+      expect(reminder).toContain('HINT:');
+    });
+
+    it('includes symbol location when symbol region also exists', () => {
+      registry.trackLoad('/foo.ts', { type: 'full', startLine: 1, endLine: 100, tokens: 200 });
+      registry.trackLoad('/foo.ts', { type: 'symbol', symbolName: 'myFunc', startLine: 10, endLine: 30, tokens: 40 });
+      const reminder = registry.symbolReminder('/foo.ts', 'myFunc');
+      expect(reminder).toContain('Symbol at [L10-30]');
+    });
+
+    it('returns reminder when same symbol loaded (no full file)', () => {
+      registry.trackLoad('/foo.ts', { type: 'symbol', symbolName: 'myFunc', startLine: 10, endLine: 30, tokens: 40 });
+      const reminder = registry.symbolReminder('/foo.ts', 'myFunc');
+      expect(reminder).toContain('DEDUP:');
+      expect(reminder).toContain('"myFunc"');
+      expect(reminder).toContain('[L10-30]');
+      expect(reminder).toContain('40 tokens');
+      expect(reminder).toContain('unchanged');
+    });
+
+    it('returns empty string when symbol not loaded', () => {
+      registry.trackLoad('/foo.ts', { type: 'symbol', symbolName: 'other', startLine: 10, endLine: 30, tokens: 40 });
+      expect(registry.symbolReminder('/foo.ts', 'myFunc')).toBe('');
+    });
+
+    it('returns empty string for untracked file', () => {
+      expect(registry.symbolReminder('/missing.ts', 'myFunc')).toBe('');
+    });
+  });
+
+  describe('rangeReminder', () => {
+    it('returns reminder when full file loaded', () => {
+      registry.trackLoad('/foo.ts', { type: 'full', startLine: 1, endLine: 100, tokens: 200 });
+      const reminder = registry.rangeReminder('/foo.ts', 10, 30);
+      expect(reminder).toContain('DEDUP:');
+      expect(reminder).toContain('[L10-30]');
+      expect(reminder).toContain('full file already in context');
+      expect(reminder).toContain('200 tokens');
+      expect(reminder).toContain('HINT:');
+    });
+
+    it('returns empty string when file not fully loaded', () => {
+      registry.trackLoad('/foo.ts', { type: 'structure', startLine: 1, endLine: 100, tokens: 50 });
+      expect(registry.rangeReminder('/foo.ts', 10, 30)).toBe('');
+    });
+
+    it('returns empty string for untracked file', () => {
+      expect(registry.rangeReminder('/missing.ts', 10, 30)).toBe('');
+    });
+  });
+
   it('invalidates by git diff', () => {
     registry.trackLoad('/a.ts', { type: 'full', startLine: 1, endLine: 10, tokens: 10 });
     registry.trackLoad('/b.ts', { type: 'full', startLine: 1, endLine: 10, tokens: 10 });

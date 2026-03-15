@@ -760,7 +760,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'read_symbol': {
           const symArgs = validateReadSymbolArgs(args);
-          const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
+          const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex, config.smartRead.advisoryReminders);
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
           const fullTokensSym = await fullFileTokens(symArgs.path);
@@ -770,7 +770,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'read_range': {
           const rangeArgs = validateReadRangeArgs(args);
-          const rangeResult = await handleReadRange(rangeArgs, projectRoot, fileCache, contextRegistry);
+          const rangeResult = await handleReadRange(rangeArgs, projectRoot, fileCache, contextRegistry, config.smartRead.advisoryReminders);
           const rangeText = rangeResult.content[0]?.text ?? '';
           const rangeTokens = estimateTokens(rangeText);
           const fullTokensRange = await fullFileTokens(rangeArgs.path);

@@ -100,6 +100,61 @@ export class ContextRegistry {
     return lines.join('\n');
   }
 
+  /** Check if file was loaded in full (type='full' region exists). */
+  isFullyLoaded(path: string): boolean {
+    const entry = this.entries.get(path);
+    if (!entry) return false;
+    return entry.loaded.some(r => r.type === 'full');
+  }
+
+  /**
+   * Generate a compact dedup reminder for read_symbol.
+   * Fires when same symbol was already loaded OR full file is in context.
+   */
+  symbolReminder(path: string, symbolName: string): string {
+    const entry = this.entries.get(path);
+    if (!entry) return '';
+
+    const elapsed = formatDuration(Date.now() - entry.loadedAt);
+    const symbolRegion = entry.loaded.find(r => r.symbolName === symbolName);
+    const fullRegion = entry.loaded.find(r => r.type === 'full');
+
+    if (fullRegion) {
+      const loc = symbolRegion ? ` Symbol at [L${symbolRegion.startLine}-${symbolRegion.endLine}].` : '';
+      return [
+        `DEDUP: "${symbolName}" in ${path} — full file already in context (loaded ${elapsed} ago, ${fullRegion.tokens} tokens, unchanged).${loc}`,
+        'HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.',
+      ].join('\n');
+    }
+
+    if (symbolRegion) {
+      return [
+        `DEDUP: "${symbolName}" in ${path} — already loaded ${elapsed} ago [L${symbolRegion.startLine}-${symbolRegion.endLine}] (${symbolRegion.tokens} tokens, unchanged).`,
+        'HINT: Symbol unchanged since last read. No need to re-read.',
+      ].join('\n');
+    }
+
+    return '';
+  }
+
+  /**
+   * Generate a compact dedup reminder for read_range.
+   * Only fires when full file is in context.
+   */
+  rangeReminder(path: string, startLine: number, endLine: number): string {
+    const entry = this.entries.get(path);
+    if (!entry) return '';
+
+    const fullRegion = entry.loaded.find(r => r.type === 'full');
+    if (!fullRegion) return '';
+
+    const elapsed = formatDuration(Date.now() - entry.loadedAt);
+    return [
+      `DEDUP: ${path} [L${startLine}-${endLine}] — full file already in context (loaded ${elapsed} ago, ${fullRegion.tokens} tokens, unchanged).`,
+      'HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.',
+    ].join('\n');
+  }
+
   forget(path: string, symbolName?: string): void {
     if (symbolName) {
       const entry = this.entries.get(path);

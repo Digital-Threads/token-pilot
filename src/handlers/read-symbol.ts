@@ -21,6 +21,7 @@ export async function handleReadSymbol(
   fileCache: FileCache,
   contextRegistry: ContextRegistry,
   astIndex?: AstIndexClient,
+  advisoryReminders = true,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
 
@@ -33,6 +34,19 @@ export async function handleReadSymbol(
   } else {
     const content = await readFile(absPath, 'utf-8');
     lines = content.split('\n');
+  }
+
+  // Dedup: check if content already in context and unchanged
+  if (advisoryReminders) {
+    const hash = cached?.hash;
+    if (hash && !contextRegistry.isStale(absPath, hash)) {
+      if (contextRegistry.isFullyLoaded(absPath) || contextRegistry.isSymbolLoaded(absPath, args.symbol)) {
+        const reminder = contextRegistry.symbolReminder(absPath, args.symbol);
+        if (reminder) {
+          return { content: [{ type: 'text', text: reminder }] };
+        }
+      }
+    }
   }
 
   // Resolve symbol — auto-fetch structure if not cached
@@ -148,6 +162,9 @@ export async function handleReadSymbol(
     endLine: resolved.endLine,
     tokens,
   });
+  if (cached?.hash) {
+    contextRegistry.setContentHash(absPath, cached.hash);
+  }
 
   return { content: [{ type: 'text', text: output }] };
 }

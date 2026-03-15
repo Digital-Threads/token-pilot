@@ -15,6 +15,7 @@ export async function handleReadRange(
   projectRoot: string,
   fileCache: FileCache,
   contextRegistry: ContextRegistry,
+  advisoryReminders = true,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
 
@@ -27,6 +28,19 @@ export async function handleReadRange(
   } else {
     const content = await readFile(absPath, 'utf-8');
     lines = content.split('\n');
+  }
+
+  // Dedup: check if full file is already in context and unchanged
+  if (advisoryReminders) {
+    const hash = cached?.hash;
+    if (hash && !contextRegistry.isStale(absPath, hash)) {
+      if (contextRegistry.isFullyLoaded(absPath)) {
+        const reminder = contextRegistry.rangeReminder(absPath, args.start_line, args.end_line);
+        if (reminder) {
+          return { content: [{ type: 'text', text: reminder }] };
+        }
+      }
+    }
   }
 
   const start = Math.max(0, args.start_line - 1);
@@ -60,6 +74,9 @@ export async function handleReadRange(
     endLine: args.end_line,
     tokens,
   });
+  if (cached?.hash) {
+    contextRegistry.setContentHash(absPath, cached.hash);
+  }
 
   return { content: [{ type: 'text', text: output }] };
 }
