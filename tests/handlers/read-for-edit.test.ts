@@ -179,7 +179,7 @@ describe('handleReadForEdit', () => {
   describe('include_changes', () => {
     it('shows "none" when file is unchanged in git', async () => {
       const { execSync } = await import('node:child_process');
-      execSync('git init && git add -A && git commit -m "init"', {
+      execSync('git init && git add -A && git -c user.name="Test" -c user.email="test@test.com" commit -m "init"', {
         cwd: tempDir,
         stdio: 'ignore',
       });
@@ -198,7 +198,7 @@ describe('handleReadForEdit', () => {
 
     it('shows diff when file has unstaged changes', async () => {
       const { execSync } = await import('node:child_process');
-      execSync('git init && git add -A && git commit -m "init"', {
+      execSync('git init && git add -A && git -c user.name="Test" -c user.email="test@test.com" commit -m "init"', {
         cwd: tempDir,
         stdio: 'ignore',
       });
