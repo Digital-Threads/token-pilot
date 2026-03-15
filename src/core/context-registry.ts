@@ -55,6 +55,12 @@ export class ContextRegistry {
     return entry.loaded.some(r => r.symbolName === symbolName);
   }
 
+  /** Check if any region of a file has been loaded into context. */
+  hasAnyLoaded(path: string): boolean {
+    const entry = this.entries.get(path);
+    return !!entry && entry.loaded.length > 0;
+  }
+
   isStale(path: string, currentHash: string): boolean {
     const entry = this.entries.get(path);
     if (!entry) return true;

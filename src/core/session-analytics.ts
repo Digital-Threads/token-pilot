@@ -1,5 +1,8 @@
 import { formatDuration } from './format-duration.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
+import type { Intent } from './intent-classifier.js';
+import type { DecisionTrace } from './decision-trace.js';
+import { ALL_INTENTS } from './intent-classifier.js';
 
 export type SavingsCategory = 'compression' | 'cache' | 'dedup' | 'none';
 
@@ -12,7 +15,11 @@ export interface ToolCall {
   delegatedToContextMode?: boolean;
   sessionCacheHit?: boolean;
   savingsCategory?: SavingsCategory;
+  intent?: Intent;
+  decisionTrace?: DecisionTrace;
 }
+
+export type { Intent, DecisionTrace };
 
 /**
  * Tracks token savings and tool usage across a session.
@@ -140,6 +147,45 @@ export class SessionAnalytics {
     if (delegated.length > 0) {
       lines.push('');
       lines.push(`Delegated to context-mode: ${delegated.length} calls`);
+    }
+
+    // Per-intent breakdown (Track 2)
+    const callsWithIntent = this.calls.filter(c => c.intent);
+    if (callsWithIntent.length > 0) {
+      const byIntent = new Map<string, { count: number; saved: number }>();
+      for (const c of callsWithIntent) {
+        const intent = c.intent!;
+        const existing = byIntent.get(intent) ?? { count: 0, saved: 0 };
+        existing.count++;
+        existing.saved += Math.max(0, c.tokensWouldBe - c.tokensReturned);
+        byIntent.set(intent, existing);
+      }
+      lines.push('');
+      lines.push('Per-intent breakdown:');
+      for (const intent of ALL_INTENTS) {
+        const stats = byIntent.get(intent);
+        if (stats) {
+          lines.push(`  ${intent}: ${stats.count} call${stats.count === 1 ? '' : 's'}, ~${stats.saved} tokens saved`);
+        }
+      }
+    }
+
+    // Decision insights (Track 0)
+    const tracedCalls = this.calls.filter(c => c.decisionTrace);
+    if (tracedCalls.length > 0) {
+      const alreadyInContextCount = tracedCalls.filter(c => c.decisionTrace!.alreadyInContext).length;
+      const totalEstimated = tracedCalls.reduce((s, c) => s + c.decisionTrace!.estimatedCost, 0);
+      const totalActual = tracedCalls.reduce((s, c) => s + c.decisionTrace!.actualCost, 0);
+      const avgReduction = totalEstimated > 0 ? Math.round((1 - totalActual / totalEstimated) * 100) : 0;
+      const missedSavings = tracedCalls.filter(c => c.decisionTrace!.cheaperAlternative).length;
+
+      lines.push('');
+      lines.push('Decision insights:');
+      lines.push(`  Files already in context: ${alreadyInContextCount} of ${tracedCalls.length} calls (${Math.round(alreadyInContextCount / tracedCalls.length * 100)}%)`);
+      lines.push(`  Avg cost reduction: ${avgReduction}% (estimated → actual)`);
+      if (missedSavings > 0) {
+        lines.push(`  Missed savings opportunities: ${missedSavings} call${missedSavings === 1 ? '' : 's'} could have used cheaper tools`);
+      }
     }
 
     // Context-mode companion status
