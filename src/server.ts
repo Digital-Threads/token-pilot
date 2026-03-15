@@ -389,7 +389,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'related_files',
-        description: 'Show import graph for a file: what it imports, what imports it, and test files. Understand dependencies before refactoring.',
+        description: 'Show ranked import graph for a file: imports, importers, and tests scored by relevance (test adjacency, import closeness, recent changes, path proximity). Files ranked into HIGH VALUE / MEDIUM / LOW to prioritize reading.',
         inputSchema: {
           type: 'object' as const,
           properties: {
