@@ -8,10 +8,11 @@ import { FileCache } from './core/file-cache.js';
 import { ContextRegistry } from './core/context-registry.js';
 import { SymbolResolver } from './core/symbol-resolver.js';
 import { SessionAnalytics } from './core/session-analytics.js';
+import { SessionCache } from './core/session-cache.js';
 
 import { loadConfig } from './config/loader.js';
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { isDangerousRoot } from './core/validation.js';
 import { promisify } from 'node:util';
@@ -168,6 +169,11 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   // Session analytics
   const analytics = new SessionAnalytics();
 
+  // Session cache (tool-result-level caching, invalidated by file/AST/git changes)
+  const sessionCache = config.sessionCache.enabled
+    ? new SessionCache(config.sessionCache.maxEntries)
+    : null;
+
   // Detect context-mode companion
   const cmEnabled = config.contextMode.enabled;
   const contextModeStatus: ContextModeStatus = await detectContextMode(
@@ -194,6 +200,18 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     fileWatcher = new FileWatcher(projectRoot, fileCache, contextRegistry, config.ignore, astIndex);
     fileWatcher.start();
     fileCache.onSet((filePath) => fileWatcher?.watchFile(filePath));
+    if (sessionCache) {
+      fileWatcher.onFileChange((absPath) => sessionCache.invalidateByFiles([absPath]));
+      fileWatcher.onAstUpdate(() => sessionCache.invalidateByAst());
+    }
+  }
+
+  // Wire session cache to git watcher
+  if (sessionCache) {
+    gitWatcher.onBranchSwitchEvent((changedFiles) => {
+      sessionCache.invalidateByFiles(changedFiles);
+      sessionCache.invalidateByGit();
+    });
   }
 
   // Read version from package.json
@@ -703,7 +721,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     // Auto-detect project root on first tool call (when startup root was /)
     // Tries: MCP roots → git detect from file path in args
     if (needsAutoDetect && !autoDetectDone) {
-      const detectedPath = extractFilePath((args ?? {}) as Record<string, unknown>);
+      const detectedPath = extractFilePath((args ?? {}));
       await tryAutoDetectRoot(detectedPath);
     }
 
@@ -802,10 +820,19 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'find_usages': {
           const usagesArgs = validateFindUsagesArgs(args);
+          const cachedUsages = sessionCache?.get('find_usages', usagesArgs);
+          if (cachedUsages) {
+            analytics.record({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: cachedUsages.tokenEstimate, tokensWouldBe: cachedUsages.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedUsages.result;
+          }
           const usagesResult = await handleFindUsages(usagesArgs, astIndex);
           const usagesText = usagesResult.content[0]?.text ?? '';
           const usagesTokens = estimateTokens(usagesText);
           const usagesWouldBe = await estimateFindUsagesWorkflowTokens(usagesResult.meta.files);
+          sessionCache?.set('find_usages', usagesArgs, usagesResult, {
+            files: usagesResult.meta.files.map(f => resolve(projectRoot, f)),
+            dependsOnAst: true,
+          }, usagesTokens);
           analytics.record({
             tool: 'find_usages',
             path: usagesArgs.symbol,
@@ -818,6 +845,11 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'project_overview': {
           const overviewArgs = validateProjectOverviewArgs(args);
+          const cachedOverview = sessionCache?.get('project_overview', overviewArgs);
+          if (cachedOverview) {
+            analytics.record({ tool: 'project_overview', path: projectRoot, tokensReturned: cachedOverview.tokenEstimate, tokensWouldBe: cachedOverview.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedOverview.result;
+          }
           const overviewResult = await handleProjectOverview(overviewArgs, projectRoot, astIndex);
           const overviewText = overviewResult.content[0]?.text ?? '';
           overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
@@ -825,6 +857,9 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const overviewWouldBe = await estimateProjectOverviewWorkflowTokens(
             overviewArgs.include ?? ['stack', 'ci', 'quality', 'architecture'],
           );
+          sessionCache?.set('project_overview', overviewArgs, overviewResult, {
+            dependsOnAst: true,
+          }, ovTokens);
           analytics.record({
             tool: 'project_overview',
             path: projectRoot,
@@ -837,10 +872,25 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'related_files': {
           const relArgs = validateRelatedFilesArgs(args);
+          const cachedRel = sessionCache?.get('related_files', relArgs);
+          if (cachedRel) {
+            analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: cachedRel.tokenEstimate, tokensWouldBe: cachedRel.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedRel.result;
+          }
           const relResult = await handleRelatedFiles(relArgs, projectRoot, astIndex);
           const relText = relResult.content[0]?.text ?? '';
           const relTokens = estimateTokens(relText);
           const relWouldBe = await estimateRelatedFilesWorkflowTokens(relArgs.path, relResult.meta);
+          const relDeps = [
+            resolve(projectRoot, relArgs.path),
+            ...relResult.meta.imports.map(f => resolve(projectRoot, f)),
+            ...relResult.meta.importedBy.map(f => resolve(projectRoot, f)),
+            ...relResult.meta.tests.map(f => resolve(projectRoot, f)),
+          ];
+          sessionCache?.set('related_files', relArgs, relResult, {
+            files: relDeps,
+            dependsOnAst: true,
+          }, relTokens);
           analytics.record({
             tool: 'related_files',
             path: relArgs.path,
@@ -853,18 +903,28 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'outline': {
           const outlineArgs = validateOutlineArgs(args);
+          const cachedOutline = sessionCache?.get('outline', outlineArgs);
+          if (cachedOutline) {
+            analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: cachedOutline.tokenEstimate, tokensWouldBe: cachedOutline.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedOutline.result;
+          }
           const outlineResult = await handleOutline(outlineArgs, projectRoot, astIndex);
           const outlineText = outlineResult.content[0]?.text ?? '';
+          const outlineTokens = estimateTokens(outlineText);
           const outlineWouldBe = await estimateOutlineWorkflowTokens(
             outlineArgs.path,
             outlineArgs.recursive ?? false,
             outlineArgs.max_depth ?? 2,
           );
+          sessionCache?.set('outline', outlineArgs, outlineResult, {
+            files: [resolve(projectRoot, outlineArgs.path) + '/'],
+            dependsOnAst: true,
+          }, outlineTokens);
           analytics.record({
             tool: 'outline',
             path: outlineArgs.path,
-            tokensReturned: estimateTokens(outlineText),
-            tokensWouldBe: outlineWouldBe || estimateTokens(outlineText),
+            tokensReturned: outlineTokens,
+            tokensWouldBe: outlineWouldBe || outlineTokens,
             timestamp: Date.now(),
           });
           return outlineResult;
@@ -875,27 +935,47 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'find_unused': {
           const unusedArgs = validateFindUnusedArgs(args);
+          const cachedUnused = sessionCache?.get('find_unused', unusedArgs);
+          if (cachedUnused) {
+            analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: cachedUnused.tokenEstimate, tokensWouldBe: cachedUnused.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedUnused.result;
+          }
           const unusedResult = await handleFindUnused(unusedArgs, astIndex);
           const unusedText = unusedResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: estimateTokens(unusedText), tokensWouldBe: estimateTokens(unusedText), timestamp: Date.now() });
+          const unusedTokens = estimateTokens(unusedText);
+          sessionCache?.set('find_unused', unusedArgs, unusedResult, { dependsOnAst: true }, unusedTokens);
+          analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: unusedTokens, tokensWouldBe: unusedTokens, timestamp: Date.now() });
           return unusedResult;
         }
 
         case 'code_audit': {
           const auditArgs = validateCodeAuditArgs(args);
+          const cachedAudit = sessionCache?.get('code_audit', auditArgs);
+          if (cachedAudit) {
+            analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: cachedAudit.tokenEstimate, tokensWouldBe: cachedAudit.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedAudit.result;
+          }
           const auditResult = await handleCodeAudit(auditArgs, projectRoot, astIndex);
           const auditText = auditResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: estimateTokens(auditText), tokensWouldBe: estimateTokens(auditText), timestamp: Date.now() });
+          const auditTokens = estimateTokens(auditText);
+          sessionCache?.set('code_audit', auditArgs, auditResult, { dependsOnAst: true }, auditTokens);
+          analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: auditTokens, tokensWouldBe: auditTokens, timestamp: Date.now() });
           return auditResult;
         }
 
         case 'module_info': {
           const moduleArgs = validateModuleInfoArgs(args);
+          const cachedModule = sessionCache?.get('module_info', moduleArgs);
+          if (cachedModule) {
+            analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: cachedModule.tokenEstimate, tokensWouldBe: cachedModule.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedModule.result;
+          }
           const moduleResult = await handleModuleInfo(moduleArgs, projectRoot, astIndex);
           const moduleText = moduleResult.content[0]?.text ?? '';
-          // Estimate: manual analysis would require reading all module files + grepping deps
-          const moduleWouldBe = estimateTokens(moduleText) * 5;
-          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: estimateTokens(moduleText), tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
+          const moduleTokens = estimateTokens(moduleText);
+          const moduleWouldBe = moduleTokens * 5;
+          sessionCache?.set('module_info', moduleArgs, moduleResult, { dependsOnAst: true }, moduleTokens);
+          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: moduleTokens, tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
           return moduleResult;
         }
 
@@ -910,10 +990,20 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'explore_area': {
           const eaArgs = validateExploreAreaArgs(args);
+          const cachedEa = sessionCache?.get('explore_area', eaArgs);
+          if (cachedEa) {
+            analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: cachedEa.tokenEstimate, tokensWouldBe: cachedEa.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            return cachedEa.result;
+          }
           const eaResult = await handleExploreArea(eaArgs, projectRoot, astIndex);
           const eaText = eaResult.content[0]?.text ?? '';
           const eaTokens = estimateTokens(eaText);
           const eaWouldBe = await estimateExploreAreaWorkflowTokens(eaResult.meta);
+          sessionCache?.set('explore_area', eaArgs, eaResult, {
+            files: [resolve(projectRoot, eaArgs.path) + '/'],
+            dependsOnAst: true,
+            dependsOnGit: true,
+          }, eaTokens);
           analytics.record({
             tool: 'explore_area',
             path: eaArgs.path,

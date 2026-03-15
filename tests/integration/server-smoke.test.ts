@@ -21,6 +21,7 @@ vi.mock('../../src/integration/context-mode-detector.js', () => ({
 vi.mock('../../src/git/watcher.js', () => ({
   GitWatcher: class {
     async start(): Promise<void> {}
+    onBranchSwitchEvent(): void {}
   },
 }));
 
@@ -28,6 +29,8 @@ vi.mock('../../src/git/file-watcher.js', () => ({
   FileWatcher: class {
     start(): void {}
     watchFile(): void {}
+    onFileChange(): void {}
+    onAstUpdate(): void {}
   },
 }));
 

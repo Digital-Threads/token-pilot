@@ -15,6 +15,7 @@ export class GitWatcher {
   private watcher: ReturnType<typeof watch> | null = null;
   private headRef: string = '';
   private enabled: boolean;
+  private branchSwitchCallback: ((changedFiles: string[]) => void) | null = null;
 
   constructor(
     projectRoot: string,
@@ -97,6 +98,11 @@ export class GitWatcher {
     }
   }
 
+  /** Register callback for branch switch events. */
+  onBranchSwitchEvent(callback: (changedFiles: string[]) => void): void {
+    this.branchSwitchCallback = callback;
+  }
+
   private async onBranchSwitch(): Promise<void> {
     // On branch switch, get files that differ between old and new branch
     // and selectively invalidate only those
@@ -104,6 +110,7 @@ export class GitWatcher {
     if (changed.length > 0) {
       await this.fileCache.invalidateByGitDiff(changed);
       this.contextRegistry.invalidateByGitDiff(changed);
+      this.branchSwitchCallback?.(changed);
     }
   }
 

@@ -132,5 +132,9 @@ export interface TokenPilotConfig {
     checkOnStartup: boolean;
     autoUpdate: boolean;
   };
+  sessionCache: {
+    enabled: boolean;
+    maxEntries: number;
+  };
   ignore: string[];
 }

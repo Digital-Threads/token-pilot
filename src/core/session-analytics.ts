@@ -8,6 +8,7 @@ export interface ToolCall {
   tokensWouldBe: number;
   timestamp: number;
   delegatedToContextMode?: boolean;
+  sessionCacheHit?: boolean;
 }
 
 /**
@@ -100,6 +101,14 @@ export class SessionAnalytics {
       for (const tool of lowValueTools.slice(0, 5)) {
         lines.push(`  ${tool.tool}: only ${tool.reduction}% reduction across ${tool.count} call${tool.count === 1 ? '' : 's'}`);
       }
+    }
+
+    // Session cache hits
+    const cacheHits = this.calls.filter(c => c.sessionCacheHit);
+    if (cacheHits.length > 0) {
+      const cacheTokensSaved = cacheHits.reduce((s, c) => s + c.tokensReturned, 0);
+      lines.push('');
+      lines.push(`Session cache: ${cacheHits.length} hits / ${this.calls.length} calls (${Math.round(cacheHits.length / this.calls.length * 100)}% hit rate, ~${cacheTokensSaved} tokens served instantly)`);
     }
 
     // Reminders served (compact reminders that avoided re-reads)

@@ -44,6 +44,10 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     checkOnStartup: true,
     autoUpdate: false,
   },
+  sessionCache: {
+    enabled: true,
+    maxEntries: 200,
+  },
   ignore: [
     'node_modules/**',
     'dist/**',

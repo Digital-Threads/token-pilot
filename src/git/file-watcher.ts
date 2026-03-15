@@ -22,6 +22,8 @@ export class FileWatcher {
   private watcher: ReturnType<typeof watch> | null = null;
   private watchedFiles = new Set<string>();
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
+  private fileChangeCallback: ((absPath: string) => void) | null = null;
+  private astUpdateCallback: (() => void) | null = null;
 
   constructor(
     _projectRoot: string,
@@ -52,6 +54,7 @@ export class FileWatcher {
       if (this.fileCache.get(absPath)) {
         this.fileCache.invalidate(absPath);
       }
+      this.fileChangeCallback?.(absPath);
       this.scheduleIndexUpdate();
     });
 
@@ -60,6 +63,7 @@ export class FileWatcher {
       this.fileCache.invalidate(absPath);
       this.contextRegistry.forget(absPath);
       this.watchedFiles.delete(absPath);
+      this.fileChangeCallback?.(absPath);
       this.scheduleIndexUpdate();
     });
   }
@@ -68,9 +72,22 @@ export class FileWatcher {
   private scheduleIndexUpdate(): void {
     if (!this.astIndex) return;
     if (this.updateTimer) clearTimeout(this.updateTimer);
-    this.updateTimer = setTimeout(() => {
-      this.astIndex?.incrementalUpdate().catch(() => { /* ignore */ });
+    this.updateTimer = setTimeout(async () => {
+      try {
+        await this.astIndex?.incrementalUpdate();
+        this.astUpdateCallback?.();
+      } catch { /* ignore */ }
     }, FileWatcher.UPDATE_DEBOUNCE_MS);
+  }
+
+  /** Register callback for file change/unlink events. */
+  onFileChange(callback: (absPath: string) => void): void {
+    this.fileChangeCallback = callback;
+  }
+
+  /** Register callback for after AST index incremental update completes. */
+  onAstUpdate(callback: () => void): void {
+    this.astUpdateCallback = callback;
   }
 
   /** Add a specific file to watch. Called after smart_read/read_symbol loads a file. */
