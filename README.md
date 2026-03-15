@@ -113,7 +113,10 @@ npx token-pilot install-ast-index
 
 ### PreToolUse Hook (Claude Code only)
 
-Optional hook that intercepts `Read` calls for large code files (>500 lines) and suggests `smart_read`. Claude Code only.
+Optional Claude Code hook support:
+
+- blocks unbounded `Read` on large code files (>500 lines) and points the agent to `smart_read`
+- adds `read_for_edit` guidance before `Edit`
 
 ```bash
 npx token-pilot install-hook            # Install
@@ -149,7 +152,7 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (14)
+## MCP Tools (18)
 
 ### Core Reading
 
@@ -194,6 +197,7 @@ token-pilot install-ast-index    # Download ast-index binary (auto on first run)
 token-pilot install-hook [root]  # Install PreToolUse hook
 token-pilot uninstall-hook       # Remove hook
 token-pilot hook-read <file>     # Hook handler (called by Claude Code)
+token-pilot hook-edit            # Edit hook handler (called by Claude Code)
 token-pilot doctor               # Run diagnostics (ast-index, config, updates)
 token-pilot --version            # Show version
 token-pilot --help               # Show help
@@ -319,8 +323,8 @@ npm run dev          # TypeScript watch mode
 
 ```
 src/
-  index.ts              — CLI entry point (6 commands)
-  server.ts             — MCP server setup, 14 tool definitions, instructions
+  index.ts              — CLI entry point and server bootstrap
+  server.ts             — MCP server setup, tool definitions, instructions
   types.ts              — Core domain types
   ast-index/
     client.ts           — ast-index CLI wrapper (22+ methods)
@@ -360,7 +364,6 @@ src/
     smart-log.ts        — smart_log handler (structured git log + category detection)
     test-summary.ts     — test_summary handler (run tests + parse output)
     non-code.ts         — JSON/YAML/MD/TOML structural summaries
-    export-ast-index.ts — AST export for context-mode BM25
   git/
     watcher.ts          — Git HEAD watcher (branch switch detection)
     file-watcher.ts     — File system watcher (cache invalidation)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTestOutput, detectRunner } from '../../src/handlers/test-summary.js';
+import { parseTestOutput, detectRunner, handleTestSummary } from '../../src/handlers/test-summary.js';
 
 describe('detectRunner', () => {
   it('detects vitest from command', () => {
@@ -165,5 +165,20 @@ describe('parseTestOutput — generic', () => {
     expect(result.passed).toBe(10);
     expect(result.failed).toBe(2);
     expect(result.total).toBe(12);
+  });
+});
+
+describe('handleTestSummary', () => {
+  it('marks a crashing command as failed even without structured test output', async () => {
+    const result = await handleTestSummary(
+      { command: 'node --eval "console.error(\'boom\'); process.exit(1)"' },
+      process.cwd(),
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('TEST RESULT: ❌ FAIL');
+    expect(text).toContain('Exit code: 1');
+    expect(text).toContain('Command exited with code 1');
+    expect(text).toContain('boom');
   });
 });

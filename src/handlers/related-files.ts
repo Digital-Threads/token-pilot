@@ -1,4 +1,5 @@
-import { basename, extname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, extname, relative, resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import { resolveSafePath } from '../core/validation.js';
 
@@ -31,6 +32,12 @@ export interface RelatedFilesArgs {
   path: string;
 }
 
+export interface RelatedFilesMeta {
+  imports: string[];
+  importedBy: string[];
+  tests: string[];
+}
+
 const TEST_PATTERNS = [
   /\.test\.\w+$/,
   /\.spec\.\w+$/,
@@ -44,18 +51,24 @@ export async function handleRelatedFiles(
   args: RelatedFilesArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; meta: RelatedFilesMeta }> {
   if (astIndex.isDisabled() || astIndex.isOversized()) {
-    return { content: [{ type: 'text', text:
-      'related_files is disabled: ' + (astIndex.isDisabled()
-        ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
-        : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
-      '\nAlternative: use smart_read() to see file imports in the outline.' }] };
+    return {
+      content: [{
+        type: 'text',
+        text: 'related_files is disabled: ' + (astIndex.isDisabled()
+          ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
+          : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.')
+          + '\nAlternative: use smart_read() to see file imports in the outline.',
+      }],
+      meta: { imports: [], importedBy: [], tests: [] },
+    };
   }
 
   const absPath = resolveSafePath(projectRoot, args.path);
   const fileName = basename(absPath);
   const fileBase = fileName.replace(/\.\w+$/, '');
+  const relatedImports = new Set<string>();
 
   const sections: string[] = [`RELATED FILES: ${args.path}`, ''];
 
@@ -67,6 +80,10 @@ export async function handleRelatedFiles(
       for (const imp of imports) {
         const specStr = imp.specifiers?.length ? imp.specifiers.join(', ') : '*';
         sections.push(`  → ${imp.source}  (${specStr})`);
+        const resolvedImport = resolveImportPath(absPath, imp.source, projectRoot);
+        if (resolvedImport) {
+          relatedImports.add(relative(projectRoot, resolvedImport));
+        }
       }
       sections.push('');
     }
@@ -76,6 +93,7 @@ export async function handleRelatedFiles(
 
   // 2. Reverse imports (what imports this file)
   const importedBy: string[] = [];
+  const testFiles: string[] = [];
   const sourceLang = getLangFamily(absPath);
   try {
     // Get structure to find exported symbol names
@@ -121,7 +139,7 @@ export async function handleRelatedFiles(
           }
 
           seenFiles.add(refPath);
-          importedBy.push(refPath);
+          importedBy.push(relative(projectRoot, refPath));
         }
       } catch {
         // skip symbol
@@ -142,14 +160,13 @@ export async function handleRelatedFiles(
   // 3. Test files
   try {
     const allFiles = await astIndex.listFiles();
-    const testFiles: string[] = [];
 
     if (allFiles && allFiles.length > 0) {
       for (const f of allFiles) {
         // Match test files for this module
         const fBase = basename(f);
         if (fBase.includes(fileBase) && TEST_PATTERNS.some(p => p.test(f))) {
-          testFiles.push(f);
+          testFiles.push(relative(projectRoot, f));
         }
       }
     }
@@ -174,5 +191,40 @@ export async function handleRelatedFiles(
     sections.push('HINT: Use smart_read_many(paths=[...]) to read related files at once.');
   }
 
-  return { content: [{ type: 'text', text: sections.join('\n') }] };
+  return {
+    content: [{ type: 'text', text: sections.join('\n') }],
+    meta: {
+      imports: Array.from(relatedImports).sort(),
+      importedBy: Array.from(new Set(importedBy)).sort(),
+      tests: Array.from(new Set(testFiles)).sort(),
+    },
+  };
+}
+
+function resolveImportPath(
+  sourceFile: string,
+  importSource: string,
+  projectRoot: string,
+): string | null {
+  if (!importSource.startsWith('.') && !importSource.startsWith('/')) {
+    return null;
+  }
+
+  const basePath = importSource.startsWith('/')
+    ? resolve(projectRoot, '.' + importSource)
+    : resolve(dirname(sourceFile), importSource);
+
+  const candidates = [
+    basePath,
+    ...['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.php', '.go', '.rs', '.java', '.kt', '.swift']
+      .flatMap((ext) => [`${basePath}${ext}`, resolve(basePath, `index${ext}`)]),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate.startsWith(projectRoot) && existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }

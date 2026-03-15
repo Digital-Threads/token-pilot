@@ -37,12 +37,13 @@ export class SessionAnalytics {
     const saved = totalWouldBe > 0 ? Math.round((1 - totalReturned / totalWouldBe) * 100) : 0;
 
     // Group by tool
-    const byTool = new Map<string, { count: number; tokens: number; saved: number }>();
+    const byTool = new Map<string, { count: number; tokens: number; saved: number; wouldBe: number }>();
     for (const c of this.calls) {
-      const existing = byTool.get(c.tool) ?? { count: 0, tokens: 0, saved: 0 };
+      const existing = byTool.get(c.tool) ?? { count: 0, tokens: 0, saved: 0, wouldBe: 0 };
       existing.count++;
       existing.tokens += c.tokensReturned;
       existing.saved += Math.max(0, c.tokensWouldBe - c.tokensReturned);
+      existing.wouldBe += c.tokensWouldBe;
       byTool.set(c.tool, existing);
     }
 
@@ -56,8 +57,12 @@ export class SessionAnalytics {
       'By tool:',
     ];
 
-    for (const [tool, stats] of byTool) {
-      lines.push(`  ${tool}: ${stats.count} calls, ~${stats.tokens} tokens returned, ~${stats.saved} saved`);
+    const sortedTools = Array.from(byTool.entries()).sort((a, b) => b[1].saved - a[1].saved);
+    for (const [tool, stats] of sortedTools) {
+      const reduction = stats.wouldBe > 0
+        ? Math.round((1 - stats.tokens / stats.wouldBe) * 100)
+        : 0;
+      lines.push(`  ${tool}: ${stats.count} calls, ~${stats.tokens} tokens returned, ~${stats.saved} saved (${reduction}% reduction)`);
     }
 
     // Top files by savings
@@ -78,6 +83,22 @@ export class SessionAnalytics {
       lines.push('Top files by savings:');
       for (const [file, saved] of topFiles) {
         lines.push(`  ${file}: ~${saved} tokens saved`);
+      }
+    }
+
+    const lowValueTools = sortedTools
+      .map(([tool, stats]) => ({
+        tool,
+        reduction: stats.wouldBe > 0 ? Math.round((1 - stats.tokens / stats.wouldBe) * 100) : 0,
+        count: stats.count,
+      }))
+      .filter((tool) => tool.reduction < 20);
+
+    if (lowValueTools.length > 0) {
+      lines.push('');
+      lines.push('Needs improvement:');
+      for (const tool of lowValueTools.slice(0, 5)) {
+        lines.push(`  ${tool.tool}: only ${tool.reduction}% reduction across ${tool.count} call${tool.count === 1 ? '' : 's'}`);
       }
     }
 

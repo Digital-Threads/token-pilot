@@ -1,7 +1,7 @@
 {
   "name": "token-pilot",
   "version": "0.13.0",
-  "description": "Reduces token consumption by 80-95% via AST-aware lazy file reading. Returns structural overviews instead of full files.",
+  "description": "Reduces token consumption by 60-80% via AST-aware lazy file reading. Returns structural overviews instead of full files.",
   "author": "token-pilot",
   "license": "MIT",
   "skills": "../skills",

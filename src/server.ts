@@ -30,7 +30,7 @@ import { handleNonCodeRead, isNonCodeStructured } from './handlers/non-code.js';
 import { handleFindUnused } from './handlers/find-unused.js';
 import { handleReadForEdit } from './handlers/read-for-edit.js';
 import { handleRelatedFiles } from './handlers/related-files.js';
-import { handleOutline } from './handlers/outline.js';
+import { handleOutline, CODE_EXTENSIONS } from './handlers/outline.js';
 import { handleCodeAudit } from './handlers/code-audit.js';
 import { handleModuleInfo } from './handlers/module-info.js';
 import { handleSmartDiff } from './handlers/smart-diff.js';
@@ -518,6 +518,184 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     }
   }
 
+  async function estimateProjectOverviewWorkflowTokens(
+    includeSections: Array<'stack' | 'ci' | 'quality' | 'architecture'>,
+  ): Promise<number> {
+    const sectionFiles: Record<'stack' | 'ci' | 'quality' | 'architecture', string[]> = {
+      stack: ['package.json', 'composer.json', 'Cargo.toml', 'pyproject.toml', 'go.mod'],
+      ci: ['.gitlab-ci.yml', 'Jenkinsfile', '.circleci/config.yml', 'bitbucket-pipelines.yml', '.travis.yml'],
+      quality: [
+        'tsconfig.json',
+        'vitest.config.ts',
+        'vitest.config.js',
+        'vitest.config.mts',
+        'jest.config.js',
+        'jest.config.ts',
+        'jest.config.mjs',
+        'eslint.config.js',
+        'eslint.config.mjs',
+        '.eslintrc',
+        '.eslintrc.js',
+        '.eslintrc.json',
+        '.eslintrc.yml',
+        'biome.json',
+        'biome.jsonc',
+        '.prettierrc',
+        '.prettierrc.js',
+        '.prettierrc.json',
+        'prettier.config.js',
+        'phpunit.xml',
+        'phpunit.xml.dist',
+        'phpstan.neon',
+        'phpstan.neon.dist',
+      ],
+      architecture: ['README.md'],
+    };
+
+    let total = 0;
+    const seen = new Set<string>();
+    for (const section of includeSections) {
+      for (const file of sectionFiles[section]) {
+        if (seen.has(file)) continue;
+        seen.add(file);
+        total += await fullFileTokens(file);
+      }
+    }
+
+    if (includeSections.includes('ci')) {
+      try {
+        const { readdir: readDirAsync } = await import('node:fs/promises');
+        const workflowDir = resolveSafePath(projectRoot, '.github/workflows');
+        const workflowFiles = await readDirAsync(workflowDir, { withFileTypes: true });
+        for (const file of workflowFiles) {
+          if (!file.isFile()) continue;
+          if (!file.name.endsWith('.yml') && !file.name.endsWith('.yaml')) continue;
+          total += await fullFileTokens(`.github/workflows/${file.name}`);
+        }
+      } catch {
+        // ignore missing workflows dir
+      }
+    }
+
+    if (includeSections.includes('architecture')) {
+      total += 200;
+    }
+
+    return total;
+  }
+
+  async function estimateOutlineWorkflowTokens(
+    relativePath: string,
+    recursive: boolean,
+    maxDepth: number,
+  ): Promise<number> {
+    const SAMPLE_LIMIT = 30;
+
+    try {
+      const { readdir: readDirAsync } = await import('node:fs/promises');
+      const { resolve: resolvePath } = await import('node:path');
+      const absDir = resolveSafePath(projectRoot, relativePath);
+      const sampledFiles: string[] = [];
+      let totalFiles = 0;
+
+      async function walk(dirPath: string, depth: number): Promise<void> {
+        const entries = await readDirAsync(dirPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+          if (entry.isFile()) {
+            const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
+            if (!CODE_EXTENSIONS.has(ext)) continue;
+            totalFiles++;
+            if (sampledFiles.length < SAMPLE_LIMIT) {
+              sampledFiles.push(resolvePath(dirPath, entry.name));
+            }
+            continue;
+          }
+
+          if (entry.isDirectory() && recursive && depth < maxDepth) {
+            await walk(resolvePath(dirPath, entry.name), depth + 1);
+          }
+        }
+      }
+
+      await walk(absDir, 0);
+      if (totalFiles === 0) return 0;
+
+      let sampledTokens = 0;
+      for (const filePath of sampledFiles) {
+        const relPath = filePath.startsWith(projectRoot)
+          ? filePath.slice(projectRoot.length + 1)
+          : filePath;
+        sampledTokens += await fullFileTokens(relPath);
+      }
+
+      if (sampledFiles.length === 0 || sampledTokens === 0) return 0;
+      if (sampledFiles.length === totalFiles) return sampledTokens;
+
+      const averageTokens = sampledTokens / sampledFiles.length;
+      return Math.round(averageTokens * totalFiles);
+    } catch {
+      return 0;
+    }
+  }
+
+  async function estimateRelatedFilesWorkflowTokens(
+    targetPath: string,
+    meta?: { imports?: string[]; importedBy?: string[]; tests?: string[] },
+  ): Promise<number> {
+    const related = new Set<string>([targetPath]);
+    for (const path of meta?.imports ?? []) related.add(path);
+    for (const path of meta?.importedBy ?? []) related.add(path);
+    for (const path of meta?.tests ?? []) related.add(path);
+
+    let total = 0;
+    let counted = 0;
+    for (const path of related) {
+      total += await fullFileTokens(path);
+      counted++;
+      if (counted >= 12) break;
+    }
+    return total;
+  }
+
+  async function estimateFindUsagesWorkflowTokens(files: string[]): Promise<number> {
+    let total = 0;
+    let counted = 0;
+    for (const file of files) {
+      total += await fullFileTokens(file);
+      counted++;
+      if (counted >= 20) break;
+    }
+    return total;
+  }
+
+  async function estimateExploreAreaWorkflowTokens(meta: {
+    codeFiles?: string[];
+    testFiles?: string[];
+    internalDeps?: string[];
+    importedBy?: string[];
+    externalDeps?: string[];
+    changeCount?: number;
+  }): Promise<number> {
+    const localFiles = new Set<string>();
+    for (const file of meta.codeFiles ?? []) localFiles.add(file);
+    for (const file of meta.testFiles ?? []) localFiles.add(file);
+    for (const file of meta.internalDeps ?? []) localFiles.add(file);
+    for (const file of meta.importedBy ?? []) localFiles.add(file);
+
+    let total = 0;
+    let counted = 0;
+    for (const file of localFiles) {
+      total += await fullFileTokens(file);
+      counted++;
+      if (counted >= 24) break;
+    }
+
+    total += (meta.externalDeps?.length ?? 0) * 30;
+    total += (meta.changeCount ?? 0) * 40;
+    return total;
+  }
+
   // Handle tool calls with validated arguments
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -543,7 +721,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             });
             if (nonCodeResult) {
               const text = nonCodeResult.content[0]?.text ?? '';
-              analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: estimateTokens(text), timestamp: Date.now() });
+              analytics.record({
+                tool: 'smart_read',
+                path: validArgs.path,
+                tokensReturned: estimateTokens(text),
+                tokensWouldBe: await fullFileTokens(validArgs.path) || estimateTokens(text),
+                timestamp: Date.now(),
+                delegatedToContextMode: text.includes('ADVISORY:') && text.includes('context-mode'),
+              });
               return nonCodeResult;
             }
           }
@@ -600,9 +785,18 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const manyResult = await handleSmartReadMany(manyArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const manyText = manyResult.content[0]?.text ?? '';
           const manyTokens = estimateTokens(manyText);
+          const uniqueManyPaths = Array.from(new Set(manyArgs.paths));
           let fullTokensMany = 0;
-          for (const p of manyArgs.paths) { fullTokensMany += await fullFileTokens(p); }
-          analytics.record({ tool: 'smart_read_many', path: manyArgs.paths.join(', '), tokensReturned: manyTokens, tokensWouldBe: fullTokensMany || manyTokens, timestamp: Date.now() });
+          for (const p of uniqueManyPaths) {
+            fullTokensMany += await fullFileTokens(p);
+          }
+          analytics.record({
+            tool: 'smart_read_many',
+            path: uniqueManyPaths.join(', '),
+            tokensReturned: manyTokens,
+            tokensWouldBe: fullTokensMany || manyTokens,
+            timestamp: Date.now(),
+          });
           return manyResult;
         }
 
@@ -610,7 +804,15 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const usagesArgs = validateFindUsagesArgs(args);
           const usagesResult = await handleFindUsages(usagesArgs, astIndex);
           const usagesText = usagesResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: estimateTokens(usagesText), tokensWouldBe: estimateTokens(usagesText), timestamp: Date.now() });
+          const usagesTokens = estimateTokens(usagesText);
+          const usagesWouldBe = await estimateFindUsagesWorkflowTokens(usagesResult.meta.files);
+          analytics.record({
+            tool: 'find_usages',
+            path: usagesArgs.symbol,
+            tokensReturned: usagesTokens,
+            tokensWouldBe: usagesWouldBe || usagesTokens,
+            timestamp: Date.now(),
+          });
           return usagesResult;
         }
 
@@ -620,7 +822,16 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const overviewText = overviewResult.content[0]?.text ?? '';
           overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
           const ovTokens = estimateTokens(overviewResult.content[0].text);
-          analytics.record({ tool: 'project_overview', path: projectRoot, tokensReturned: ovTokens, tokensWouldBe: ovTokens, timestamp: Date.now() });
+          const overviewWouldBe = await estimateProjectOverviewWorkflowTokens(
+            overviewArgs.include ?? ['stack', 'ci', 'quality', 'architecture'],
+          );
+          analytics.record({
+            tool: 'project_overview',
+            path: projectRoot,
+            tokensReturned: ovTokens,
+            tokensWouldBe: overviewWouldBe || ovTokens,
+            timestamp: Date.now(),
+          });
           return overviewResult;
         }
 
@@ -628,7 +839,15 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const relArgs = validateRelatedFilesArgs(args);
           const relResult = await handleRelatedFiles(relArgs, projectRoot, astIndex);
           const relText = relResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: estimateTokens(relText), tokensWouldBe: estimateTokens(relText), timestamp: Date.now() });
+          const relTokens = estimateTokens(relText);
+          const relWouldBe = await estimateRelatedFilesWorkflowTokens(relArgs.path, relResult.meta);
+          analytics.record({
+            tool: 'related_files',
+            path: relArgs.path,
+            tokensReturned: relTokens,
+            tokensWouldBe: relWouldBe || relTokens,
+            timestamp: Date.now(),
+          });
           return relResult;
         }
 
@@ -636,7 +855,18 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const outlineArgs = validateOutlineArgs(args);
           const outlineResult = await handleOutline(outlineArgs, projectRoot, astIndex);
           const outlineText = outlineResult.content[0]?.text ?? '';
-          analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: estimateTokens(outlineText), tokensWouldBe: estimateTokens(outlineText), timestamp: Date.now() });
+          const outlineWouldBe = await estimateOutlineWorkflowTokens(
+            outlineArgs.path,
+            outlineArgs.recursive ?? false,
+            outlineArgs.max_depth ?? 2,
+          );
+          analytics.record({
+            tool: 'outline',
+            path: outlineArgs.path,
+            tokensReturned: estimateTokens(outlineText),
+            tokensWouldBe: outlineWouldBe || estimateTokens(outlineText),
+            timestamp: Date.now(),
+          });
           return outlineResult;
         }
 
@@ -683,9 +913,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const eaResult = await handleExploreArea(eaArgs, projectRoot, astIndex);
           const eaText = eaResult.content[0]?.text ?? '';
           const eaTokens = estimateTokens(eaText);
-          // Without explore_area, agent would call: outline + related_files + git log = ~3-5x tokens
-          const eaWouldBe = eaTokens * 4;
-          analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: eaTokens, tokensWouldBe: eaWouldBe, timestamp: Date.now() });
+          const eaWouldBe = await estimateExploreAreaWorkflowTokens(eaResult.meta);
+          analytics.record({
+            tool: 'explore_area',
+            path: eaArgs.path,
+            tokensReturned: eaTokens,
+            tokensWouldBe: eaWouldBe || eaTokens,
+            timestamp: Date.now(),
+          });
           return eaResult;
         }
 

@@ -16,6 +16,16 @@ const execFileAsync = promisify(execFile);
 const MAX_IMPORT_FILES = 20;
 const MAX_OUTPUT_LINES = 500;
 
+export interface ExploreAreaMeta {
+  dir: string;
+  codeFiles: string[];
+  testFiles: string[];
+  internalDeps: string[];
+  importedBy: string[];
+  externalDeps: string[];
+  changeCount: number;
+}
+
 // ──────────────────────────────────────────────
 // Handler
 // ──────────────────────────────────────────────
@@ -24,13 +34,22 @@ export async function handleExploreArea(
   args: ExploreAreaArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; meta: ExploreAreaMeta }> {
   // Resolve path — if it points to a file, use its parent directory
   let absPath = resolveSafePath(projectRoot, args.path);
   const pathStat = await stat(absPath).catch(() => null);
   if (!pathStat) {
     return {
       content: [{ type: 'text', text: `Path "${args.path}" not found.` }],
+      meta: {
+        dir: args.path,
+        codeFiles: [],
+        testFiles: [],
+        internalDeps: [],
+        importedBy: [],
+        externalDeps: [],
+        changeCount: 0,
+      },
     };
   }
   if (!pathStat.isDirectory()) {
@@ -66,19 +85,19 @@ export async function handleExploreArea(
   }
 
   // Imports
-  const importLines = extractResult(importsSection);
+  const importLines = extractResult(importsSection)?.lines ?? null;
   if (importLines) {
     lines.push(...importLines);
   }
 
   // Tests
-  const testLines = extractResult(testsSection);
+  const testLines = extractResult(testsSection)?.lines ?? null;
   if (testLines) {
     lines.push(...testLines);
   }
 
   // Changes
-  const changeLines = extractResult(changesSection);
+  const changeLines = extractResult(changesSection)?.lines ?? null;
   if (changeLines) {
     lines.push(...changeLines);
   }
@@ -91,7 +110,18 @@ export async function handleExploreArea(
 
   lines.push('HINT: Use smart_read(file) for details, read_symbol(path, symbol) for source code, find_usages(symbol) for references.');
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+    meta: {
+      dir: relDir,
+      codeFiles: codeFiles.map((file) => relative(projectRoot, file)).sort(),
+      testFiles: extractResult(testsSection)?.testFiles ?? [],
+      internalDeps: extractResult(importsSection)?.internalDeps ?? [],
+      importedBy: extractResult(importsSection)?.importedBy ?? [],
+      externalDeps: extractResult(importsSection)?.externalDeps ?? [],
+      changeCount: extractResult(changesSection)?.count ?? 0,
+    },
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -117,9 +147,14 @@ async function buildImportsSection(
   absPath: string,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<string[]> {
+): Promise<{
+  lines: string[];
+  internalDeps: string[];
+  importedBy: string[];
+  externalDeps: string[];
+}> {
   if (!astIndex.isAvailable() || astIndex.isDisabled() || astIndex.isOversized()) {
-    return [];
+    return { lines: [], internalDeps: [], importedBy: [], externalDeps: [] };
   }
 
   const filesToAnalyze = codeFiles.slice(0, MAX_IMPORT_FILES);
@@ -194,7 +229,12 @@ async function buildImportsSection(
   }
 
   if (lines.length > 0) lines.push('');
-  return lines;
+  return {
+    lines,
+    internalDeps: Array.from(internalDeps).sort(),
+    importedBy: Array.from(importedBy).sort(),
+    externalDeps: Array.from(externalDeps).sort(),
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -205,7 +245,7 @@ async function buildTestsSection(
   codeFiles: string[],
   absPath: string,
   projectRoot: string,
-): Promise<string[]> {
+): Promise<{ lines: string[]; testFiles: string[] }> {
   const testFiles: string[] = [];
   const areaFileNames = new Set(codeFiles.map(f => basename(f).replace(/\.[^.]+$/, '')));
 
@@ -267,12 +307,12 @@ async function buildTestsSection(
     } catch { /* skip unreadable dirs */ }
   }
 
-  if (testFiles.length === 0) return [];
+  if (testFiles.length === 0) return { lines: [], testFiles: [] };
 
   const lines: string[] = [];
   lines.push(`TESTS: ${testFiles.join(', ')}`);
   lines.push('');
-  return lines;
+  return { lines, testFiles: [...testFiles].sort() };
 }
 
 // ──────────────────────────────────────────────
@@ -282,7 +322,7 @@ async function buildTestsSection(
 async function buildChangesSection(
   relDir: string,
   projectRoot: string,
-): Promise<string[]> {
+): Promise<{ lines: string[]; count: number }> {
   try {
     const { stdout } = await execFileAsync(
       'git',
@@ -290,17 +330,18 @@ async function buildChangesSection(
       { cwd: projectRoot, timeout: 5000 },
     );
 
-    if (!stdout.trim()) return [];
+    if (!stdout.trim()) return { lines: [], count: 0 };
 
     const lines: string[] = [];
+    const commits = stdout.trim().split('\n');
     lines.push('RECENT CHANGES:');
-    for (const line of stdout.trim().split('\n')) {
+    for (const line of commits) {
       lines.push(`  ${line}`);
     }
     lines.push('');
-    return lines;
+    return { lines, count: commits.length };
   } catch {
-    return [];
+    return { lines: [], count: 0 };
   }
 }
 
@@ -308,8 +349,8 @@ async function buildChangesSection(
 // Helpers
 // ──────────────────────────────────────────────
 
-function extractResult(settled: PromiseSettledResult<string[] | null>): string[] | null {
-  if (settled.status === 'fulfilled' && settled.value && settled.value.length > 0) {
+function extractResult<T>(settled: PromiseSettledResult<T | null>): T | null {
+  if (settled.status === 'fulfilled' && settled.value) {
     return settled.value;
   }
   return null;
