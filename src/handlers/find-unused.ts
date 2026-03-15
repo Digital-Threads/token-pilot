@@ -27,13 +27,13 @@ function isDunderMethod(name: string): boolean {
 export async function handleFindUnused(
   args: FindUnusedArgs,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; meta: { files: string[] } }> {
   if (astIndex.isDisabled() || astIndex.isOversized()) {
     return { content: [{ type: 'text', text:
       'find_unused is disabled: ' + (astIndex.isDisabled()
         ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
         : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
-      '\nAlternative: use grep_search to find unused exports manually.' }] };
+      '\nAlternative: use grep_search to find unused exports manually.' }], meta: { files: [] } };
   }
 
   const requestLimit = (args.limit ?? 30) + 20; // extra to compensate for filtering
@@ -103,6 +103,7 @@ export async function handleFindUnused(
           ? `No unused symbols found in module "${args.module}".${excluded > 0 ? ` (${excluded} constructors/protocol methods excluded)` : ''}`
           : `No unused symbols found in the project.${excluded > 0 ? ` (${excluded} constructors/protocol methods excluded)` : ''}`,
       }],
+      meta: { files: [] },
     };
   }
 
@@ -143,7 +144,7 @@ export async function handleFindUnused(
   }
   lines.push('NOTE: Verify before removing — symbols may be used dynamically, in tests, or via framework conventions.');
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  return { content: [{ type: 'text', text: lines.join('\n') }], meta: { files: uniqueFiles } };
 }
 
 /**

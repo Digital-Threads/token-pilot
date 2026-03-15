@@ -2,17 +2,20 @@ import { relative } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { CodeAuditArgs } from '../core/validation.js';
 
+type AuditResult = { content: Array<{ type: 'text'; text: string }>; meta: { files: string[] } };
+
 export async function handleCodeAudit(
   args: CodeAuditArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   if (astIndex.isDisabled() || astIndex.isOversized()) {
     return {
       content: [{
         type: 'text',
         text: 'ast-index is not available (project root too broad or index oversized). Use Grep/ripgrep for pattern search.',
       }],
+      meta: { files: [] },
     };
   }
 
@@ -36,6 +39,7 @@ export async function handleCodeAudit(
           type: 'text',
           text: `Unknown check type: "${args.check}". Use: pattern, todo, deprecated, annotations, all`,
         }],
+        meta: { files: [] },
       };
   }
 }
@@ -50,7 +54,7 @@ async function handlePattern(
   limit: number,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   try {
     const matches = await astIndex.agrep(pattern, { lang, limit });
 
@@ -60,6 +64,7 @@ async function handlePattern(
           type: 'text',
           text: `PATTERN SEARCH: "${pattern}"${lang ? ` (${lang})` : ''}\n\nNo matches found.\n\nHINT: Try Grep/ripgrep for text-based search if the pattern is not structural.`,
         }],
+        meta: { files: [] },
       };
     }
 
@@ -86,7 +91,7 @@ async function handlePattern(
 
     lines.push('HINT: Use read_symbol() to inspect specific matches, or Grep for text-based counting.');
 
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
+    return { content: [{ type: 'text', text: lines.join('\n') }], meta: { files: [...byFile.keys()] } };
   } catch (err) {
     // ast-grep not installed — return the error message
     return {
@@ -94,6 +99,7 @@ async function handlePattern(
         type: 'text',
         text: `PATTERN SEARCH ERROR:\n${err instanceof Error ? err.message : String(err)}\n\nFallback: Use Grep/ripgrep for text-based pattern search.`,
       }],
+      meta: { files: [] },
     };
   }
 }
@@ -102,7 +108,7 @@ async function handleTodo(
   limit: number,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   const entries = await astIndex.todo();
   const limited = entries.slice(0, limit);
 
@@ -112,6 +118,7 @@ async function handleTodo(
         type: 'text',
         text: 'TODO/FIXME COMMENTS: none found.\n\nHINT: ast-index may not detect all comment formats. Try Grep: grep -rn "TODO\\|FIXME\\|HACK" --include="*.ts"',
       }],
+      meta: { files: [] },
     };
   }
 
@@ -136,14 +143,15 @@ async function handleTodo(
     lines.push('');
   }
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  const todoFiles = [...new Set(limited.map(e => e.file))];
+  return { content: [{ type: 'text', text: lines.join('\n') }], meta: { files: todoFiles } };
 }
 
 async function handleDeprecated(
   limit: number,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   const entries = await astIndex.deprecated();
   const limited = entries.slice(0, limit);
 
@@ -153,6 +161,7 @@ async function handleDeprecated(
         type: 'text',
         text: 'DEPRECATED SYMBOLS: none found.\n\nHINT: ast-index detects @Deprecated annotations. Try Grep for other deprecation patterns.',
       }],
+      meta: { files: [] },
     };
   }
 
@@ -169,7 +178,8 @@ async function handleDeprecated(
   lines.push('');
   lines.push('HINT: Use read_symbol() to inspect deprecated symbols before removing them.');
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  const depFiles = [...new Set(limited.map(e => e.file))];
+  return { content: [{ type: 'text', text: lines.join('\n') }], meta: { files: depFiles } };
 }
 
 async function handleAnnotations(
@@ -177,7 +187,7 @@ async function handleAnnotations(
   limit: number,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   const entries = await astIndex.annotations(name);
   const limited = entries.slice(0, limit);
 
@@ -187,6 +197,7 @@ async function handleAnnotations(
         type: 'text',
         text: `ANNOTATIONS @${name}: none found.\n\nHINT: Try Grep for text-based search: grep -rn "@${name}" --include="*.ts"`,
       }],
+      meta: { files: [] },
     };
   }
 
@@ -211,14 +222,15 @@ async function handleAnnotations(
     lines.push('');
   }
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  const annFiles = [...new Set(limited.map(e => e.file))];
+  return { content: [{ type: 'text', text: lines.join('\n') }], meta: { files: annFiles } };
 }
 
 async function handleAll(
   limit: number,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<AuditResult> {
   // Run todo + deprecated in parallel
   const [todos, deprecated] = await Promise.all([
     astIndex.todo(),
@@ -254,5 +266,9 @@ async function handleAll(
   sections.push('HINT: Use code_audit(check="pattern", pattern="...") for structural pattern search (requires ast-grep).');
   sections.push('      Use Grep for text-based counting and regex search.');
 
-  return { content: [{ type: 'text', text: sections.join('\n') }] };
+  const allFiles = [...new Set([
+    ...todos.slice(0, limit).map(e => e.file),
+    ...deprecated.slice(0, limit).map(e => e.file),
+  ])];
+  return { content: [{ type: 'text', text: sections.join('\n') }], meta: { files: allFiles } };
 }

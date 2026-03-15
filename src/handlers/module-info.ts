@@ -6,7 +6,7 @@ export async function handleModuleInfo(
   args: ModuleInfoArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: 'text'; text: string }>; meta: { files: string[] } }> {
   // Degradation check
   if (astIndex.isDisabled() || astIndex.isOversized()) {
     return {
@@ -15,6 +15,7 @@ export async function handleModuleInfo(
         text: '⚠ ast-index unavailable — module_info requires ast-index.\n' +
               'DEGRADED: Use find_usages() + related_files() as alternatives for dependency analysis.',
       }],
+      meta: { files: [] },
     };
   }
 
@@ -48,7 +49,7 @@ export async function handleModuleInfo(
       sections.push('HINT: Use find_usages() for cross-file symbol references, related_files() for import graphs.');
     }
 
-    return { content: [{ type: 'text', text: sections.join('\n') }] };
+    return { content: [{ type: 'text', text: sections.join('\n') }], meta: { files: [] } };
   }
 
   sections.push('');
@@ -134,7 +135,24 @@ export async function handleModuleInfo(
 
   sections.push('HINT: Use smart_read() on module files, find_usages() for cross-module references.');
 
-  return { content: [{ type: 'text', text: sections.join('\n') }] };
+  // Collect files from results for analytics
+  const metaFiles: string[] = [];
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue;
+    const { type, data } = r.value;
+    switch (type) {
+      case 'api':
+        for (const a of data) metaFiles.push(a.file);
+        break;
+      case 'deps':
+      case 'dependents':
+      case 'unused-deps':
+        for (const d of data) metaFiles.push(d.path);
+        break;
+    }
+  }
+
+  return { content: [{ type: 'text', text: sections.join('\n') }], meta: { files: [...new Set(metaFiles)] } };
 }
 
 function rel(projectRoot: string, absPath: string): string {

@@ -7,7 +7,7 @@ import { AstIndexClient } from './ast-index/client.js';
 import { FileCache } from './core/file-cache.js';
 import { ContextRegistry } from './core/context-registry.js';
 import { SymbolResolver } from './core/symbol-resolver.js';
-import { SessionAnalytics } from './core/session-analytics.js';
+import { SessionAnalytics, type SavingsCategory } from './core/session-analytics.js';
 import { SessionCache } from './core/session-cache.js';
 
 import { loadConfig } from './config/loader.js';
@@ -687,6 +687,12 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     return total;
   }
 
+  /** Detect savings category from response text prefix. */
+  function detectSavingsCategory(text: string): SavingsCategory {
+    if (text.startsWith('REMINDER:') || text.startsWith('DEDUP:')) return 'dedup';
+    return 'compression';
+  }
+
   async function estimateExploreAreaWorkflowTokens(meta: {
     codeFiles?: string[];
     testFiles?: string[];
@@ -746,6 +752,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
                 tokensWouldBe: await fullFileTokens(validArgs.path) || estimateTokens(text),
                 timestamp: Date.now(),
                 delegatedToContextMode: text.includes('ADVISORY:') && text.includes('context-mode'),
+                savingsCategory: 'compression',
               });
               return nonCodeResult;
             }
@@ -754,7 +761,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const text = result.content[0]?.text ?? '';
           const fullTokensSR = await fullFileTokens(validArgs.path);
-          analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: fullTokensSR || estimateTokens(text), timestamp: Date.now() });
+          analytics.record({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: fullTokensSR || estimateTokens(text), timestamp: Date.now(), savingsCategory: detectSavingsCategory(text) });
           return result;
         }
 
@@ -764,7 +771,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
           const fullTokensSym = await fullFileTokens(symArgs.path);
-          analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: fullTokensSym || symTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'read_symbol', path: symArgs.path, tokensReturned: symTokens, tokensWouldBe: fullTokensSym || symTokens, timestamp: Date.now(), savingsCategory: detectSavingsCategory(symText) });
           return symResult;
         }
 
@@ -774,7 +781,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const rangeText = rangeResult.content[0]?.text ?? '';
           const rangeTokens = estimateTokens(rangeText);
           const fullTokensRange = await fullFileTokens(rangeArgs.path);
-          analytics.record({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: fullTokensRange || rangeTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: fullTokensRange || rangeTokens, timestamp: Date.now(), savingsCategory: detectSavingsCategory(rangeText) });
           return rangeResult;
         }
 
@@ -784,7 +791,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const diffText = diffResult.content[0]?.text ?? '';
           const diffTokens = estimateTokens(diffText);
           const fullTokensDiff = await fullFileTokens(diffArgs.path);
-          analytics.record({ tool: 'read_diff', path: diffArgs.path, tokensReturned: diffTokens, tokensWouldBe: fullTokensDiff || diffTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'read_diff', path: diffArgs.path, tokensReturned: diffTokens, tokensWouldBe: fullTokensDiff || diffTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return diffResult;
         }
 
@@ -794,7 +801,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const editText = editResult.content[0]?.text ?? '';
           const editTokens = estimateTokens(editText);
           const fullTokensEdit = await fullFileTokens(editArgs.path);
-          analytics.record({ tool: 'read_for_edit', path: editArgs.path, tokensReturned: editTokens, tokensWouldBe: fullTokensEdit || editTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'read_for_edit', path: editArgs.path, tokensReturned: editTokens, tokensWouldBe: fullTokensEdit || editTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return editResult;
         }
 
@@ -814,6 +821,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             tokensReturned: manyTokens,
             tokensWouldBe: fullTokensMany || manyTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return manyResult;
         }
@@ -822,7 +830,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const usagesArgs = validateFindUsagesArgs(args);
           const cachedUsages = sessionCache?.get('find_usages', usagesArgs);
           if (cachedUsages) {
-            analytics.record({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: cachedUsages.tokenEstimate, tokensWouldBe: cachedUsages.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: cachedUsages.tokenEstimate, tokensWouldBe: cachedUsages.tokensWouldBe ?? cachedUsages.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedUsages.result;
           }
           const usagesResult = await handleFindUsages(usagesArgs, astIndex);
@@ -832,13 +840,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           sessionCache?.set('find_usages', usagesArgs, usagesResult, {
             files: usagesResult.meta.files.map(f => resolve(projectRoot, f)),
             dependsOnAst: true,
-          }, usagesTokens);
+          }, usagesTokens, usagesWouldBe || usagesTokens);
           analytics.record({
             tool: 'find_usages',
             path: usagesArgs.symbol,
             tokensReturned: usagesTokens,
             tokensWouldBe: usagesWouldBe || usagesTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return usagesResult;
         }
@@ -847,7 +856,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const overviewArgs = validateProjectOverviewArgs(args);
           const cachedOverview = sessionCache?.get('project_overview', overviewArgs);
           if (cachedOverview) {
-            analytics.record({ tool: 'project_overview', path: projectRoot, tokensReturned: cachedOverview.tokenEstimate, tokensWouldBe: cachedOverview.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'project_overview', path: projectRoot, tokensReturned: cachedOverview.tokenEstimate, tokensWouldBe: cachedOverview.tokensWouldBe ?? cachedOverview.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedOverview.result;
           }
           const overviewResult = await handleProjectOverview(overviewArgs, projectRoot, astIndex);
@@ -859,13 +868,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           );
           sessionCache?.set('project_overview', overviewArgs, overviewResult, {
             dependsOnAst: true,
-          }, ovTokens);
+          }, ovTokens, overviewWouldBe || ovTokens);
           analytics.record({
             tool: 'project_overview',
             path: projectRoot,
             tokensReturned: ovTokens,
             tokensWouldBe: overviewWouldBe || ovTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return overviewResult;
         }
@@ -874,7 +884,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const relArgs = validateRelatedFilesArgs(args);
           const cachedRel = sessionCache?.get('related_files', relArgs);
           if (cachedRel) {
-            analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: cachedRel.tokenEstimate, tokensWouldBe: cachedRel.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'related_files', path: relArgs.path, tokensReturned: cachedRel.tokenEstimate, tokensWouldBe: cachedRel.tokensWouldBe ?? cachedRel.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedRel.result;
           }
           const relResult = await handleRelatedFiles(relArgs, projectRoot, astIndex);
@@ -890,13 +900,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           sessionCache?.set('related_files', relArgs, relResult, {
             files: relDeps,
             dependsOnAst: true,
-          }, relTokens);
+          }, relTokens, relWouldBe || relTokens);
           analytics.record({
             tool: 'related_files',
             path: relArgs.path,
             tokensReturned: relTokens,
             tokensWouldBe: relWouldBe || relTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return relResult;
         }
@@ -905,7 +916,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const outlineArgs = validateOutlineArgs(args);
           const cachedOutline = sessionCache?.get('outline', outlineArgs);
           if (cachedOutline) {
-            analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: cachedOutline.tokenEstimate, tokensWouldBe: cachedOutline.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'outline', path: outlineArgs.path, tokensReturned: cachedOutline.tokenEstimate, tokensWouldBe: cachedOutline.tokensWouldBe ?? cachedOutline.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedOutline.result;
           }
           const outlineResult = await handleOutline(outlineArgs, projectRoot, astIndex);
@@ -919,13 +930,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           sessionCache?.set('outline', outlineArgs, outlineResult, {
             files: [resolve(projectRoot, outlineArgs.path) + '/'],
             dependsOnAst: true,
-          }, outlineTokens);
+          }, outlineTokens, outlineWouldBe || outlineTokens);
           analytics.record({
             tool: 'outline',
             path: outlineArgs.path,
             tokensReturned: outlineTokens,
             tokensWouldBe: outlineWouldBe || outlineTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return outlineResult;
         }
@@ -937,14 +949,15 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const unusedArgs = validateFindUnusedArgs(args);
           const cachedUnused = sessionCache?.get('find_unused', unusedArgs);
           if (cachedUnused) {
-            analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: cachedUnused.tokenEstimate, tokensWouldBe: cachedUnused.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: cachedUnused.tokenEstimate, tokensWouldBe: cachedUnused.tokensWouldBe ?? cachedUnused.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedUnused.result;
           }
           const unusedResult = await handleFindUnused(unusedArgs, astIndex);
           const unusedText = unusedResult.content[0]?.text ?? '';
           const unusedTokens = estimateTokens(unusedText);
-          sessionCache?.set('find_unused', unusedArgs, unusedResult, { dependsOnAst: true }, unusedTokens);
-          analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: unusedTokens, tokensWouldBe: unusedTokens, timestamp: Date.now() });
+          const unusedWouldBe = await estimateFindUsagesWorkflowTokens(unusedResult.meta.files);
+          sessionCache?.set('find_unused', unusedArgs, unusedResult, { dependsOnAst: true }, unusedTokens, unusedWouldBe || unusedTokens);
+          analytics.record({ tool: 'find_unused', path: unusedArgs.module ?? 'all', tokensReturned: unusedTokens, tokensWouldBe: unusedWouldBe || unusedTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return unusedResult;
         }
 
@@ -952,14 +965,15 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const auditArgs = validateCodeAuditArgs(args);
           const cachedAudit = sessionCache?.get('code_audit', auditArgs);
           if (cachedAudit) {
-            analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: cachedAudit.tokenEstimate, tokensWouldBe: cachedAudit.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: cachedAudit.tokenEstimate, tokensWouldBe: cachedAudit.tokensWouldBe ?? cachedAudit.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedAudit.result;
           }
           const auditResult = await handleCodeAudit(auditArgs, projectRoot, astIndex);
           const auditText = auditResult.content[0]?.text ?? '';
           const auditTokens = estimateTokens(auditText);
-          sessionCache?.set('code_audit', auditArgs, auditResult, { dependsOnAst: true }, auditTokens);
-          analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: auditTokens, tokensWouldBe: auditTokens, timestamp: Date.now() });
+          const auditWouldBe = await estimateFindUsagesWorkflowTokens(auditResult.meta.files);
+          sessionCache?.set('code_audit', auditArgs, auditResult, { dependsOnAst: true }, auditTokens, auditWouldBe || auditTokens);
+          analytics.record({ tool: 'code_audit', path: auditArgs.check, tokensReturned: auditTokens, tokensWouldBe: auditWouldBe || auditTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return auditResult;
         }
 
@@ -967,15 +981,15 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const moduleArgs = validateModuleInfoArgs(args);
           const cachedModule = sessionCache?.get('module_info', moduleArgs);
           if (cachedModule) {
-            analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: cachedModule.tokenEstimate, tokensWouldBe: cachedModule.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: cachedModule.tokenEstimate, tokensWouldBe: cachedModule.tokensWouldBe ?? cachedModule.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedModule.result;
           }
           const moduleResult = await handleModuleInfo(moduleArgs, projectRoot, astIndex);
           const moduleText = moduleResult.content[0]?.text ?? '';
           const moduleTokens = estimateTokens(moduleText);
-          const moduleWouldBe = moduleTokens * 5;
-          sessionCache?.set('module_info', moduleArgs, moduleResult, { dependsOnAst: true }, moduleTokens);
-          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: moduleTokens, tokensWouldBe: moduleWouldBe, timestamp: Date.now() });
+          const moduleWouldBe = await estimateFindUsagesWorkflowTokens(moduleResult.meta.files);
+          sessionCache?.set('module_info', moduleArgs, moduleResult, { dependsOnAst: true }, moduleTokens, moduleWouldBe || moduleTokens);
+          analytics.record({ tool: 'module_info', path: moduleArgs.module, tokensReturned: moduleTokens, tokensWouldBe: moduleWouldBe || moduleTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return moduleResult;
         }
 
@@ -984,7 +998,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const sdResult = await handleSmartDiff(sdArgs, projectRoot, astIndex);
           const sdText = sdResult.content[0]?.text ?? '';
           const sdTokens = estimateTokens(sdText);
-          analytics.record({ tool: 'smart_diff', path: sdArgs.path ?? sdArgs.scope ?? 'unstaged', tokensReturned: sdTokens, tokensWouldBe: sdResult.rawTokens || sdTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'smart_diff', path: sdArgs.path ?? sdArgs.scope ?? 'unstaged', tokensReturned: sdTokens, tokensWouldBe: sdResult.rawTokens || sdTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return { content: sdResult.content };
         }
 
@@ -992,7 +1006,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const eaArgs = validateExploreAreaArgs(args);
           const cachedEa = sessionCache?.get('explore_area', eaArgs);
           if (cachedEa) {
-            analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: cachedEa.tokenEstimate, tokensWouldBe: cachedEa.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true });
+            analytics.record({ tool: 'explore_area', path: eaArgs.path, tokensReturned: cachedEa.tokenEstimate, tokensWouldBe: cachedEa.tokensWouldBe ?? cachedEa.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
             return cachedEa.result;
           }
           const eaResult = await handleExploreArea(eaArgs, projectRoot, astIndex);
@@ -1003,13 +1017,14 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             files: [resolve(projectRoot, eaArgs.path) + '/'],
             dependsOnAst: true,
             dependsOnGit: true,
-          }, eaTokens);
+          }, eaTokens, eaWouldBe || eaTokens);
           analytics.record({
             tool: 'explore_area',
             path: eaArgs.path,
             tokensReturned: eaTokens,
             tokensWouldBe: eaWouldBe || eaTokens,
             timestamp: Date.now(),
+            savingsCategory: 'compression',
           });
           return eaResult;
         }
@@ -1019,7 +1034,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const slResult = await handleSmartLog(slArgs, projectRoot);
           const slText = slResult.content[0]?.text ?? '';
           const slTokens = estimateTokens(slText);
-          analytics.record({ tool: 'smart_log', path: slArgs.path ?? 'all', tokensReturned: slTokens, tokensWouldBe: slResult.rawTokens || slTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'smart_log', path: slArgs.path ?? 'all', tokensReturned: slTokens, tokensWouldBe: slResult.rawTokens || slTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return { content: slResult.content };
         }
 
@@ -1028,7 +1043,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const tsResult = await handleTestSummary(tsArgs, projectRoot);
           const tsText = tsResult.content[0]?.text ?? '';
           const tsTokens = estimateTokens(tsText);
-          analytics.record({ tool: 'test_summary', path: tsArgs.command, tokensReturned: tsTokens, tokensWouldBe: tsResult.rawTokens || tsTokens, timestamp: Date.now() });
+          analytics.record({ tool: 'test_summary', path: tsArgs.command, tokensReturned: tsTokens, tokensWouldBe: tsResult.rawTokens || tsTokens, timestamp: Date.now(), savingsCategory: 'compression' });
           return { content: tsResult.content };
         }
 

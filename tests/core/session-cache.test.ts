@@ -227,4 +227,25 @@ describe('SessionCache', () => {
       expect(count).toBe(1);
     });
   });
+
+  describe('tokensWouldBe', () => {
+    it('stores tokensWouldBe when provided', () => {
+      const cache = new SessionCache(100);
+      cache.set('smart_read', { path: 'a.ts' }, makeResult('data'), {}, 50, 500);
+
+      const cached = cache.get('smart_read', { path: 'a.ts' });
+      expect(cached).not.toBeNull();
+      expect(cached!.tokenEstimate).toBe(50);
+      expect(cached!.tokensWouldBe).toBe(500);
+    });
+
+    it('tokensWouldBe is undefined when not provided', () => {
+      const cache = new SessionCache(100);
+      cache.set('smart_read', { path: 'b.ts' }, makeResult('data'), {}, 50);
+
+      const cached = cache.get('smart_read', { path: 'b.ts' });
+      expect(cached).not.toBeNull();
+      expect(cached!.tokensWouldBe).toBeUndefined();
+    });
+  });
 });

@@ -1,6 +1,8 @@
 import { formatDuration } from './format-duration.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
 
+export type SavingsCategory = 'compression' | 'cache' | 'dedup' | 'none';
+
 export interface ToolCall {
   tool: string;
   path?: string;
@@ -9,6 +11,7 @@ export interface ToolCall {
   timestamp: number;
   delegatedToContextMode?: boolean;
   sessionCacheHit?: boolean;
+  savingsCategory?: SavingsCategory;
 }
 
 /**
@@ -103,19 +106,33 @@ export class SessionAnalytics {
       }
     }
 
+    // Savings breakdown by category
+    const byCategory: Record<SavingsCategory, number> = { compression: 0, cache: 0, dedup: 0, none: 0 };
+    for (const c of this.calls) {
+      const cat = c.savingsCategory ?? 'none';
+      byCategory[cat] += Math.max(0, c.tokensWouldBe - c.tokensReturned);
+    }
+    if (totalWouldBe > totalReturned) {
+      lines.push('');
+      lines.push('Savings breakdown:');
+      if (byCategory.compression > 0) lines.push(`  Compression (AST/structured): ~${byCategory.compression} tokens`);
+      if (byCategory.cache > 0) lines.push(`  Cache hits (session cache): ~${byCategory.cache} tokens`);
+      if (byCategory.dedup > 0) lines.push(`  Dedup (already in context): ~${byCategory.dedup} tokens`);
+    }
+
     // Session cache hits
     const cacheHits = this.calls.filter(c => c.sessionCacheHit);
     if (cacheHits.length > 0) {
-      const cacheTokensSaved = cacheHits.reduce((s, c) => s + c.tokensReturned, 0);
+      const cacheTokensSaved = cacheHits.reduce((s, c) => s + Math.max(0, c.tokensWouldBe - c.tokensReturned), 0);
       lines.push('');
-      lines.push(`Session cache: ${cacheHits.length} hits / ${this.calls.length} calls (${Math.round(cacheHits.length / this.calls.length * 100)}% hit rate, ~${cacheTokensSaved} tokens served instantly)`);
+      lines.push(`Session cache: ${cacheHits.length} hits / ${this.calls.length} calls (${Math.round(cacheHits.length / this.calls.length * 100)}% hit rate, ~${cacheTokensSaved} tokens saved)`);
     }
 
-    // Reminders served (compact reminders that avoided re-reads)
-    const reminders = this.calls.filter(c => c.tokensWouldBe > 0 && c.tokensReturned < c.tokensWouldBe * 0.1);
-    if (reminders.length > 0) {
+    // Dedup reminders served
+    const dedupCalls = this.calls.filter(c => c.savingsCategory === 'dedup');
+    if (dedupCalls.length > 0) {
       lines.push('');
-      lines.push(`Compact reminders served: ${reminders.length} (avoided full re-reads)`);
+      lines.push(`Compact reminders/dedup: ${dedupCalls.length} calls (avoided full re-reads)`);
     }
 
     // Delegation stats

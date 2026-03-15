@@ -13,6 +13,8 @@ export interface SessionCacheEntry {
   cachedAt: number;
   /** Estimated token count of the result */
   tokenEstimate: number;
+  /** Original tokensWouldBe from the first (non-cached) call — for honest cache savings */
+  tokensWouldBe?: number;
 }
 
 export interface SessionCacheDeps {
@@ -60,6 +62,7 @@ export class SessionCache {
     result: { content: Array<{ type: string; text: string }>; [key: string]: unknown },
     deps: SessionCacheDeps,
     tokenEstimate: number,
+    tokensWouldBe?: number,
   ): void {
     // LRU eviction if full
     if (this.entries.size >= this.maxEntries) {
@@ -76,6 +79,7 @@ export class SessionCache {
       dependsOnGit: deps.dependsOnGit ?? false,
       cachedAt: Date.now(),
       tokenEstimate,
+      tokensWouldBe,
     };
 
     this.entries.set(key, entry);

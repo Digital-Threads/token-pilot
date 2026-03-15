@@ -90,4 +90,48 @@ describe('SessionAnalytics', () => {
     expect(report).toContain('project_overview: only 10% reduction');
     expect(report).not.toContain('smart_read: only');
   });
+
+  describe('savings categories', () => {
+    it('shows savings breakdown by category', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), savingsCategory: 'compression' });
+      analytics.record({ tool: 'smart_read', tokensReturned: 50, tokensWouldBe: 500, timestamp: Date.now(), savingsCategory: 'cache' });
+      analytics.record({ tool: 'read_symbol', tokensReturned: 30, tokensWouldBe: 800, timestamp: Date.now(), savingsCategory: 'dedup' });
+
+      const report = analytics.report();
+      expect(report).toContain('Savings breakdown:');
+      expect(report).toContain('Compression (AST/structured): ~900 tokens');
+      expect(report).toContain('Cache hits (session cache): ~450 tokens');
+      expect(report).toContain('Dedup (already in context): ~770 tokens');
+    });
+
+    it('shows real tokens saved for session cache hits', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
+      analytics.record({ tool: 'read_symbol', tokensReturned: 50, tokensWouldBe: 500, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache' });
+
+      const report = analytics.report();
+      expect(report).toContain('Session cache: 2 hits');
+      expect(report).toContain('~1350 tokens saved');
+      expect(report).not.toContain('tokens served instantly');
+    });
+
+    it('shows dedup calls count in compact reminders section', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 30, tokensWouldBe: 800, timestamp: Date.now(), savingsCategory: 'dedup' });
+      analytics.record({ tool: 'read_range', tokensReturned: 20, tokensWouldBe: 600, timestamp: Date.now(), savingsCategory: 'dedup' });
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), savingsCategory: 'compression' });
+
+      const report = analytics.report();
+      expect(report).toContain('Compact reminders/dedup: 2 calls');
+    });
+
+    it('omits savings breakdown when no savings', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 100, timestamp: Date.now(), savingsCategory: 'none' });
+
+      const report = analytics.report();
+      expect(report).not.toContain('Savings breakdown:');
+    });
+  });
 });
