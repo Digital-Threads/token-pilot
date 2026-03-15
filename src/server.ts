@@ -43,6 +43,7 @@ import { handleTestSummary } from './handlers/test-summary.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
+import { checkPolicy, isFullReadTool, type PolicyConfig } from './core/policy-engine.js';
 import {
   resolveSafePath,
   validateSmartReadArgs,
@@ -175,6 +176,10 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
   const sessionCache = config.sessionCache.enabled
     ? new SessionCache(config.sessionCache.maxEntries)
     : null;
+
+  // Policy engine state
+  let fullFileReadsCount = 0;
+  const readForEditCalled = new Set<string>();
 
   // Detect context-mode companion
   const cmEnabled = config.contextMode.enabled;
@@ -698,7 +703,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     return 'compression';
   }
 
-  /** Record analytics with intent classification and decision trace. */
+  /** Record analytics with intent classification and decision trace. Returns policy advisory if any. */
   function recordWithTrace(call: {
     tool: string;
     path?: string;
@@ -711,7 +716,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     absPath?: string;
     args?: Record<string, unknown> | object;
     recentlyEdited?: boolean;
-  }): void {
+  }): string | null {
     const { absPath, args, recentlyEdited, ...rest } = call;
     analytics.record({
       ...rest,
@@ -727,6 +732,23 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         recentlyEdited,
       }),
     });
+
+    // Policy tracking
+    if (isFullReadTool(rest.tool)) {
+      fullFileReadsCount++;
+    }
+    if (rest.tool === 'read_for_edit' && call.path) {
+      readForEditCalled.add(call.path);
+    }
+
+    // Policy check
+    const advisory = checkPolicy(config.policies, rest.tool, {
+      fullFileReadsCount,
+      tokensReturned: rest.tokensReturned,
+      readForEditCalled,
+    });
+
+    return advisory ? `\n${advisory.message}` : null;
   }
 
   async function estimateExploreAreaWorkflowTokens(meta: {
@@ -799,7 +821,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const text = result.content[0]?.text ?? '';
           const fullTokensSR = await fullFileTokens(validArgs.path);
-          recordWithTrace({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: fullTokensSR || estimateTokens(text), timestamp: Date.now(), savingsCategory: detectSavingsCategory(text), absPath: resolve(projectRoot, validArgs.path), args: validArgs });
+          const policyAdv = recordWithTrace({ tool: 'smart_read', path: validArgs.path, tokensReturned: estimateTokens(text), tokensWouldBe: fullTokensSR || estimateTokens(text), timestamp: Date.now(), savingsCategory: detectSavingsCategory(text), absPath: resolve(projectRoot, validArgs.path), args: validArgs });
+          if (policyAdv) result.content[0] = { type: 'text', text: text + policyAdv };
           return result;
         }
 
@@ -899,7 +922,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             recordWithTrace({ tool: 'project_overview', path: projectRoot, tokensReturned: cachedOverview.tokenEstimate, tokensWouldBe: cachedOverview.tokensWouldBe ?? cachedOverview.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache', args: overviewArgs });
             return cachedOverview.result;
           }
-          const overviewResult = await handleProjectOverview(overviewArgs, projectRoot, astIndex);
+          const overviewResult = await handleProjectOverview(overviewArgs, projectRoot, astIndex, pkgVersion);
           const overviewText = overviewResult.content[0]?.text ?? '';
           overviewResult.content[0] = { type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${overviewText}` };
           const ovTokens = estimateTokens(overviewResult.content[0].text);

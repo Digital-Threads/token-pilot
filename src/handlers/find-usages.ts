@@ -1,5 +1,6 @@
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { FindUsagesArgs } from '../core/validation.js';
+import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 /**
  * Escape special regex characters in a string.
@@ -193,6 +194,14 @@ export async function handleFindUsages(
   }
 
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
+
+  // Confidence metadata
+  const confidenceMeta = assessConfidence({
+    refsFound: totalCount > 0,
+    astAvailable: astIndex.isAvailable(),
+    symbolResolved: definitions.length > 0,
+  });
+  lines.push(formatConfidence(confidenceMeta));
 
   const files = Array.from(new Set([
     ...definitions.map((d) => d.file),

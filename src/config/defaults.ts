@@ -48,6 +48,14 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     enabled: true,
     maxEntries: 200,
   },
+  policies: {
+    preferCheapReads: true,
+    requireReadForEditBeforeEdit: true,
+    cacheProjectOverview: true,
+    maxFullFileReads: 10,
+    warnOnLargeReads: true,
+    largeReadThreshold: 2000,
+  },
   ignore: [
     'node_modules/**',
     'dist/**',

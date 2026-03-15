@@ -136,5 +136,13 @@ export interface TokenPilotConfig {
     enabled: boolean;
     maxEntries: number;
   };
+  policies: {
+    preferCheapReads: boolean;
+    requireReadForEditBeforeEdit: boolean;
+    cacheProjectOverview: boolean;
+    maxFullFileReads: number;
+    warnOnLargeReads: boolean;
+    largeReadThreshold: number;
+  };
   ignore: string[];
 }

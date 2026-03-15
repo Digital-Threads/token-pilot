@@ -185,7 +185,7 @@ For more control, you can add rules to your project:
 
 | Tool | Description |
 |------|-------------|
-| `session_analytics` | Token savings report: total saved, per-tool breakdown, top files. |
+| `session_analytics` | Token savings report: total saved, per-tool breakdown, top files, per-intent breakdown, decision insights, policy advisories. |
 
 ## CLI Commands
 
@@ -226,6 +226,13 @@ Create `.token-pilot.json` in your project root to customize behavior:
     "adviseDelegation": true,
     "largeNonCodeThreshold": 200
   },
+  "policies": {
+    "preferCheapReads": true,
+    "maxFullFileReads": 10,
+    "warnOnLargeReads": true,
+    "largeReadThreshold": 2000,
+    "requireReadForEditBeforeEdit": true
+  },
   "display": {
     "showImports": true,
     "showDocs": true,
@@ -252,6 +259,10 @@ All fields are optional — sensible defaults are used for anything not specifie
 | `git.watchHead` | `true` | Watch `.git/HEAD` for branch switches, invalidate changed files. |
 | `contextMode.enabled` | `"auto"` | Detect context-mode plugin. `true`/`false` to force. |
 | `contextMode.adviseDelegation` | `true` | Suggest context-mode for large non-code files. |
+| `policies.preferCheapReads` | `true` | Advisory hints when expensive tool used where cheaper exists. |
+| `policies.maxFullFileReads` | `10` | Warn after N full-file reads in session. |
+| `policies.warnOnLargeReads` | `true` | Warn when single response exceeds threshold. |
+| `policies.largeReadThreshold` | `2000` | Token threshold for large read warning. |
 
 ## Integration with context-mode
 
@@ -336,10 +347,17 @@ src/
     context-registry.ts — Advisory context tracking + compact reminders
     symbol-resolver.ts  — Qualified symbol resolution
     token-estimator.ts  — Token count estimation
-    session-analytics.ts — Token savings tracking
+    session-analytics.ts — Token savings tracking with intent + decision trace
     validation.ts       — Input validators for all tools
     format-duration.ts  — Shared duration formatter
     project-detector.ts — Config-based project detection (frameworks, CI, quality tools)
+    confidence.ts       — Confidence metadata for response completeness
+    intent-classifier.ts — Tool → intent mapping (edit/debug/explore/review/analyze/search/read)
+    budget-planner.ts   — Advisory: suggests cheaper tool alternatives
+    decision-trace.ts   — Per-call instrumentation (cost, context state, alternatives)
+    session-cache.ts    — Tool-result-level caching with invalidation
+    architecture-fingerprint.ts — Cross-session architecture caching
+    policy-engine.ts    — Configurable team policies for consistent savings
   config/
     loader.ts           — Config loading + deep merge
     defaults.ts         — Default config values

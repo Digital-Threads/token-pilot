@@ -5,6 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-03-14
+
+### Added
+- **R&D Track 0: Instrumentation** — per-call decision trace capturing file size, context state, estimated vs actual cost, and cheaper alternative suggestions. Integrated into all 18 tool handlers via `recordWithTrace()`.
+- **R&D Track 1: Budget Planner** — advisory layer suggesting cheaper tool alternatives (e.g. `smart_read` → `read_diff` when file already in context, → `read_symbol` when symbol known). Analytics-only, no blocking.
+- **R&D Track 2: Intent Router** — classifies tool calls into 7 intents (edit/debug/explore/review/analyze/search/read). Per-intent breakdown in session analytics.
+- **R&D Track 3: Edit Prep Mode** — `read_for_edit` with `include_callers`, `include_tests`, `include_changes` enrichment options.
+- **R&D Track 4: Session Cache** — tool-result-level caching with file/AST/git invalidation.
+- **R&D Track 5: Confidence-Based Escalation** — confidence metadata (high/medium/low) appended to `smart_read`, `read_symbol`, `read_for_edit`, `find_usages` responses. Shows known unknowns and suggested next steps.
+- **R&D Track 6: Working Set / Dedup** — compact reminders for already-loaded files and symbols.
+- **R&D Track 7: Related Files Ranking** — scored ranking with 6 signals (test +5, import +4, importer +3, same-dir +2, recently-changed +2, multi-ref +1). HIGH VALUE / MEDIUM / LOW buckets.
+- **R&D Track 8: Architecture Fingerprint** — caches architecture in `.token-pilot-fingerprint.json` (24h TTL). Amortizes `project_overview` cost across sessions.
+- **R&D Track 9: Verified Savings Dashboard** — savings breakdown by category (compression/cache/dedup), session cache hit rate, dedup stats.
+- **R&D Track 10: Team Policy Mode** — configurable policies: `preferCheapReads`, `maxFullFileReads`, `warnOnLargeReads`, `requireReadForEditBeforeEdit`.
+- **7 new core modules** — `confidence.ts`, `intent-classifier.ts`, `budget-planner.ts`, `decision-trace.ts`, `session-cache.ts`, `architecture-fingerprint.ts`, `policy-engine.ts`.
+- **35 new tests** — confidence (11), architecture-fingerprint (11), policy-engine (13). Total: 393 tests.
+
+### Changed
+- **`session_analytics`** — per-intent breakdown, decision insights, savings by category.
+- **`project_overview`** — saves/loads architecture fingerprint for cross-session caching.
+- **Config** — added `policies` section to `TokenPilotConfig`.
+
 ## [0.13.0] - 2026-03-14
 
 ### Added

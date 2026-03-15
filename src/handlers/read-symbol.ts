@@ -5,6 +5,7 @@ import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
+import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 export interface ReadSymbolArgs {
   path: string;
@@ -166,5 +167,14 @@ export async function handleReadSymbol(
     contextRegistry.setContentHash(absPath, cached.hash);
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  // Confidence metadata
+  const confidenceMeta = assessConfidence({
+    symbolResolved: true,
+    truncated,
+    fullFile: false,
+    hasCallers: resolved.symbol.references.length > 0,
+    astAvailable: !!structure,
+  });
+
+  return { content: [{ type: 'text', text: output + formatConfidence(confidenceMeta) }] };
 }

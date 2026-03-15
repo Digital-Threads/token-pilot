@@ -3,13 +3,27 @@ import type { AstIndexClient } from '../ast-index/client.js';
 import { detectProject } from '../core/project-detector.js';
 import type { ProjectDetection, DetectedStack } from '../core/project-detector.js';
 import type { ProjectOverviewArgs } from '../core/validation.js';
+import {
+  loadFingerprint,
+  saveFingerprint,
+  buildFingerprint,
+  formatCachedFingerprint,
+} from '../core/architecture-fingerprint.js';
 
 export async function handleProjectOverview(
   args: ProjectOverviewArgs,
   projectRoot: string,
   astIndex: AstIndexClient,
+  appVersion?: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const lines: string[] = [];
+
+  // Check for cached fingerprint
+  const cachedFp = await loadFingerprint(projectRoot);
+  if (cachedFp) {
+    lines.push(formatCachedFingerprint(cachedFp));
+    lines.push('');
+  }
 
   // 1. Dual detection: ast-index + config scanner
   let astIndexType: string | undefined;
@@ -140,7 +154,16 @@ export async function handleProjectOverview(
 
   lines.push('HINT: Use smart_read() on files, find_usages() for symbol references, outline() for directory overview.');
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  // Save fingerprint for next session
+  const outputText = lines.join('\n');
+  try {
+    const fp = buildFingerprint(outputText, appVersion ?? 'unknown');
+    await saveFingerprint(projectRoot, fp);
+  } catch {
+    // Non-critical — don't fail the handler
+  }
+
+  return { content: [{ type: 'text', text: outputText }] };
 }
 
 // ──────────────────────────────────────────────

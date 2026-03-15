@@ -8,6 +8,7 @@ import { formatOutline } from '../formatters/structure.js';
 import { estimateTokens, formatSavings } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
+import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 export interface SmartReadArgs {
   path: string;
@@ -173,5 +174,14 @@ export async function handleSmartRead(
   });
   contextRegistry.setContentHash(absPath, cached.hash);
 
-  return { content: [{ type: 'text', text: output + savings }] };
+  // 9. Confidence metadata
+  const confidenceMeta = assessConfidence({
+    symbolResolved: (cached.structure.symbols?.length ?? 0) > 0,
+    fullFile: false,
+    truncated: false,
+    astAvailable: true,
+    crossFileDeps: cached.structure.imports?.length ?? 0,
+  });
+
+  return { content: [{ type: 'text', text: output + savings + formatConfidence(confidenceMeta) }] };
 }

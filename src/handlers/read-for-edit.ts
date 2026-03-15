@@ -9,6 +9,7 @@ import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
+import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -178,6 +179,17 @@ export async function handleReadForEdit(
     outputLines.push('');
     outputLines.push(...diffSection);
   }
+
+  // Confidence metadata
+  const confidenceMeta = assessConfidence({
+    symbolResolved: !!args.symbol && startLine > 0,
+    fullFile: false,
+    truncated: false,
+    hasCallers: args.include_callers ?? false,
+    hasTests: args.include_tests ?? false,
+    astAvailable: true,
+  });
+  outputLines.push(formatConfidence(confidenceMeta));
 
   const output = outputLines.join('\n');
   const tokens = estimateTokens(output);
