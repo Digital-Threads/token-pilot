@@ -8,13 +8,16 @@ on:
       - 'codex/**'
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 22]
+        node-version: [20, 22]
 
     steps:
       - name: Checkout
