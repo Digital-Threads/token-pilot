@@ -5,6 +5,13 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-03-14
+
+### Fixed
+- **CI: Node.js 24 runtime** — opted into `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` for GitHub Actions, resolving deprecation warnings for `actions/checkout@v4` and `actions/setup-node@v4`.
+- **CI: test matrix** — updated from Node 18+22 to Node 20+22 (Node 18 is EOL).
+- **Test: git commit in CI** — `read-for-edit` tests now pass `-c user.name` / `-c user.email` to `git commit`, fixing failures in environments without global git config.
+
 ## [0.14.0] - 2026-03-14
 
 ### Added
