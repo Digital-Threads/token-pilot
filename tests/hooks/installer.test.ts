@@ -60,5 +60,28 @@ describe('Hook Installer', () => {
   it('uninstall reports nothing to remove', async () => {
     const result = await uninstallHook(tempDir);
     expect(result.removed).toBe(false);
+    expect(result.fatal).toBe(false);
+  });
+
+  it('reports invalid JSON as a fatal install error', async () => {
+    await mkdir(join(tempDir, '.claude'), { recursive: true });
+    await writeFile(join(tempDir, '.claude', 'settings.json'), '{not json');
+
+    const result = await installHook(tempDir);
+    expect(result.installed).toBe(false);
+    expect(result.fatal).toBe(true);
+    expect(result.message).toContain('invalid JSON');
+  });
+
+  it('keeps packaged hook config in sync with installer hooks', async () => {
+    const packaged = JSON.parse(
+      await readFile(join(process.cwd(), '.claude-plugin', 'hooks', 'hooks.json'), 'utf-8'),
+    );
+
+    const preToolUse = packaged.hooks.PreToolUse;
+    expect(preToolUse).toHaveLength(2);
+    expect(preToolUse.map((hook: { matcher: string }) => hook.matcher)).toEqual(['Read', 'Edit']);
+    expect(preToolUse[0].hooks[0].command).toContain('hook-read');
+    expect(preToolUse[1].hooks[0].command).toContain('hook-edit');
   });
 });

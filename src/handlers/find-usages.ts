@@ -39,13 +39,21 @@ const LANG_EXT_MAP: Record<string, string[]> = {
 export async function handleFindUsages(
   args: FindUsagesArgs,
   astIndex: AstIndexClient,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+  meta: { files: string[]; definitions: number; imports: number; usages: number; total: number };
+}> {
   if (astIndex.isDisabled() || astIndex.isOversized()) {
-    return { content: [{ type: 'text', text:
-      'find_usages is disabled: ' + (astIndex.isDisabled()
-        ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
-        : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
-      '\nAlternative: use grep_search to find symbol references.' }] };
+    return {
+      content: [{
+        type: 'text',
+        text: 'find_usages is disabled: ' + (astIndex.isDisabled()
+          ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
+          : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.')
+          + '\nAlternative: use grep_search to find symbol references.',
+      }],
+      meta: { files: [], definitions: 0, imports: 0, usages: 0, total: 0 },
+    };
   }
 
   // Run refs + search in parallel
@@ -139,7 +147,10 @@ export async function handleFindUsages(
     if (!astIndex.isAvailable()) {
       hints.push('WARNING: ast-index is not available.');
     }
-    return { content: [{ type: 'text', text: hints.join('\n') }] };
+    return {
+      content: [{ type: 'text', text: hints.join('\n') }],
+      meta: { files: [], definitions: 0, imports: 0, usages: 0, total: 0 },
+    };
   }
 
   // Build header with active filters
@@ -183,5 +194,20 @@ export async function handleFindUsages(
 
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
 
-  return { content: [{ type: 'text', text: lines.join('\n') }] };
+  const files = Array.from(new Set([
+    ...definitions.map((d) => d.file),
+    ...allImports.map((i) => i.file),
+    ...allUsages.map((u) => u.file),
+  ])).sort();
+
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+    meta: {
+      files,
+      definitions: definitions.length,
+      imports: allImports.length,
+      usages: allUsages.length,
+      total: totalCount,
+    },
+  };
 }

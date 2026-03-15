@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { createServer } from './server.js';
 import { installHook, uninstallHook } from './hooks/installer.js';
 import { findBinary, installBinary, checkBinaryUpdate, isNewerVersion } from './ast-index/binary-manager.js';
@@ -13,7 +14,7 @@ const execFileAsync = promisify(execFile);
 
 const HOOK_DENY_THRESHOLD = 500;
 
-const CODE_EXTENSIONS = new Set([
+export const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',
   'swift', 'cs', 'cpp', 'cc', 'cxx', 'hpp', 'c', 'h', 'php', 'rb', 'scala',
   'dart', 'lua', 'sh', 'bash', 'sql', 'r', 'vue', 'svelte', 'pl', 'pm',
@@ -21,7 +22,7 @@ const CODE_EXTENSIONS = new Set([
   'lisp', 'lsp', 'cl', 'asd',
 ]);
 
-function getVersion(): string {
+export function getVersion(): string {
   try {
     const pkgPath = new URL('../package.json', import.meta.url).pathname;
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
@@ -31,62 +32,50 @@ function getVersion(): string {
   }
 }
 
-const args = process.argv.slice(2);
-
-switch (args[0]) {
-  case 'hook-read':
-    handleHookRead(args[1]);
-    break;
-
-  case 'hook-edit':
-    handleHookEdit();
-    break;
-
-  case 'install-hook':
-    handleInstallHook(args[1] || process.cwd());
-    break;
-
-  case 'uninstall-hook':
-    handleUninstallHook(args[1] || process.cwd());
-    break;
-
-  case 'install-ast-index':
-    handleInstallAstIndex();
-    break;
-
-  case 'doctor':
-    handleDoctor();
-    break;
-
-  case 'init':
-    handleInit(args[1] || process.cwd());
-    break;
-
-  case '--version':
-  case '-v':
-    console.log(getVersion());
-    process.exit(0);
-    break;
-
-  case '--help':
-  case '-h':
-    printHelp();
-    break;
-
-  default:
-    startServer().catch(err => {
-      console.error(`[token-pilot] Fatal: ${err instanceof Error ? err.message : err}`);
-      process.exit(1);
-    });
-    break;
+export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
+  switch (cliArgs[0]) {
+    case 'hook-read':
+      handleHookRead(cliArgs[1]);
+      return;
+    case 'hook-edit':
+      handleHookEdit();
+      return;
+    case 'install-hook':
+      await handleInstallHook(cliArgs[1] || process.cwd());
+      return;
+    case 'uninstall-hook':
+      await handleUninstallHook(cliArgs[1] || process.cwd());
+      return;
+    case 'install-ast-index':
+      await handleInstallAstIndex();
+      return;
+    case 'doctor':
+      await handleDoctor();
+      return;
+    case 'init':
+      await handleInit(cliArgs[1] || process.cwd());
+      return;
+    case '--version':
+    case '-v':
+      console.log(getVersion());
+      process.exit(0);
+      return;
+    case '--help':
+    case '-h':
+      printHelp();
+      return;
+    default:
+      await startServer(cliArgs);
+      return;
+  }
 }
 
-async function startServer() {
-  let projectRoot = args[0] || process.cwd();
+export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
+  let projectRoot = cliArgs[0] || process.cwd();
 
   // Detect git root for reliable project root
   // Try multiple sources: args[0] → INIT_CWD (npm/npx invoking dir) → PWD → cwd
-  if (!args[0]) {
+  if (!cliArgs[0]) {
     const candidates = [
       process.env.INIT_CWD,   // npm/npx sets this to invoking directory
       process.env.PWD,         // shell working directory (may differ from cwd)
@@ -163,7 +152,7 @@ async function startServer() {
   });
 }
 
-function handleHookRead(filePathArg?: string) {
+export function handleHookRead(filePathArg?: string) {
   // Parse stdin (Claude Code hook format) to get tool_input
   let filePath = filePathArg;
   let hasOffset = false;
@@ -223,7 +212,7 @@ function handleHookRead(filePathArg?: string) {
   process.exit(0);
 }
 
-function handleHookEdit() {
+export function handleHookEdit() {
   // Parse stdin for Edit tool_input
   let filePath: string | undefined;
 
@@ -260,19 +249,19 @@ function handleHookEdit() {
 }
 
 
-async function handleInstallHook(projectRoot: string) {
+export async function handleInstallHook(projectRoot: string) {
   const result = await installHook(projectRoot);
   console.log(result.message);
-  process.exit(result.installed ? 0 : 1);
+  process.exit(result.fatal ? 1 : 0);
 }
 
-async function handleUninstallHook(projectRoot: string) {
+export async function handleUninstallHook(projectRoot: string) {
   const result = await uninstallHook(projectRoot);
   console.log(result.message);
-  process.exit(result.removed ? 0 : 1);
+  process.exit(result.fatal ? 1 : 0);
 }
 
-async function handleInstallAstIndex() {
+export async function handleInstallAstIndex() {
   const status = await findBinary();
   if (status.available) {
     // Check if update is available
@@ -295,7 +284,7 @@ async function handleInstallAstIndex() {
   }
 }
 
-async function handleDoctor() {
+export async function handleDoctor() {
   const version = getVersion();
   const { existsSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -369,7 +358,7 @@ async function handleDoctor() {
   process.exit(0);
 }
 
-async function handleInit(targetDir: string) {
+export async function handleInit(targetDir: string) {
   const { existsSync, readFileSync: readFs, writeFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const mcpPath = join(targetDir, '.mcp.json');
@@ -434,7 +423,7 @@ async function handleInit(targetDir: string) {
 // Update checking
 // ──────────────────────────────────────────────
 
-async function checkNpmLatest(packageName: string): Promise<string | null> {
+export async function checkNpmLatest(packageName: string): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
@@ -453,7 +442,7 @@ async function checkNpmLatest(packageName: string): Promise<string | null> {
 import type { TokenPilotConfig } from './types.js';
 import type { BinaryStatus } from './ast-index/binary-manager.js';
 
-async function checkAllUpdates(config: TokenPilotConfig, binaryStatus: BinaryStatus): Promise<void> {
+export async function checkAllUpdates(config: TokenPilotConfig, binaryStatus: BinaryStatus): Promise<void> {
   if (!config.updates.checkOnStartup) return;
 
   const [tpLatest, astUpdate, cmLatest] = await Promise.allSettled([
@@ -487,7 +476,7 @@ async function checkAllUpdates(config: TokenPilotConfig, binaryStatus: BinarySta
   }
 }
 
-function printHelp() {
+export function printHelp() {
   console.log(`token-pilot v${getVersion()} — MCP server for token-efficient code reading
 
 Usage:
@@ -509,4 +498,13 @@ MCP Tools (18):
   code_audit, module_info, smart_diff, explore_area, smart_log, test_summary
 `);
   process.exit(0);
+}
+
+const isDirectRun = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isDirectRun) {
+  main().catch(err => {
+    console.error(`[token-pilot] Fatal: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  });
 }

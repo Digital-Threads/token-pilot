@@ -67,7 +67,18 @@ export async function handleTestSummary(
   const rawTokens = estimateTokens(rawOutput);
   const runner = args.runner ?? detectRunner(command, rawOutput);
   const result = parseTestOutput(rawOutput, runner);
-  const formatted = formatTestSummary(result, command, runner, rawTokens);
+  const commandFailed = exitCode !== 0;
+
+  if (commandFailed && result.failed === 0) {
+    result.failed = 1;
+    result.total = Math.max(result.total, result.passed + result.failed + result.skipped);
+    result.failures.unshift({
+      name: `Command exited with code ${exitCode}`,
+      error: summarizeCommandError(rawOutput),
+    });
+  }
+
+  const formatted = formatTestSummary(result, command, runner, rawTokens, exitCode, commandFailed);
 
   return {
     content: [{ type: 'text', text: formatted }],
@@ -333,14 +344,35 @@ function parseGeneric(output: string): TestResult {
   return result;
 }
 
+function summarizeCommandError(output: string): string {
+  const lines = output
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .filter(line => !line.startsWith('at ') && !line.startsWith('>'));
+
+  if (lines.length === 0) {
+    return 'Command failed without producing output.';
+  }
+
+  return lines.slice(0, 3).join('\n').substring(0, 300);
+}
+
 // ──────────────────────────────────────────────
 // Formatter
 // ──────────────────────────────────────────────
 
-function formatTestSummary(result: TestResult, command: string, runner: string, rawTokens: number): string {
+function formatTestSummary(
+  result: TestResult,
+  command: string,
+  runner: string,
+  rawTokens: number,
+  exitCode: number | null,
+  commandFailed: boolean,
+): string {
   const lines: string[] = [];
 
-  const status = result.failed > 0 ? '❌ FAIL' : '✅ PASS';
+  const status = result.failed > 0 || commandFailed ? '❌ FAIL' : '✅ PASS';
   lines.push(`TEST RESULT: ${status} (${runner})`);
   lines.push('');
 
@@ -353,6 +385,10 @@ function formatTestSummary(result: TestResult, command: string, runner: string, 
   if (result.duration) parts.push(`${result.duration}`);
   if (result.suites) parts.push(`${result.suites} suites`);
   lines.push(parts.join(' | '));
+
+  if (commandFailed && exitCode != null) {
+    lines.push(`Exit code: ${exitCode}`);
+  }
 
   // Failed tests detail
   if (result.failures.length > 0) {
@@ -376,4 +412,3 @@ function formatTestSummary(result: TestResult, command: string, runner: string, 
 
   return lines.join('\n');
 }
-

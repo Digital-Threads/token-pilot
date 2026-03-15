@@ -79,4 +79,15 @@ describe('SessionAnalytics', () => {
     const report = analytics.report();
     expect(report).toContain('Delegated to context-mode: 1 calls');
   });
+
+  it('highlights tools with weak savings so they can be improved', () => {
+    const analytics = new SessionAnalytics();
+    analytics.record({ tool: 'project_overview', tokensReturned: 90, tokensWouldBe: 100, timestamp: Date.now() });
+    analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now() });
+
+    const report = analytics.report();
+    expect(report).toContain('Needs improvement:');
+    expect(report).toContain('project_overview: only 10% reduction');
+    expect(report).not.toContain('smart_read: only');
+  });
 });

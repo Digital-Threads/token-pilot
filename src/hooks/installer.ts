@@ -1,6 +1,18 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 
+export interface HookInstallResult {
+  installed: boolean;
+  fatal: boolean;
+  message: string;
+}
+
+export interface HookUninstallResult {
+  removed: boolean;
+  fatal: boolean;
+  message: string;
+}
+
 const HOOK_CONFIG = {
   hooks: {
     PreToolUse: [
@@ -30,7 +42,7 @@ const HOOK_CONFIG = {
  * Install Token Pilot hook into Claude Code settings.
  * Creates or updates .claude/settings.json with PreToolUse hook.
  */
-export async function installHook(projectRoot: string): Promise<{ installed: boolean; message: string }> {
+export async function installHook(projectRoot: string): Promise<HookInstallResult> {
   const settingsPath = resolve(projectRoot, '.claude', 'settings.json');
 
   try {
@@ -46,11 +58,19 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
         settings = JSON.parse(raw);
       } catch {
         // File exists but has invalid JSON — don't destroy it
-        return { installed: false, message: `Settings file exists but contains invalid JSON: ${settingsPath}. Fix it manually before installing hooks.` };
+        return {
+          installed: false,
+          fatal: true,
+          message: `Settings file exists but contains invalid JSON: ${settingsPath}. Fix it manually before installing hooks.`,
+        };
       }
     } catch (err: any) {
       if (err?.code !== 'ENOENT') {
-        return { installed: false, message: `Cannot read settings: ${err?.message ?? err}` };
+        return {
+          installed: false,
+          fatal: true,
+          message: `Cannot read settings: ${err?.message ?? err}`,
+        };
       }
       // ENOENT — file doesn't exist, start fresh
     }
@@ -65,7 +85,7 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
       const hasEdit = existingHooks.some((h: any) => h.matcher === 'Edit' && isTokenPilotHook(h));
 
       if (hasRead && hasEdit) {
-        return { installed: false, message: 'Token Pilot hooks already installed.' };
+        return { installed: false, fatal: false, message: 'Token Pilot hooks already installed.' };
       }
 
       // Add missing hooks
@@ -85,18 +105,19 @@ export async function installHook(projectRoot: string): Promise<{ installed: boo
 
     return {
       installed: true,
+      fatal: false,
       message: `Hooks installed at ${settingsPath}. Token Pilot will block unbounded Read on large code files and suggest read_for_edit before Edit.`,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { installed: false, message: `Failed to install hook: ${msg}` };
+    return { installed: false, fatal: true, message: `Failed to install hook: ${msg}` };
   }
 }
 
 /**
  * Remove Token Pilot hook from Claude Code settings.
  */
-export async function uninstallHook(projectRoot: string): Promise<{ removed: boolean; message: string }> {
+export async function uninstallHook(projectRoot: string): Promise<HookUninstallResult> {
   const settingsPath = resolve(projectRoot, '.claude', 'settings.json');
 
   try {
@@ -104,7 +125,7 @@ export async function uninstallHook(projectRoot: string): Promise<{ removed: boo
     const settings = JSON.parse(raw);
 
     if (!settings.hooks?.PreToolUse) {
-      return { removed: false, message: 'No hooks to remove.' };
+      return { removed: false, fatal: false, message: 'No hooks to remove.' };
     }
 
     settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter((h: any) =>
@@ -120,11 +141,18 @@ export async function uninstallHook(projectRoot: string): Promise<{ removed: boo
 
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
-    return { removed: true, message: 'Token Pilot hook removed.' };
+    return { removed: true, fatal: false, message: 'Token Pilot hook removed.' };
   } catch (err: any) {
     if (err?.code === 'ENOENT') {
-      return { removed: false, message: 'Settings file not found.' };
+      return { removed: false, fatal: false, message: 'Settings file not found.' };
     }
-    return { removed: false, message: `Failed to process settings: ${err?.message ?? err}` };
+    if (err instanceof SyntaxError) {
+      return {
+        removed: false,
+        fatal: true,
+        message: `Settings file contains invalid JSON: ${settingsPath}. Fix it manually before uninstalling hooks.`,
+      };
+    }
+    return { removed: false, fatal: true, message: `Failed to process settings: ${err?.message ?? err}` };
   }
 }

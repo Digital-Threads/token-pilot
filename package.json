@@ -18,14 +18,15 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "prebuild": "rm -rf dist",
+    "prebuild": "node --input-type=module -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true });\"",
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run build && chmod +x dist/index.js"
+    "prepublishOnly": "npm run build && node --input-type=module -e \"import { chmod } from 'node:fs/promises'; await chmod('dist/index.js', 0o755);\""
   },
   "keywords": [
     "token-savings",
@@ -61,6 +62,7 @@
     "chokidar": "^4.0.3"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
