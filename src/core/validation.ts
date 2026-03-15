@@ -216,6 +216,9 @@ export function validateReadForEditArgs(args: unknown): {
   symbol?: string;
   line?: number;
   context?: number;
+  include_callers?: boolean;
+  include_tests?: boolean;
+  include_changes?: boolean;
 } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
@@ -232,6 +235,9 @@ export function validateReadForEditArgs(args: unknown): {
     symbol: optionalString(a.symbol, 'symbol'),
     line: optionalNumber(a.line, 'line'),
     context: optionalNumber(a.context, 'context'),
+    include_callers: optionalBool(a.include_callers, 'include_callers'),
+    include_tests: optionalBool(a.include_tests, 'include_tests'),
+    include_changes: optionalBool(a.include_changes, 'include_changes'),
   };
 }
 

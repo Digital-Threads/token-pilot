@@ -327,7 +327,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       },
       {
         name: 'read_for_edit',
-        description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool.',
+        description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool. Optional: include_callers, include_tests, include_changes for enriched context.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -335,6 +335,9 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             symbol: { type: 'string', description: 'Symbol name to edit (e.g. "UserService.updateUser")' },
             line: { type: 'number', description: 'Line number to edit (alternative to symbol)' },
             context: { type: 'number', description: 'Lines of context around target (default: 5)' },
+            include_callers: { type: 'boolean', description: 'Show top callers of this symbol (saves a separate find_usages call)' },
+            include_tests: { type: 'boolean', description: 'Show related test file and test names' },
+            include_changes: { type: 'boolean', description: 'Show recent git changes in the target region' },
           },
           required: ['path'],
         },
