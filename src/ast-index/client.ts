@@ -50,8 +50,10 @@ import {
 } from './parser.js';
 import { buildFileStructure } from './enricher.js';
 import { parseTypeScriptRegex } from './regex-parser.js';
+import { parsePythonRegex } from './regex-parser-python.js';
 
 const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
+const PYTHON_EXTENSIONS = new Set(['py', 'pyw']);
 
 const execFileAsync = promisify(execFile);
 
@@ -230,14 +232,17 @@ export class AstIndexClient {
     }
   }
 
-  /** Regex-based fallback for TS/JS when ast-index binary is unavailable. */
+  /** Regex-based fallback for TS/JS/Python when ast-index binary is unavailable. */
   private async regexFallback(filePath: string): Promise<FileStructure | null> {
     const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-    if (!TS_JS_EXTENSIONS.has(ext)) return null;
+    const parser = TS_JS_EXTENSIONS.has(ext) ? parseTypeScriptRegex
+      : PYTHON_EXTENSIONS.has(ext) ? parsePythonRegex
+      : null;
+    if (!parser) return null;
     try {
       const { readFile } = await import('node:fs/promises');
       const content = await readFile(filePath, 'utf-8');
-      const entries = parseTypeScriptRegex(content);
+      const entries = parser(content);
       if (entries.length === 0) return null;
       return await buildFileStructure(filePath, entries);
     } catch {

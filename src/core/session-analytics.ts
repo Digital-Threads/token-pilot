@@ -69,9 +69,11 @@ export class SessionAnalytics {
     const cacheHits = this.calls.filter(c => c.sessionCacheHit);
 
     // --- Compact report ---
+    const tokensSaved = totalWouldBe - totalReturned;
+
     const lines: string[] = [
       `SESSION ANALYTICS (${duration})`,
-      `Calls: ${this.calls.length}  ·  Tokens returned: ~${totalReturned}  ·  Saved: ~${totalWouldBe - totalReturned} (${saved}%)`,
+      `Calls: ${this.calls.length}  ·  Tokens returned: ~${totalReturned}  ·  Saved: ~${tokensSaved} (${saved}%)`,
     ];
 
     if (this.calls.length > 0) {
