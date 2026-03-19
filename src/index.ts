@@ -12,7 +12,6 @@ import { isDangerousRoot } from './core/validation.js';
 
 const execFileAsync = promisify(execFile);
 
-const HOOK_DENY_THRESHOLD = 500;
 
 export const CODE_EXTENSIONS = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'py', 'go', 'rs', 'java', 'kt', 'kts',
@@ -34,9 +33,11 @@ export function getVersion(): string {
 
 export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
   switch (cliArgs[0]) {
-    case 'hook-read':
-      handleHookRead(cliArgs[1]);
+    case 'hook-read': {
+      const cfg = await loadConfig(process.cwd());
+      handleHookRead(cliArgs[1], cfg.hooks.denyThreshold);
       return;
+    }
     case 'hook-edit':
       handleHookEdit();
       return;
@@ -152,7 +153,7 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   });
 }
 
-export function handleHookRead(filePathArg?: string) {
+export function handleHookRead(filePathArg?: string, denyThreshold = 300) {
   // Parse stdin (Claude Code hook format) to get tool_input
   let filePath = filePathArg;
   let hasOffset = false;
@@ -191,7 +192,7 @@ export function handleHookRead(filePathArg?: string) {
   try {
     const content = readFileSync(filePath, 'utf-8');
     lineCount = content.split('\n').length;
-    if (lineCount <= HOOK_DENY_THRESHOLD) {
+    if (lineCount <= denyThreshold) {
       process.exit(0);
     }
   } catch {

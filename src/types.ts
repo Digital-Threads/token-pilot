@@ -111,6 +111,7 @@ export interface TokenPilotConfig {
     enabled: boolean;
     interceptRead: boolean;
     autoInstall: boolean;
+    denyThreshold: number;
   };
   context: {
     estimateTokens: boolean;

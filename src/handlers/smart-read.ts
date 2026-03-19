@@ -8,6 +8,10 @@ import { formatOutline } from '../formatters/structure.js';
 import { estimateTokens, formatSavings } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
+import { parseTypeScriptRegex } from '../ast-index/regex-parser.js';
+import { buildFileStructure } from '../ast-index/enricher.js';
+
+const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 export interface SmartReadArgs {
@@ -82,7 +86,7 @@ export async function handleSmartRead(
 
   if (!cached || isStale) {
     // 4. Get structure from ast-index
-    const structure = await astIndex.outline(absPath);
+    let structure = await astIndex.outline(absPath);
 
     if (!structure) {
       // ast-index doesn't support this file type
@@ -92,6 +96,17 @@ export async function handleSmartRead(
         if (nonCodeResult) return nonCodeResult;
       }
 
+      // Regex fallback for TS/JS when binary is unavailable
+      const ext = absPath.split('.').pop()?.toLowerCase() ?? '';
+      if (TS_JS_EXTENSIONS.has(ext)) {
+        const regexEntries = parseTypeScriptRegex(content);
+        if (regexEntries.length > 0) {
+          structure = await buildFileStructure(absPath, regexEntries);
+        }
+      }
+    }
+
+    if (!structure) {
       // Fallback: return truncated preview instead of full raw content
       const previewLines = 60;
       const truncated = lines.length > previewLines;

@@ -23,6 +23,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     enabled: true,
     interceptRead: true,
     autoInstall: true,
+    denyThreshold: 300,
   },
   context: {
     estimateTokens: true,

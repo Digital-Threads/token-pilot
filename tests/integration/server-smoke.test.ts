@@ -129,8 +129,8 @@ describe('createServer smoke test', () => {
     expect(usagesResult.content?.[0]?.text).toContain('REFS: "app"');
 
     const analytics = await client.callTool({ name: 'session_analytics', arguments: {} });
-    expect(analytics.content?.[0]?.text).toContain('smart_read: 1 calls');
-    expect(analytics.content?.[0]?.text).toContain('find_usages: 1 calls');
+    expect(analytics.content?.[0]?.text).toContain('smart_read 1×');
+    expect(analytics.content?.[0]?.text).toContain('find_usages 1×');
 
     await Promise.all([client.close(), server.close()]);
   });

@@ -86,6 +86,7 @@ describe('index CLI helpers', () => {
     mockDeps.loadConfig.mockResolvedValue({
       astIndex: { binaryPath: null },
       updates: { checkOnStartup: false, autoUpdate: false },
+      hooks: { denyThreshold: 300 },
     });
     mockDeps.findBinary.mockResolvedValue({
       available: false,
@@ -142,6 +143,22 @@ describe('index CLI helpers', () => {
     expect(writeSpy).toHaveBeenCalledTimes(1);
     expect(String(writeSpy.mock.calls[0][0])).toContain('"permissionDecision":"deny"');
     expect(String(writeSpy.mock.calls[0][0])).toContain('smart_read');
+  });
+
+  it('respects configurable denyThreshold in handleHookRead', async () => {
+    const borderFile = join(tempDir, 'border.ts');
+    await writeFile(borderFile, Array.from({ length: 350 }, (_, i) => `line ${i}`).join('\n'));
+
+    // Default threshold (300) — 350 lines should be denied
+    expect(() => indexModule.handleHookRead(borderFile)).toThrow('EXIT:0');
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+    expect(String(writeSpy.mock.calls[0][0])).toContain('"permissionDecision":"deny"');
+
+    writeSpy.mockClear();
+
+    // High threshold (500) — 350 lines should be allowed
+    expect(() => indexModule.handleHookRead(borderFile, 500)).toThrow('EXIT:0');
+    expect(writeSpy).not.toHaveBeenCalled();
   });
 
   it('installs and uninstalls hooks with the returned fatal flag', async () => {
