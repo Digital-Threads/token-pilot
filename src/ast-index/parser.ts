@@ -73,7 +73,7 @@ export function parseOutlineText(text: string): AstIndexOutlineEntry[] {
   return entries;
 }
 
-export function computeEndLines(entries: AstIndexOutlineEntry[]): void {
+function computeEndLines(entries: AstIndexOutlineEntry[]): void {
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].children?.length) {
       computeEndLines(entries[i].children!);

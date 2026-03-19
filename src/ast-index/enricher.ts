@@ -47,7 +47,7 @@ export async function buildFileStructure(
  * Python: ast-index doesn't return methods inside classes.
  * Parse file content to extract `def` methods for classes without children.
  */
-export function enrichPythonClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
+function enrichPythonClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
   for (const entry of entries) {
     if (entry.kind.toLowerCase() !== 'class') continue;
     if (entry.children && entry.children.length > 0) continue;
@@ -139,7 +139,7 @@ export function enrichPythonClassMethods(entries: AstIndexOutlineEntry[], lines:
  * PHP: ast-index doesn't return methods inside classes.
  * Parse file content to extract `function` methods for classes without children.
  */
-export function enrichPHPClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
+function enrichPHPClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
   for (const entry of entries) {
     if (entry.kind.toLowerCase() !== 'class') continue;
     if (entry.children && entry.children.length > 0) continue;
@@ -208,7 +208,7 @@ export function fixLastEndLine(entries: AstIndexOutlineEntry[], totalLines: numb
 }
 
 /** Read actual signature lines from file content */
-export function enrichSignatures(entries: AstIndexOutlineEntry[], lines: string[]): void {
+function enrichSignatures(entries: AstIndexOutlineEntry[], lines: string[]): void {
   for (const entry of entries) {
     if (!entry.signature) {
       const lineIdx = entry.start_line - 1;
