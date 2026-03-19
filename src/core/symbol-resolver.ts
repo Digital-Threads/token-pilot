@@ -1,5 +1,6 @@
 import type { AstIndexClient } from '../ast-index/client.js';
-import type { ResolvedSymbol, SymbolInfo, FileStructure, SymbolKind } from '../types.js';
+import type { ResolvedSymbol, SymbolInfo, FileStructure } from '../types.js';
+import { mapKind } from '../ast-index/parser.js';
 
 export class SymbolResolver {
   private astIndex: AstIndexClient;
@@ -72,7 +73,7 @@ export class SymbolResolver {
         symbol: {
           name: detail.name,
           qualifiedName: qualifiedName,
-          kind: this.mapKind(detail.kind),
+          kind: mapKind(detail.kind),
           signature: detail.signature ?? detail.name,
           location: {
             startLine: detail.start_line,
@@ -106,7 +107,7 @@ export class SymbolResolver {
           symbol: {
             name: leafDetail.name,
             qualifiedName: qualifiedName,
-            kind: this.mapKind(leafDetail.kind),
+            kind: mapKind(leafDetail.kind),
             signature: leafDetail.signature ?? leafDetail.name,
             location: {
               startLine: leafDetail.start_line,
@@ -153,16 +154,6 @@ export class SymbolResolver {
     return output.join('\n');
   }
 
-  private mapKind(kind: string): SymbolKind {
-    const map: Record<string, SymbolKind> = {
-      function: 'function', class: 'class', method: 'method',
-      property: 'property', variable: 'variable', type: 'type',
-      interface: 'interface', enum: 'enum', constant: 'constant',
-      namespace: 'namespace', struct: 'class', trait: 'interface',
-      impl: 'class', module: 'namespace',
-    };
-    return map[kind.toLowerCase()] ?? 'function';
-  }
 
   /**
    * Hierarchical search: AuthService → children → login

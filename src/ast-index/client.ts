@@ -1,9 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { stat } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import type { FileStructure, SymbolInfo, SymbolKind, Visibility } from '../types.js';
+import type { FileStructure, SymbolInfo } from '../types.js';
 import type {
   AstIndexOutlineEntry,
   AstIndexSymbolRaw,
@@ -33,6 +30,25 @@ import type {
   AstIndexModuleApi,
 } from './types.js';
 import { findBinary, installBinary } from './binary-manager.js';
+import {
+  parseFileCount,
+  parseOutlineText,
+  parseImportsText,
+  parseImplementationsText,
+  parseHierarchyText,
+  parseAgrepText,
+  parseTodoText,
+  parseDeprecatedText,
+  parseAnnotationsText,
+  parseModuleListText,
+  parseModuleDepText,
+  parseUnusedDepsText,
+  parseModuleApiText,
+  mapKind,
+  mapVisibility,
+  detectLanguage,
+} from './parser.js';
+import { buildFileStructure } from './enricher.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -89,7 +105,6 @@ export class AstIndexClient {
   async ensureIndex(): Promise<void> {
     if (this.indexed) return;
 
-    // Project root is too broad (/, home dir) — refuse to build
     if (this.indexDisabled) {
       throw new Error(
         'ast-index: index build disabled — project root is too broad (e.g. /). ' +
@@ -97,7 +112,6 @@ export class AstIndexClient {
       );
     }
 
-    // If a previous build found >50k files, don't retry
     if (this.indexOversized) {
       throw new Error(
         'ast-index disabled: previous build indexed >50k files (likely node_modules). ' +
@@ -117,32 +131,26 @@ export class AstIndexClient {
   }
 
   private async buildIndex(): Promise<void> {
-    // Check if index already exists and has files
     let existingFileCount = 0;
     try {
       const stats = await this.exec(['--format', 'json', 'stats']);
-      existingFileCount = this.parseFileCount(stats);
+      existingFileCount = parseFileCount(stats);
     } catch { /* no index yet */ }
 
-    // Guard: existing index is oversized (node_modules leak from previous build)
     if (existingFileCount > AstIndexClient.MAX_INDEX_FILES) {
       console.error(`[token-pilot] ast-index: existing index has ${existingFileCount} files (>${AstIndexClient.MAX_INDEX_FILES}) — likely includes node_modules. Clearing.`);
       try { await this.exec(['clear']); } catch { /* best effort */ }
       existingFileCount = 0;
-      // Fall through to rebuild — maybe .gitignore was fixed
     }
 
     if (existingFileCount > 0) {
-      // Index exists — use incremental update (fast)
       console.error(`[token-pilot] ast-index: updating index (${existingFileCount} files)...`);
       try {
         await this.exec(['update'], 30000);
-        // Re-check count after update
         try {
-          existingFileCount = this.parseFileCount(await this.exec(['--format', 'json', 'stats']));
+          existingFileCount = parseFileCount(await this.exec(['--format', 'json', 'stats']));
         } catch { /* keep previous count */ }
 
-        // Guard: update may have grown index beyond limit
         if (existingFileCount > AstIndexClient.MAX_INDEX_FILES) {
           return this.handleOversizedIndex(existingFileCount);
         }
@@ -155,14 +163,12 @@ export class AstIndexClient {
       }
     }
 
-    // No index or update failed — full rebuild
     console.error('[token-pilot] ast-index: building index (this may take a moment)...');
     try {
       await this.exec(['rebuild'], 120000);
 
-      const fileCount = this.parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
+      const fileCount = parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
 
-      // Guard: rebuild produced oversized index
       if (fileCount > AstIndexClient.MAX_INDEX_FILES) {
         return this.handleOversizedIndex(fileCount);
       }
@@ -170,10 +176,9 @@ export class AstIndexClient {
       this.indexed = true;
       console.error(`[token-pilot] ast-index: index built (${fileCount} files)`);
     } catch (buildErr) {
-      // If rebuild failed due to lock, check if index is usable anyway
       const errMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
       if (errMsg.includes('lock') || errMsg.includes('already running')) {
-        const count = this.parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
+        const count = parseFileCount(await this.exec(['--format', 'json', 'stats']).catch(() => ''));
         if (count > 0 && count <= AstIndexClient.MAX_INDEX_FILES) {
           this.indexed = true;
           console.error(`[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`);
@@ -188,7 +193,6 @@ export class AstIndexClient {
     }
   }
 
-  /** Mark index as oversized — disables index-dependent tools, outline still works */
   private async handleOversizedIndex(fileCount: number): Promise<void> {
     this.indexOversized = true;
     this.indexed = false;
@@ -202,34 +206,20 @@ export class AstIndexClient {
     );
   }
 
-  /** Extract file count from stats output (JSON or text) */
-  private parseFileCount(statsText: string): number {
-    // Try JSON first (--format json)
-    try {
-      const json = JSON.parse(statsText);
-      if (json?.stats?.file_count !== undefined) return json.stats.file_count;
-    } catch { /* not JSON, fall through */ }
-    // Fallback: text format
-    const match = statsText.match(/Files:\s*(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
-  }
-
   async outline(filePath: string): Promise<FileStructure | null> {
-    // outline parses a single file — try directly without requiring full index
     try {
       const result = await this.exec(['outline', filePath]);
-      const entries = this.parseOutlineText(result);
+      const entries = parseOutlineText(result);
       if (entries.length === 0) return null;
-      return await this.buildFileStructure(filePath, entries);
+      return await buildFileStructure(filePath, entries);
     } catch {
-      // Direct call failed — try building index first (unless disabled/oversized)
       if (this.indexDisabled || this.indexOversized) return null;
       try {
         await this.ensureIndex();
         const result = await this.exec(['outline', filePath]);
-        const entries = this.parseOutlineText(result);
+        const entries = parseOutlineText(result);
         if (entries.length === 0) return null;
-        return await this.buildFileStructure(filePath, entries);
+        return await buildFileStructure(filePath, entries);
       } catch (err) {
         console.error(`[token-pilot] ast-index outline failed for ${filePath}: ${err instanceof Error ? err.message : err}`);
         return null;
@@ -237,82 +227,7 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Parse text output from `ast-index outline`:
-   *   Outline of src/file.ts:
-   *     :10 ClassName [class]
-   *     :11 propName [property]
-   *     :14 methodName [function]
-   */
-  private parseOutlineText(text: string): AstIndexOutlineEntry[] {
-    const lines = text.split('\n');
-    const entries: AstIndexOutlineEntry[] = [];
-    const classStack: { entry: AstIndexOutlineEntry; indent: number }[] = [];
-
-    for (const line of lines) {
-      // Match: optional whitespace, :LINE_NUM, SYMBOL_NAME, [KIND]
-      const match = line.match(/^(\s*):(\d+)\s+(\S+)\s+\[(\w+)\]/);
-      if (!match) continue;
-
-      const indent = match[1].length;
-      const entry: AstIndexOutlineEntry = {
-        name: match[3],
-        kind: match[4],
-        start_line: parseInt(match[2], 10),
-        end_line: 0, // computed later
-      };
-
-      // Pop stack until we find a parent with less indent
-      while (classStack.length > 0 && classStack[classStack.length - 1].indent >= indent) {
-        classStack.pop();
-      }
-
-      if (classStack.length > 0) {
-        // This is a child of the top of stack
-        const parent = classStack[classStack.length - 1].entry;
-        if (!parent.children) parent.children = [];
-        parent.children.push(entry);
-      } else {
-        entries.push(entry);
-      }
-
-      // Push classes/interfaces onto stack as potential parents
-      if (['class', 'interface', 'struct', 'enum', 'impl', 'trait', 'namespace', 'module'].includes(entry.kind.toLowerCase())) {
-        classStack.push({ entry, indent });
-      }
-    }
-
-    // Compute end_line for all entries
-    this.computeEndLines(entries);
-
-    return entries;
-  }
-
-  /** Compute end_line from sequential start positions */
-  private computeEndLines(entries: AstIndexOutlineEntry[]): void {
-    for (let i = 0; i < entries.length; i++) {
-      // Children first (recursive)
-      if (entries[i].children?.length) {
-        this.computeEndLines(entries[i].children!);
-      }
-
-      if (i < entries.length - 1) {
-        // end = next sibling's start - 1
-        entries[i].end_line = entries[i + 1].start_line - 1;
-      } else {
-        // last entry: estimate based on children or use start + reasonable default
-        const children = entries[i].children;
-        if (children?.length) {
-          entries[i].end_line = children[children.length - 1].end_line + 1;
-        } else {
-          entries[i].end_line = entries[i].start_line + 10; // estimated
-        }
-      }
-    }
-  }
-
   async symbol(name: string): Promise<AstIndexSymbolDetail | null> {
-    // Try directly first (works if index exists from a previous session)
     try {
       const result = await this.exec(['symbol', name, '--format', 'json']);
       const raw: AstIndexSymbolRaw[] = JSON.parse(result);
@@ -322,7 +237,6 @@ export class AstIndexClient {
       }
     } catch { /* fall through to ensureIndex path */ }
 
-    // Direct call failed — try building index (unless disabled/oversized)
     if (this.indexDisabled || this.indexOversized) return null;
     try {
       await this.ensureIndex();
@@ -358,7 +272,6 @@ export class AstIndexClient {
         })) : []),
         ...(Array.isArray(parsed.references) ? parsed.references : []),
       ];
-      // Fallback: if parsed is an array directly
       const matches = all.length > 0 ? all : (Array.isArray(parsed) ? parsed : []);
       const mapped = matches
         .map((m: { content?: string; text?: string; signature?: string; line?: number; path?: string; file?: string }) => ({
@@ -368,7 +281,7 @@ export class AstIndexClient {
         }))
         .filter(r => r.file !== '' && r.text !== '');
 
-      // Deduplicate by file:line (merge of 4 categories creates dupes)
+      // Deduplicate by file:line
       const seen = new Set<string>();
       return mapped.filter(r => {
         const key = `${r.file}:${r.line}`;
@@ -388,12 +301,7 @@ export class AstIndexClient {
       const result = await this.exec(['usages', symbolName, '--format', 'json']);
       const raw: AstIndexUsageRaw[] = JSON.parse(result);
       if (!Array.isArray(raw)) return [];
-      return raw.map(u => ({
-        file: u.path,
-        line: u.line,
-        text: u.context,
-        kind: 'reference',
-      }));
+      return raw.map(u => ({ file: u.path, line: u.line, text: u.context, kind: 'reference' }));
     } catch (err) {
       console.error(`[token-pilot] ast-index usages failed: ${err instanceof Error ? err.message : err}`);
       return [];
@@ -407,8 +315,7 @@ export class AstIndexClient {
       try {
         return JSON.parse(result);
       } catch {
-        // JSON parse failed — parse text format as fallback
-        return this.parseImplementationsText(result);
+        return parseImplementationsText(result);
       }
     } catch (err) {
       console.error(`[token-pilot] ast-index implementations failed: ${err instanceof Error ? err.message : err}`);
@@ -423,63 +330,12 @@ export class AstIndexClient {
       try {
         return JSON.parse(result);
       } catch {
-        // JSON parse failed — parse text format as fallback
-        return this.parseHierarchyText(result, name);
+        return parseHierarchyText(result, name);
       }
     } catch (err) {
       console.error(`[token-pilot] ast-index hierarchy failed: ${err instanceof Error ? err.message : err}`);
       return null;
     }
-  }
-
-  private parseImplementationsText(text: string): AstIndexImplementation[] {
-    const results: AstIndexImplementation[] = [];
-    // Parse lines like: "class ClassName (file.php:42)"
-    for (const line of text.split('\n')) {
-      const m = line.match(/^\s*(class|interface|trait|struct|impl)\s+(\S+)\s+\((.+):(\d+)\)/);
-      if (m) {
-        results.push({ kind: m[1], name: m[2], file: m[3], line: parseInt(m[4], 10) });
-      }
-    }
-    return results;
-  }
-
-  private parseHierarchyText(text: string, rootName: string): AstIndexHierarchyNode | null {
-    if (!text.trim()) return null;
-    // Parse ast-index hierarchy text output:
-    //   Hierarchy for 'ClassName':
-    //     Parents:
-    //       ParentClass (extends)
-    //     Children:
-    //       ChildClass (implements)  (file.ts:42)
-    const lines = text.split('\n');
-    const parents: AstIndexHierarchyNode[] = [];
-    const childNodes: AstIndexHierarchyNode[] = [];
-    let section: 'none' | 'parents' | 'children' = 'none';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === 'Parents:') { section = 'parents'; continue; }
-      if (trimmed === 'Children:') { section = 'children'; continue; }
-      if (trimmed.startsWith('Hierarchy for') || !trimmed) continue;
-
-      // Match: SymbolName (relationship)  (file:line) — file:line is optional
-      const m = trimmed.match(/^(\S+)\s+\((\w+)\)(?:\s+\((.+):(\d+)\))?/);
-      if (m && section !== 'none') {
-        const node: AstIndexHierarchyNode = {
-          name: m[1],
-          kind: m[2], // extends, implements, etc.
-          children: [],
-          file: m[3],
-          line: m[4] ? parseInt(m[4], 10) : undefined,
-        };
-        if (section === 'parents') parents.push(node);
-        else childNodes.push(node);
-      }
-    }
-
-    if (parents.length === 0 && childNodes.length === 0) return null;
-    return { name: rootName, kind: 'class', children: childNodes, parents };
   }
 
   async stats(): Promise<string | null> {
@@ -490,10 +346,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * List all files known to the ast-index.
-   * Parses the `files` command output which lists one file per line.
-   */
   async listFiles(): Promise<string[]> {
     try {
       await this.ensureIndex();
@@ -505,10 +357,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Cross-references: definitions + imports + usages in one call.
-   * Replaces separate symbol() + usages() calls.
-   */
   async refs(symbolName: string, limit = 20): Promise<AstIndexRefsResponse> {
     await this.ensureIndex();
     try {
@@ -520,9 +368,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Project map: directory structure with file counts and symbol kinds.
-   */
   async map(options?: { module?: string; limit?: number }): Promise<AstIndexMapResponse | null> {
     await this.ensureIndex();
     try {
@@ -537,9 +382,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Detect project conventions: architecture, frameworks, naming patterns.
-   */
   async conventions(): Promise<AstIndexConventionsResponse | null> {
     await this.ensureIndex();
     try {
@@ -551,9 +393,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Find callers of a function.
-   */
   async callers(functionName: string, limit = 50): Promise<AstIndexCallerEntry[]> {
     await this.ensureIndex();
     try {
@@ -566,9 +405,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Show call hierarchy tree (callers tree up).
-   */
   async callTree(functionName: string, depth = 3): Promise<AstIndexCallTreeNode | null> {
     await this.ensureIndex();
     try {
@@ -580,9 +416,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Show changed symbols since base branch (git diff).
-   */
   async changed(base?: string): Promise<AstIndexChangedEntry[]> {
     await this.ensureIndex();
     try {
@@ -597,9 +430,6 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Find potentially unused symbols.
-   */
   async unusedSymbols(options?: { module?: string; exportOnly?: boolean; limit?: number }): Promise<AstIndexUnusedSymbol[]> {
     await this.ensureIndex();
     try {
@@ -616,74 +446,26 @@ export class AstIndexClient {
     }
   }
 
-  /**
-   * Get imports for a specific file.
-   * Parses text output: "  { X, Y } from 'source';"
-   */
   async fileImports(filePath: string): Promise<AstIndexImportEntry[]> {
     await this.ensureIndex();
     try {
       const result = await this.exec(['imports', filePath]);
-      return this.parseImportsText(result);
+      return parseImportsText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index imports failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  private parseImportsText(text: string): AstIndexImportEntry[] {
-    const entries: AstIndexImportEntry[] = [];
-    for (const line of text.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('Imports in') || trimmed.startsWith('Total:')) continue;
-
-      // Match: { X, Y } from 'source'
-      const braceMatch = trimmed.match(/^\{\s*(.+?)\s*\}\s+from\s+['"](.+?)['"]/);
-      if (braceMatch) {
-        entries.push({
-          specifiers: braceMatch[1].split(',').map(s => s.trim()),
-          source: braceMatch[2],
-        });
-        continue;
-      }
-
-      // Match: * as X from 'source'
-      const nsMatch = trimmed.match(/^\*\s+as\s+(\S+)\s+from\s+['"](.+?)['"]/);
-      if (nsMatch) {
-        entries.push({
-          specifiers: [nsMatch[1]],
-          source: nsMatch[2],
-          isNamespace: true,
-        });
-        continue;
-      }
-
-      // Match: X from 'source' (default import)
-      const defaultMatch = trimmed.match(/^(\w+)\s+from\s+['"](.+?)['"]/);
-      if (defaultMatch) {
-        entries.push({
-          specifiers: [defaultMatch[1]],
-          source: defaultMatch[2],
-          isDefault: true,
-        });
-        continue;
-      }
-    }
-    return entries;
-  }
-
   // --- Code audit commands ---
 
-  /** Check if ast-grep (sg) is available for structural pattern search */
   private async checkAstGrep(): Promise<boolean> {
     if (this.astGrepAvailable !== null) return this.astGrepAvailable;
-    // Try system PATH first
     try {
       await execFileAsync('sg', ['--version'], { timeout: 3000 });
       this.astGrepAvailable = true;
       return true;
     } catch { /* not in PATH */ }
-    // Try node_modules/.bin/sg (from optionalDependencies or source installs)
     try {
       const localBinDir = new URL('../../node_modules/.bin', import.meta.url).pathname;
       await execFileAsync(localBinDir + '/sg', ['--version'], { timeout: 3000 });
@@ -695,7 +477,6 @@ export class AstIndexClient {
     return false;
   }
 
-  /** Structural pattern search via ast-grep. Requires ast-grep (sg) installed. */
   async agrep(pattern: string, options?: { lang?: string; limit?: number }): Promise<AstIndexAgrepMatch[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
@@ -715,129 +496,49 @@ export class AstIndexClient {
 
     try {
       const result = await this.exec(args, 15000);
-      return this.parseAgrepText(result).slice(0, limit);
+      return parseAgrepText(result).slice(0, limit);
     } catch (err) {
       console.error(`[token-pilot] ast-index agrep failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  private parseAgrepText(text: string): AstIndexAgrepMatch[] {
-    const results: AstIndexAgrepMatch[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Format: file:line:matched_text  OR  file:line: matched_text
-      const match = line.match(/^(.+?):(\d+):(.*)$/);
-      if (match) {
-        results.push({
-          file: match[1],
-          line: parseInt(match[2], 10),
-          text: match[3].trim(),
-        });
-      }
-    }
-    return results;
-  }
-
-  /** Find TODO/FIXME/HACK comments in the project */
   async todo(): Promise<AstIndexTodoEntry[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['todo'], 15000);
-      return this.parseTodoText(result);
+      return parseTodoText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index todo failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  private parseTodoText(text: string): AstIndexTodoEntry[] {
-    const results: AstIndexTodoEntry[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try format: file:line: KIND: message  OR  file:line: KIND message
-      const match = line.match(/^(.+?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
-      if (match) {
-        results.push({
-          file: match[1],
-          line: parseInt(match[2], 10),
-          kind: match[3].toUpperCase(),
-          text: match[4].trim(),
-        });
-      }
-    }
-    return results;
-  }
-
-  /** Find @Deprecated symbols in the project */
   async deprecated(): Promise<AstIndexDeprecatedEntry[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['deprecated'], 15000);
-      return this.parseDeprecatedText(result);
+      return parseDeprecatedText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index deprecated failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  private parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
-    const results: AstIndexDeprecatedEntry[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try format: kind name (file:line) - message  OR  kind name (file:line)
-      const match = line.match(/^(\w+)\s+(\S+)\s+\((.+?):(\d+)\)(?:\s*-\s*(.+))?$/);
-      if (match) {
-        results.push({
-          kind: match[1],
-          name: match[2],
-          file: match[3],
-          line: parseInt(match[4], 10),
-          message: match[5]?.trim(),
-        });
-      }
-    }
-    return results;
-  }
-
-  /** Find symbols with a specific annotation/decorator */
   async annotations(name: string): Promise<AstIndexAnnotationEntry[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['annotations', name], 15000);
-      return this.parseAnnotationsText(result, name);
+      return parseAnnotationsText(result, name);
     } catch (err) {
       console.error(`[token-pilot] ast-index annotations failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  private parseAnnotationsText(text: string, annotationName: string): AstIndexAnnotationEntry[] {
-    const results: AstIndexAnnotationEntry[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try format: kind name (file:line)  OR  @Annotation kind name (file:line)
-      const match = line.match(/^(?:@\S+\s+)?(\w+)\s+(\S+)\s+\((.+?):(\d+)\)$/);
-      if (match) {
-        results.push({
-          kind: match[1],
-          name: match[2],
-          file: match[3],
-          line: parseInt(match[4], 10),
-          annotation: annotationName,
-        });
-      }
-    }
-    return results;
-  }
-
-  /** Trigger incremental index update (called by file watcher after edits) */
   async incrementalUpdate(): Promise<void> {
     if (!this.indexed || this.indexDisabled || this.indexOversized) return;
     try {
@@ -847,176 +548,67 @@ export class AstIndexClient {
     }
   }
 
-  // --- Module analysis methods (ast-index v3.27.0) ---
+  // --- Module analysis methods ---
 
-  /** List project modules matching optional pattern */
   async modules(pattern?: string): Promise<AstIndexModuleEntry[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const cmdArgs = pattern ? ['module', pattern] : ['module'];
       const result = await this.exec(cmdArgs, 15000);
-      return this.parseModuleListText(result);
+      return parseModuleListText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index module failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  /** Get dependencies of a module */
   async moduleDeps(module: string): Promise<AstIndexModuleDep[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['deps', module], 15000);
-      return this.parseModuleDepText(result);
+      return parseModuleDepText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index deps failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  /** Get modules that depend on this module */
   async moduleDependents(module: string): Promise<AstIndexModuleDep[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['dependents', module], 15000);
-      return this.parseModuleDepText(result);
+      return parseModuleDepText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index dependents failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  /** Find unused dependencies of a module */
   async unusedDeps(module: string): Promise<AstIndexUnusedDep[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['unused-deps', module], 15000);
-      return this.parseUnusedDepsText(result);
+      return parseUnusedDepsText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index unused-deps failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
   }
 
-  /** Get public API of a module */
   async moduleApi(module: string): Promise<AstIndexModuleApi[]> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
-
     try {
       const result = await this.exec(['api', module], 15000);
-      return this.parseModuleApiText(result);
+      return parseModuleApiText(result);
     } catch (err) {
       console.error(`[token-pilot] ast-index api failed: ${err instanceof Error ? err.message : err}`);
       return [];
     }
-  }
-
-  // Parsers for module commands (text format — JSON may not be supported for all)
-
-  private parseModuleListText(text: string): AstIndexModuleEntry[] {
-    const results: AstIndexModuleEntry[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try JSON first
-      try {
-        const parsed = JSON.parse(line);
-        if (Array.isArray(parsed)) return parsed;
-      } catch { /* not JSON, parse as text */ }
-      // Format: name (path) — N files  OR  name (path)  OR  path
-      const match = line.match(/^(\S+)\s+\((.+?)\)(?:\s*—\s*(\d+)\s+files?)?$/);
-      if (match) {
-        results.push({
-          name: match[1],
-          path: match[2],
-          file_count: match[3] ? parseInt(match[3], 10) : undefined,
-        });
-      } else {
-        // Fallback: treat entire line as a path-based module
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('─')) {
-          const name = trimmed.split('/').pop() ?? trimmed;
-          results.push({ name, path: trimmed });
-        }
-      }
-    }
-    return results;
-  }
-
-  private parseModuleDepText(text: string): AstIndexModuleDep[] {
-    const results: AstIndexModuleDep[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try JSON first
-      try {
-        const parsed = JSON.parse(line);
-        if (Array.isArray(parsed)) return parsed;
-      } catch { /* not JSON, parse as text */ }
-      // Format: → name (path)  OR  ← name (path)  OR  name (path)  OR  name
-      const match = line.match(/^[→←\-\s]*(\S+)(?:\s+\((.+?)\))?(?:\s+\[(direct|transitive)\])?$/);
-      if (match) {
-        results.push({
-          name: match[1],
-          path: match[2] ?? match[1],
-          type: match[3],
-        });
-      }
-    }
-    return results;
-  }
-
-  private parseUnusedDepsText(text: string): AstIndexUnusedDep[] {
-    const results: AstIndexUnusedDep[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try JSON first
-      try {
-        const parsed = JSON.parse(line);
-        if (Array.isArray(parsed)) return parsed;
-      } catch { /* not JSON, parse as text */ }
-      // Format: ⚠ name (path) — reason  OR  name (path)  OR  name — reason
-      const match = line.match(/^[⚠!\s]*(\S+)(?:\s+\((.+?)\))?(?:\s*[—\-]+\s*(.+))?$/);
-      if (match) {
-        results.push({
-          name: match[1],
-          path: match[2] ?? match[1],
-          reason: match[3]?.trim(),
-        });
-      }
-    }
-    return results;
-  }
-
-  private parseModuleApiText(text: string): AstIndexModuleApi[] {
-    const results: AstIndexModuleApi[] = [];
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      // Try JSON first
-      try {
-        const parsed = JSON.parse(line);
-        if (Array.isArray(parsed)) return parsed;
-      } catch { /* not JSON, parse as text */ }
-      // Format: kind name (file:line)  OR  kind name signature (file:line)
-      const match = line.match(/^(\w+)\s+(\S+)(?:\s+(.*?))?\s+\((.+?):(\d+)\)$/);
-      if (match) {
-        results.push({
-          kind: match[1],
-          name: match[2],
-          signature: match[3]?.trim() || undefined,
-          file: match[4],
-          line: parseInt(match[5], 10),
-        });
-      }
-    }
-    return results;
   }
 
   // --- Utility methods ---
@@ -1025,30 +617,25 @@ export class AstIndexClient {
     return this.binaryPath !== null;
   }
 
-  /** Returns true if the index was built but found >50k files (node_modules leak) */
   isOversized(): boolean {
     return this.indexOversized;
   }
 
-  /** Returns true if index building is disabled (dangerous root like /) */
   isDisabled(): boolean {
     return this.indexDisabled;
   }
 
-  /** Disable index building (e.g. project root is / or home dir) */
   disableIndex(): void {
     this.indexDisabled = true;
   }
 
-  /** Re-enable index building after auto-detecting a valid project root */
   enableIndex(): void {
     this.indexDisabled = false;
   }
 
-  /** Update project root (e.g. after auto-detecting from file path) */
   updateProjectRoot(newRoot: string): void {
     this.projectRoot = newRoot;
-    this.indexed = false; // Force re-check
+    this.indexed = false;
   }
 
   private async exec(args: string[], timeoutMs?: number): Promise<string> {
@@ -1056,8 +643,6 @@ export class AstIndexClient {
       throw new Error('ast-index not initialized. Call init() first.');
     }
 
-    // If ast-grep was found in node_modules/.bin, inject it into PATH
-    // so ast-index can find sg when running agrep
     const env = this.astGrepBinDir
       ? { ...process.env, PATH: `${this.astGrepBinDir}:${process.env.PATH ?? ''}` }
       : undefined;
@@ -1078,313 +663,5 @@ export class AstIndexClient {
     }
 
     return stdout;
-  }
-
-  private async buildFileStructure(
-    filePath: string,
-    entries: AstIndexOutlineEntry[]
-  ): Promise<FileStructure> {
-    const content = await readFile(filePath, 'utf-8');
-    const lines = content.split('\n');
-    const fileStat = await stat(filePath);
-
-    // Fix last entry end_line to use actual file line count
-    this.fixLastEndLine(entries, lines.length);
-
-    // Enrich classes that ast-index returned without children (language-specific)
-    const lang = this.detectLanguage(filePath);
-    if (lang === 'Python') {
-      this.enrichPythonClassMethods(entries, lines);
-    } else if (lang === 'PHP') {
-      this.enrichPHPClassMethods(entries, lines);
-    }
-
-    // Enrich entries with signatures from file content
-    this.enrichSignatures(entries, lines);
-
-    return {
-      path: filePath,
-      language: lang,
-      meta: {
-        lines: lines.length,
-        bytes: fileStat.size,
-        lastModified: fileStat.mtimeMs,
-        contentHash: createHash('sha256').update(content).digest('hex'),
-      },
-      imports: [],
-      exports: [],
-      symbols: entries.map(e => this.mapOutlineEntry(e)),
-    };
-  }
-
-  /**
-   * Python: ast-index doesn't return methods inside classes.
-   * Parse file content to extract `def` methods for classes without children.
-   */
-  private enrichPythonClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
-    for (const entry of entries) {
-      if (entry.kind.toLowerCase() !== 'class') continue;
-      if (entry.children && entry.children.length > 0) continue;
-
-      const classStartIdx = entry.start_line - 1; // 0-based
-      const classEndIdx = entry.end_line - 1;
-
-      // Detect class body indent: look for first `def ` inside class range
-      let bodyIndent = -1;
-      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
-        const defMatch = lines[i].match(/^(\s+)def\s/);
-        if (defMatch) {
-          bodyIndent = defMatch[1].length;
-          break;
-        }
-      }
-      if (bodyIndent < 0) continue; // no methods found
-
-      const methods: AstIndexOutlineEntry[] = [];
-
-      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
-        const line = lines[i];
-        // Match `def method_name(` at the detected indent level
-        const match = line.match(new RegExp(`^\\s{${bodyIndent}}def\\s+(\\w+)\\s*\\(`));
-        if (!match) continue;
-
-        const methodName = match[1];
-        const methodLine = i + 1; // 1-based
-
-        // Check for async/static/decorators
-        const isAsync = line.includes('async def');
-        const isStatic = i > 0 && /^\s*@staticmethod/.test(lines[i - 1]);
-        const isClassMethod = i > 0 && /^\s*@classmethod/.test(lines[i - 1]);
-
-        // Collect decorators above
-        const decorators: string[] = [];
-        for (let d = i - 1; d >= classStartIdx; d--) {
-          const decMatch = lines[d].match(new RegExp(`^\\s{${bodyIndent}}@(\\w+)`));
-          if (decMatch) {
-            decorators.unshift(`@${decMatch[1]}`);
-          } else {
-            break;
-          }
-        }
-
-        // Determine visibility from name
-        const visibility = methodName.startsWith('__') && !methodName.endsWith('__')
-          ? 'private'
-          : methodName.startsWith('_')
-            ? 'protected'
-            : 'public';
-
-        methods.push({
-          name: methodName,
-          kind: isStatic || isClassMethod ? 'function' : 'method',
-          start_line: methodLine,
-          end_line: 0, // computed below
-          signature: line.trim(),
-          visibility,
-          is_async: isAsync,
-          is_static: isStatic,
-          decorators: decorators.length > 0 ? decorators : undefined,
-        });
-      }
-
-      // Compute end_lines for methods
-      for (let m = 0; m < methods.length; m++) {
-        if (m < methods.length - 1) {
-          // End before next method (or its first decorator)
-          const nextStart = methods[m + 1].start_line;
-          // Walk back from next method to skip decorators/blank lines
-          let endLine = nextStart - 1;
-          for (let k = nextStart - 2; k >= methods[m].start_line; k--) {
-            const l = lines[k];
-            if (l.trim() === '' || new RegExp(`^\\s{${bodyIndent}}@`).test(l)) {
-              endLine = k; // 0-based → will be used as 1-based below
-            } else {
-              break;
-            }
-          }
-          methods[m].end_line = endLine;
-        } else {
-          // Last method ends at class end
-          methods[m].end_line = entry.end_line;
-        }
-      }
-
-      entry.children = methods;
-    }
-  }
-
-  /**
-   * PHP: ast-index doesn't return methods inside classes.
-   * Parse file content to extract `function` methods for classes without children.
-   */
-  private enrichPHPClassMethods(entries: AstIndexOutlineEntry[], lines: string[]): void {
-    for (const entry of entries) {
-      if (entry.kind.toLowerCase() !== 'class') continue;
-      if (entry.children && entry.children.length > 0) continue;
-
-      const classStartIdx = entry.start_line - 1;
-      const classEndIdx = entry.end_line - 1;
-
-      // Detect class body indent: look for first `function ` inside class range
-      let bodyIndent = -1;
-      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
-        const fnMatch = lines[i].match(/^(\s+)(?:public|private|protected|static|\s)*function\s/);
-        if (fnMatch) {
-          bodyIndent = fnMatch[1].length;
-          break;
-        }
-      }
-      if (bodyIndent < 0) continue;
-
-      const methods: AstIndexOutlineEntry[] = [];
-
-      for (let i = classStartIdx + 1; i <= classEndIdx && i < lines.length; i++) {
-        const line = lines[i];
-        // Match PHP method: [visibility] [static] function name(
-        const match = line.match(
-          new RegExp(`^\\s{${bodyIndent}}(?:(public|private|protected)\\s+)?(?:(static)\\s+)?function\\s+(\\w+)\\s*\\(`)
-        );
-        if (!match) continue;
-
-        const visibility = match[1] ?? 'public';
-        const isStatic = !!match[2];
-        const methodName = match[3];
-        const methodLine = i + 1;
-
-        methods.push({
-          name: methodName,
-          kind: isStatic ? 'function' : 'method',
-          start_line: methodLine,
-          end_line: 0,
-          signature: line.trim(),
-          visibility,
-          is_static: isStatic,
-        });
-      }
-
-      // Compute end_lines
-      for (let m = 0; m < methods.length; m++) {
-        if (m < methods.length - 1) {
-          methods[m].end_line = methods[m + 1].start_line - 1;
-        } else {
-          methods[m].end_line = entry.end_line;
-        }
-      }
-
-      entry.children = methods;
-    }
-  }
-
-  /** Fix the last entry's end_line to use actual file line count */
-  private fixLastEndLine(entries: AstIndexOutlineEntry[], totalLines: number): void {
-    if (entries.length === 0) return;
-    const last = entries[entries.length - 1];
-    last.end_line = totalLines;
-    // Recursively fix children
-    if (last.children?.length) {
-      this.fixLastEndLine(last.children, last.end_line - 1);
-    }
-  }
-
-  /** Read actual signature lines from file content */
-  private enrichSignatures(entries: AstIndexOutlineEntry[], lines: string[]): void {
-    for (const entry of entries) {
-      if (!entry.signature) {
-        const lineIdx = entry.start_line - 1;
-        if (lineIdx >= 0 && lineIdx < lines.length) {
-          entry.signature = lines[lineIdx].trim();
-        }
-      }
-      if (entry.children?.length) {
-        this.enrichSignatures(entry.children, lines);
-      }
-    }
-  }
-
-  private mapOutlineEntry(entry: AstIndexOutlineEntry): SymbolInfo {
-    return {
-      name: entry.name,
-      qualifiedName: entry.name, // Will be enriched with parent context
-      kind: this.mapKind(entry.kind),
-      signature: entry.signature ?? entry.name,
-      location: {
-        startLine: entry.start_line,
-        endLine: entry.end_line,
-        lineCount: entry.end_line - entry.start_line + 1,
-      },
-      visibility: this.mapVisibility(entry.visibility),
-      async: entry.is_async ?? false,
-      static: entry.is_static ?? false,
-      decorators: entry.decorators ?? [],
-      children: (entry.children ?? []).map(c => this.mapOutlineEntry(c)),
-      doc: entry.doc ?? null,
-      references: [],
-    };
-  }
-
-  private mapKind(kind: string): SymbolKind {
-    const map: Record<string, SymbolKind> = {
-      function: 'function',
-      class: 'class',
-      method: 'method',
-      property: 'property',
-      variable: 'variable',
-      type: 'type',
-      interface: 'interface',
-      enum: 'enum',
-      constant: 'constant',
-      namespace: 'namespace',
-      struct: 'class',
-      trait: 'interface',
-      impl: 'class',
-      module: 'namespace',
-    };
-    return map[kind.toLowerCase()] ?? 'function';
-  }
-
-  private mapVisibility(vis?: string): Visibility {
-    if (!vis) return 'default';
-    const map: Record<string, Visibility> = {
-      public: 'public',
-      private: 'private',
-      protected: 'protected',
-      pub: 'public',
-      export: 'public',
-    };
-    return map[vis.toLowerCase()] ?? 'default';
-  }
-
-  private detectLanguage(filePath: string): string {
-    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-    const map: Record<string, string> = {
-      ts: 'TypeScript', tsx: 'TypeScript',
-      js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript',
-      py: 'Python',
-      go: 'Go',
-      rs: 'Rust',
-      java: 'Java',
-      kt: 'Kotlin', kts: 'Kotlin',
-      swift: 'Swift',
-      cs: 'C#',
-      cpp: 'C++', cc: 'C++', cxx: 'C++', hpp: 'C++',
-      c: 'C', h: 'C',
-      php: 'PHP',
-      rb: 'Ruby',
-      scala: 'Scala',
-      dart: 'Dart',
-      lua: 'Lua',
-      sh: 'Bash', bash: 'Bash',
-      sql: 'SQL',
-      r: 'R',
-      vue: 'Vue',
-      svelte: 'Svelte',
-      pl: 'Perl', pm: 'Perl',
-      ex: 'Elixir', exs: 'Elixir',
-      groovy: 'Groovy',
-      m: 'Objective-C',
-      proto: 'Protocol Buffers',
-      bsl: 'BSL',
-    };
-    return map[ext] ?? 'Unknown';
   }
 }
