@@ -116,7 +116,7 @@ async function handleTodo(
     return {
       content: [{
         type: 'text',
-        text: 'TODO/FIXME COMMENTS: none found.\n\nHINT: ast-index may not detect all comment formats. Try Grep: grep -rn "TODO\\|FIXME\\|HACK" --include="*.ts"',
+        text: 'TODO/FIXME COMMENTS: none found.\n\nHINT: ast-index may not detect all comment formats. Try Grep with pattern "TODO|FIXME|HACK".',
       }],
       meta: { files: [] },
     };
@@ -195,7 +195,7 @@ async function handleAnnotations(
     return {
       content: [{
         type: 'text',
-        text: `ANNOTATIONS @${name}: none found.\n\nHINT: Try Grep for text-based search: grep -rn "@${name}" --include="*.ts"`,
+        text: `ANNOTATIONS @${name}: none found.\n\nHINT: Try Grep with pattern "@${name}" for text-based search.`,
       }],
       meta: { files: [] },
     };

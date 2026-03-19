@@ -37,6 +37,38 @@ describe('handleFindUsages', () => {
     ]);
   });
 
+  it('groups multiple matches in the same file under one header', async () => {
+    const astIndex = {
+      isDisabled: () => false,
+      isOversized: () => false,
+      isAvailable: () => true,
+      refs: async () => ({
+        definitions: [],
+        imports: [],
+        usages: [
+          { path: 'src/app.ts', line: 10, context: 'handleHookRead(a)', name: 'handleHookRead' },
+          { path: 'src/app.ts', line: 20, context: 'handleHookRead(b)', name: 'handleHookRead' },
+          { path: 'src/other.ts', line: 5, context: 'handleHookRead(c)', name: 'handleHookRead' },
+        ],
+      }),
+      search: async () => [],
+    } as any;
+
+    const result = await handleFindUsages({ symbol: 'handleHookRead' }, astIndex);
+    const text = result.content[0].text;
+
+    // Multiple matches in same file → grouped under file header
+    expect(text).toContain('src/app.ts:');
+    expect(text).toContain(':10  handleHookRead(a)');
+    expect(text).toContain(':20  handleHookRead(b)');
+
+    // Single match in other file → one line
+    expect(text).toContain('src/other.ts:5  handleHookRead(c)');
+
+    // src/app.ts appears only once as a header, not twice
+    expect(text.split('src/app.ts').length - 1).toBe(1);
+  });
+
   it('returns disabled guidance when ast-index is unavailable', async () => {
     const astIndex = {
       isDisabled: () => true,

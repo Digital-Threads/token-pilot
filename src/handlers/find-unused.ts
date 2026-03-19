@@ -33,7 +33,7 @@ export async function handleFindUnused(
       'find_unused is disabled: ' + (astIndex.isDisabled()
         ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
         : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.') +
-      '\nAlternative: use grep_search to find unused exports manually.' }], meta: { files: [] } };
+      '\nAlternative: use Grep to find unused exports manually.' }], meta: { files: [] } };
   }
 
   const requestLimit = (args.limit ?? 30) + 20; // extra to compensate for filtering

@@ -1,0 +1,289 @@
+/**
+ * MCP tool definitions and system instructions.
+ * Pure static data — no runtime dependencies.
+ */
+
+export const MCP_INSTRUCTIONS = [
+  'Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.',
+  '',
+  'DECISION RULES — pick the first match:',
+  '1. New codebase / unfamiliar project → project_overview',
+  '2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)',
+  '3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)',
+  '4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)',
+  '5. Preparing an edit → read_for_edit (returns exact text for Edit old_string)',
+  '6. Verify edits after editing → read_diff (only changed hunks — REQUIRES smart_read BEFORE editing)',
+  '7. Multiple files at once → smart_read_many (batch up to 20 files)',
+  '8. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)',
+  '9. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)',
+  '10. List all symbols in a directory → outline (classes, functions, methods in one call)',
+  '11. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)',
+  '12. Commit history → smart_log (NOT git log — structured with categories)',
+  '13. Run tests → test_summary (NOT raw test output — structured pass/fail)',
+  '14. Code quality → code_audit (TODOs, deprecated, structural patterns)',
+  '15. Dead code → find_unused (unreferenced symbols across project)',
+  '16. Module architecture → module_info (deps, dependents, public API)',
+  '',
+  'USE DEFAULT TOOLS ONLY FOR: regex text search → Grep | exact raw content → Read | non-code configs → Read',
+  '',
+  'WORKFLOWS:',
+  '• Explore: project_overview → explore_area → smart_read → read_symbol',
+  '• Edit: smart_read → read_for_edit → Edit → read_diff',
+  '• Refactor: find_usages → read_symbol → read_for_edit → Edit → test_summary',
+  '• Audit: code_audit + find_unused + Grep (for regex patterns)',
+].join('\n');
+
+export const TOOL_DEFINITIONS = [
+  // --- Core reading tools ---
+  {
+    name: 'smart_read',
+    description: 'Use INSTEAD OF Read/cat for code files. Returns code structure (classes, functions, methods with signatures and line ranges) — 60-80% fewer tokens than raw content. Use read_symbol() to drill into specific code.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path (absolute or relative to project root)' },
+        show_imports: { type: 'boolean', description: 'Include import details (default: true)' },
+        show_docs: { type: 'boolean', description: 'Include doc comments (default: true)' },
+        depth: { type: 'number', description: 'Max depth for nested symbols (default: 2)' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'read_symbol',
+    description: 'Read source code of ONE specific function/method/class — INSTEAD OF reading the whole file. Supports Class.method syntax.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path' },
+        symbol: { type: 'string', description: 'Symbol name, e.g. "UserService.updateUser"' },
+        context_before: { type: 'number', description: 'Lines of context before (default: 2)' },
+        context_after: { type: 'number', description: 'Lines of context after (default: 0)' },
+        show: { type: 'string', enum: ['full', 'head', 'tail', 'outline'], description: 'Display mode: full (all lines), head (first 50), tail (last 30), outline (head + methods + tail). Default: auto (full ≤300 lines, outline >300)' },
+      },
+      required: ['path', 'symbol'],
+    },
+  },
+  {
+    name: 'read_range',
+    description: 'Read a specific line range from a file. Use when you know exact lines — lighter than reading the whole file.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path' },
+        start_line: { type: 'number', description: 'Start line (1-indexed)' },
+        end_line: { type: 'number', description: 'End line (1-indexed, inclusive)' },
+      },
+      required: ['path', 'start_line', 'end_line'],
+    },
+  },
+  {
+    name: 'read_diff',
+    description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks. REQUIRES: call smart_read or read_for_edit BEFORE editing to create baseline snapshot.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path' },
+        context_lines: { type: 'number', description: 'Lines of context around changes (default: 3)' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'read_for_edit',
+    description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool. Optional: include_callers, include_tests, include_changes for enriched context.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path' },
+        symbol: { type: 'string', description: 'Symbol name to edit (e.g. "UserService.updateUser")' },
+        line: { type: 'number', description: 'Line number to edit (alternative to symbol)' },
+        context: { type: 'number', description: 'Lines of context around target (default: 5)' },
+        include_callers: { type: 'boolean', description: 'Show top callers of this symbol (saves a separate find_usages call)' },
+        include_tests: { type: 'boolean', description: 'Show related test file and test names' },
+        include_changes: { type: 'boolean', description: 'Show recent git changes in the target region' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'smart_read_many',
+    description: 'Batch smart_read for multiple files at once — INSTEAD OF calling Read on each file. Returns structure for each file. Max 20 files.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of file paths',
+        },
+      },
+      required: ['paths'],
+    },
+  },
+  // --- Search & navigation ---
+  {
+    name: 'find_usages',
+    description: 'Use INSTEAD OF Grep for finding symbol references. Semantic search — groups by: definitions, imports, usages. Supports scope, kind, limit, lang filters.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        symbol: { type: 'string', description: 'Symbol name to find usages of' },
+        scope: { type: 'string', description: 'Filter results by path prefix (e.g., "src/Domain/")' },
+        kind: { type: 'string', enum: ['definitions', 'imports', 'usages', 'all'], description: 'Show only specific section (default: "all")' },
+        limit: { type: 'number', description: 'Max results per category (default: 50, max: 500)' },
+        lang: { type: 'string', description: 'Filter by language/extension (e.g., "php", "typescript")' },
+      },
+      required: ['symbol'],
+    },
+  },
+  {
+    name: 'project_overview',
+    description: 'START HERE for unfamiliar codebases. Shows project type, architecture, framework detection, quality tools, CI, directory map. Use include filter for specific sections.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        include: {
+          type: 'array',
+          items: { type: 'string', enum: ['stack', 'ci', 'quality', 'architecture'] },
+          description: 'Sections to include (default: all). Use ["stack"] for quick type check, ["quality","ci"] for tooling overview.',
+        },
+      },
+    },
+  },
+  {
+    name: 'related_files',
+    description: 'Show ranked import graph for a file: imports, importers, and tests scored by relevance (test adjacency, import closeness, recent changes, path proximity). Files ranked into HIGH VALUE / MEDIUM / LOW to prioritize reading.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path to analyze' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'outline',
+    description: 'Use INSTEAD OF listing dir + reading each file. One call returns all symbols (classes, functions, methods, routes) for every code file in a directory. Supports recursive with max_depth.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'Directory path' },
+        recursive: { type: 'boolean', description: 'Recursively outline subdirectories (default: false)' },
+        max_depth: { type: 'number', description: 'Max recursion depth when recursive=true (default: 2, max: 5)' },
+      },
+      required: ['path'],
+    },
+  },
+  // --- Analytics ---
+  {
+    name: 'session_analytics',
+    description: 'Show token savings report: calls, tokens saved, per-tool breakdown, top files, cache hits.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  // --- Analysis ---
+  {
+    name: 'find_unused',
+    description: 'Find dead code — functions, classes, and variables with no references across the project. Use for cleanup and refactoring.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        module: { type: 'string', description: 'Filter by module path (e.g., "src/services/")' },
+        export_only: { type: 'boolean', description: 'Only check exported (capitalized) symbols' },
+        limit: { type: 'number', description: 'Max results (default: 30)' },
+      },
+    },
+  },
+  {
+    name: 'code_audit',
+    description: 'Find code quality issues: TODO/FIXME comments, deprecated symbols, structural code patterns (bare except:, print() calls). Use for project-wide audits.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        check: {
+          type: 'string',
+          enum: ['pattern', 'todo', 'deprecated', 'annotations', 'all'],
+          description: 'What to check: "pattern" (structural search via ast-grep, e.g. "except:", "print($$$ARGS)"), "todo" (TODO/FIXME comments), "deprecated" (deprecated symbols), "annotations" (find by decorator name), "all" (todo + deprecated summary)',
+        },
+        pattern: { type: 'string', description: 'Code pattern for check="pattern". ast-grep syntax: "except:" finds bare excepts, "print($$$ARGS)" finds print calls.' },
+        name: { type: 'string', description: 'Decorator/annotation name for check="annotations". Example: "Deprecated", "Controller"' },
+        lang: { type: 'string', description: 'Language filter for check="pattern" (e.g., "python", "typescript")' },
+        limit: { type: 'number', description: 'Max results (default: 50)' },
+      },
+      required: ['check'],
+    },
+  },
+  {
+    name: 'module_info',
+    description: 'Analyze module dependencies, dependents, public API, and unused deps. Use for architecture understanding and dependency cleanup.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        module: { type: 'string', description: 'Module name or path pattern (e.g., "auth", "src/Domain/")' },
+        check: {
+          type: 'string',
+          enum: ['deps', 'dependents', 'api', 'unused-deps', 'all'],
+          description: 'What to check: "deps" (dependencies), "dependents" (who depends on this), "api" (public symbols), "unused-deps" (dead dependencies), "all" (everything). Default: "all"',
+        },
+      },
+      required: ['module'],
+    },
+  },
+  // --- Diff & exploration ---
+  {
+    name: 'smart_diff',
+    description: 'Use INSTEAD OF raw git diff. Shows changed files with AST symbol mapping — which functions/classes were modified/added/removed. Small diffs include hunks, large diffs show summary.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        scope: { type: 'string', enum: ['unstaged', 'staged', 'commit', 'branch'], description: 'Diff scope (default: "unstaged")' },
+        path: { type: 'string', description: 'Filter to specific file or directory' },
+        ref: { type: 'string', description: 'Git ref — required for scope="commit" (commit hash) or scope="branch" (branch name)' },
+      },
+    },
+  },
+  {
+    name: 'explore_area',
+    description: 'One-call exploration of a directory: outline (all symbols), imports (external deps + who imports this area), tests (matching test files), recent git changes. Use INSTEAD OF separate outline + related_files + git log calls.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'Directory path (or file path — will use its parent directory)' },
+        include: {
+          type: 'array',
+          items: { type: 'string', enum: ['outline', 'imports', 'tests', 'changes'] },
+          description: 'Sections to include (default: all)',
+        },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'smart_log',
+    description: 'Use INSTEAD OF raw git log. Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'Filter to specific file or directory' },
+        count: { type: 'number', description: 'Number of commits (default: 10, max: 50)' },
+        ref: { type: 'string', description: 'Git ref — branch, tag, or commit (default: HEAD)' },
+      },
+    },
+  },
+  {
+    name: 'test_summary',
+    description: 'Run tests and return structured summary: total/passed/failed/skipped + failure details. 200 lines of raw output → 10-15 lines. Supports vitest, jest, pytest, phpunit, go test, cargo test.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        command: { type: 'string', description: 'Test command to run (e.g., "npm test", "pytest", "go test ./...")' },
+        runner: { type: 'string', enum: ['vitest', 'jest', 'pytest', 'phpunit', 'go', 'cargo', 'rspec', 'mocha'], description: 'Force specific parser (auto-detected if omitted)' },
+        timeout: { type: 'number', description: 'Timeout in ms (default: 60000, max: 300000)' },
+      },
+      required: ['command'],
+    },
+  },
+];

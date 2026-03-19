@@ -28,6 +28,40 @@ const LANG_EXT_MAP: Record<string, string[]> = {
 };
 
 /**
+ * Render a section (DEFINITIONS/IMPORTS/USAGES) grouped by file.
+ * Single match per file → one line. Multiple → file header + indented lines.
+ */
+function renderSection(
+  title: string,
+  items: Array<{ file: string; line: number; text: string }>,
+): string[] {
+  if (items.length === 0) return [];
+  const lines: string[] = [`${title}:`];
+
+  const byFile = new Map<string, Array<{ line: number; text: string }>>();
+  for (const item of items) {
+    const arr = byFile.get(item.file) ?? [];
+    arr.push({ line: item.line, text: item.text });
+    byFile.set(item.file, arr);
+  }
+
+  for (const [file, matches] of byFile) {
+    matches.sort((a, b) => a.line - b.line);
+    if (matches.length === 1) {
+      lines.push(`  ${file}:${matches[0].line}  ${matches[0].text}`);
+    } else {
+      lines.push(`  ${file}:`);
+      for (const m of matches) {
+        lines.push(`    :${m.line}  ${m.text}`);
+      }
+    }
+  }
+
+  lines.push('');
+  return lines;
+}
+
+/**
  * Find all usages of a symbol across the project.
  *
  * Strategy: combine ast-index `refs` (structured: definitions + usages)
@@ -51,7 +85,7 @@ export async function handleFindUsages(
         text: 'find_usages is disabled: ' + (astIndex.isDisabled()
           ? 'project root not detected. Call smart_read() on any project file first — this auto-detects the project root and enables ast-index tools.'
           : 'ast-index built >50k files (likely includes node_modules). Ensure node_modules is in .gitignore.')
-          + '\nAlternative: use grep_search to find symbol references.',
+          + '\nAlternative: use Grep to find symbol references.',
       }],
       meta: { files: [], definitions: 0, imports: 0, usages: 0, total: 0 },
     };
@@ -162,36 +196,13 @@ export async function handleFindUsages(
   const filterStr = filterHints.length > 0 ? ` [${filterHints.join(', ')}]` : '';
 
   const lines: string[] = [
-    `REFS: "${args.symbol}" (${totalCount} total: ${definitions.length} definitions, ${allImports.length} imports, ${allUsages.length} usages)${filterStr}`,
+    `REFS: "${args.symbol}" (${totalCount} total: ${definitions.length} def · ${allImports.length} imports · ${allUsages.length} usages)${filterStr}`,
     '',
   ];
 
-  if (definitions.length > 0) {
-    lines.push('DEFINITIONS:');
-    for (const d of definitions) {
-      lines.push(`  ${d.file}:${d.line}`);
-      lines.push(`    ${d.text}`);
-    }
-    lines.push('');
-  }
-
-  if (allImports.length > 0) {
-    lines.push('IMPORTS:');
-    for (const i of allImports) {
-      lines.push(`  ${i.file}:${i.line}`);
-      lines.push(`    ${i.text}`);
-    }
-    lines.push('');
-  }
-
-  if (allUsages.length > 0) {
-    lines.push('USAGES:');
-    for (const u of allUsages) {
-      lines.push(`  ${u.file}:${u.line}`);
-      lines.push(`    ${u.text}`);
-    }
-    lines.push('');
-  }
+  lines.push(...renderSection('DEFINITIONS', definitions));
+  lines.push(...renderSection('IMPORTS', allImports));
+  lines.push(...renderSection('USAGES', allUsages));
 
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
 
