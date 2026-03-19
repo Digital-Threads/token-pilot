@@ -1,6 +1,6 @@
 # Token Pilot
 
-MCP server that reduces token consumption in AI coding assistants by **up to 80%** via AST-aware lazy file reading.
+MCP server that reduces token consumption in AI coding assistants by **up to 90%** via AST-aware lazy file reading.
 
 Instead of dumping entire files into the LLM context, Token Pilot returns structural overviews (classes, functions, signatures, line ranges) and lets the AI load only the specific symbols it needs.
 
@@ -13,7 +13,23 @@ Token Pilot:  smart_read("user-service.ts")  →  15-line outline  →  ~200 tok
               After edit: read_diff("user-service.ts")  →  ~20 tokens
 ```
 
-**Up to 80% reduction** on large files. Files under 200 lines are returned in full automatically (zero overhead for small files). Typical sessions with a mix of file sizes see **30-50% savings**, scaling higher with repeated reads (session cache, compact reminders) and targeted symbol loading.
+**Up to 90% reduction** on large files. Files under 200 lines are returned in full automatically (zero overhead for small files).
+
+### Benchmarks (real data)
+
+Measured on public open-source repos using the regex fallback parser (no ast-index binary). Files ≥50 lines only:
+
+| Repo | Files | Raw Tokens | Outline Tokens | Savings |
+|------|------:|----------:|--------------:|--------:|
+| [token-pilot](https://github.com/Digital-Threads/token-pilot) (TS) | 48 | 88,920 | 8,123 | **91%** |
+| [express](https://github.com/expressjs/express) (JS) | 6 | 14,421 | 193 | **99%** |
+| [fastify](https://github.com/fastify/fastify) (JS) | 23 | 50,000 | 3,161 | **94%** |
+| [flask](https://github.com/pallets/flask) (Python) | 20 | 78,236 | 7,418 | **91%** |
+| **Total** | **97** | **231,577** | **18,895** | **92%** |
+
+> This measures `smart_read` structural outline savings only. Real sessions also benefit from session cache, dedup reminders, `read_symbol` targeted loading, and `read_for_edit` minimal context.
+>
+> Run the benchmark yourself: `npx tsx scripts/benchmark.ts`
 
 ## Installation
 
@@ -158,7 +174,7 @@ For more control, you can add rules to your project:
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 80% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. |
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 90% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. |
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
 | `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
@@ -280,7 +296,7 @@ When both are configured, Token Pilot automatically:
 - Suggests context-mode for large non-code files
 - Shows combined architecture info in `session_analytics`
 
-**Combined savings: up to 80%** in a typical coding session.
+**Combined savings: up to 90%** in a typical coding session.
 
 ## Supported Languages
 

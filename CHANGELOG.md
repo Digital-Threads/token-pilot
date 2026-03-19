@@ -8,19 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.15.0] - 2026-03-19
 
 ### Added
-- **Regex fallback parser** — `smart_read` now works for TS/JS files even without ast-index binary. Parses classes, functions, interfaces, types, enums, and class methods via regex. Zero dependencies, 130 lines. Covers ~80% of new users who fail to download ast-index.
+- **Regex fallback parser (TS/JS)** — `smart_read` now works for TypeScript/JavaScript files even without ast-index binary. Parses classes, functions, interfaces, types, enums, and class methods via regex. Zero dependencies, 130 lines. Covers ~80% of new users who fail to download ast-index.
+- **Regex fallback parser (Python)** — `smart_read` now works for Python files without ast-index. Parses classes, functions, async functions, decorators (`@dataclass`, `@app.route`), module constants (`UPPER_CASE`), methods with visibility detection (`_private`, `__dunder__`). 150 lines.
+- **Benchmark script** — `scripts/benchmark.ts` measures real token savings on public repos (express, fastify, flask). 92% average savings across 97 files ≥50 lines. Run: `npx tsx scripts/benchmark.ts`.
 - **Guide skill** — `/guide` command shows a quick-reference table of all Token Pilot tools with usage examples and recommended workflow.
 - **`hooks.denyThreshold` config** — hook deny threshold is now configurable in `.token-pilot.json` (default: 300, was hardcoded 500). Intercepts ~2x more native Read calls.
 
 ### Changed
-- **Compact session analytics** — `session_analytics` report reduced from ~30 lines to ~5 lines. Shows calls, tokens saved, top 5 tools, top 3 files, cache hit rate on a single screen.
+- **Compact session analytics** — `session_analytics` report reduced from ~30 lines to ~5 lines. Shows calls, tokens saved, top 5 tools, top 3 files, cache hit rate on a single screen. Verbose mode (`verbose=true`) restores full breakdown.
 - **`server.ts` refactor** — extracted tool definitions to `server/tool-definitions.ts` and token estimate helpers to `server/token-estimates.ts` (−500 lines from server.ts).
 - **`find_usages` output** — results grouped by file with compact rendering. Single match per file on one line, multiple matches indented under file header.
 - **Stale references** — all `grep_search` hints updated to `Grep` (code-audit, find-unused, find-usages).
-- **409 tests** (was 393).
+- **README** — benchmark table with real data from 4 public repos. Updated savings claims from 80% to 90% (backed by benchmark).
+- **427 tests** (was 393).
 
 ### Fixed
 - **`npx token-pilot` CLI** — symlink path resolution in `isDirectRun` check. All CLI commands now work correctly via npx.
+- **Regex fallback was dead code** — parsers existed but weren't wired into `client.ts` `outline()` method. Now properly called as fallback when ast-index unavailable.
 
 ## [0.14.1] - 2026-03-14
 
