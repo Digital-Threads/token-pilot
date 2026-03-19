@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-03-19
+
+### Added
+- **Regex fallback parser** — `smart_read` now works for TS/JS files even without ast-index binary. Parses classes, functions, interfaces, types, enums, and class methods via regex. Zero dependencies, 130 lines. Covers ~80% of new users who fail to download ast-index.
+- **Guide skill** — `/guide` command shows a quick-reference table of all Token Pilot tools with usage examples and recommended workflow.
+- **`hooks.denyThreshold` config** — hook deny threshold is now configurable in `.token-pilot.json` (default: 300, was hardcoded 500). Intercepts ~2x more native Read calls.
+
+### Changed
+- **Compact session analytics** — `session_analytics` report reduced from ~30 lines to ~5 lines. Shows calls, tokens saved, top 5 tools, top 3 files, cache hit rate on a single screen.
+- **`server.ts` refactor** — extracted tool definitions to `server/tool-definitions.ts` and token estimate helpers to `server/token-estimates.ts` (−500 lines from server.ts).
+- **`find_usages` output** — results grouped by file with compact rendering. Single match per file on one line, multiple matches indented under file header.
+- **Stale references** — all `grep_search` hints updated to `Grep` (code-audit, find-unused, find-usages).
+- **409 tests** (was 393).
+
+### Fixed
+- **`npx token-pilot` CLI** — symlink path resolution in `isDirectRun` check. All CLI commands now work correctly via npx.
+
 ## [0.14.1] - 2026-03-14
 
 ### Fixed
