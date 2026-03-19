@@ -19,6 +19,25 @@ vi.mock('../../src/ast-index/binary-manager.js', async () => {
 });
 
 import { AstIndexClient } from '../../src/ast-index/client.js';
+import {
+  parseFileCount,
+  parseImplementationsText,
+  parseHierarchyText,
+  parseImportsText,
+  parseAgrepText,
+  parseTodoText,
+  parseDeprecatedText,
+  parseAnnotationsText,
+  parseModuleListText,
+  parseModuleDepText,
+  parseUnusedDepsText,
+  parseModuleApiText,
+  parseOutlineText,
+  mapKind,
+  mapVisibility,
+  detectLanguage,
+} from '../../src/ast-index/parser.js';
+import { buildFileStructure, fixLastEndLine } from '../../src/ast-index/enricher.js';
 
 describe('AstIndexClient', () => {
   let tempDir: string;
@@ -98,64 +117,60 @@ describe('AstIndexClient', () => {
   });
 
   it('parses file counts and parser helpers correctly', () => {
-    const client = new AstIndexClient(tempDir) as any;
+    expect(parseFileCount('{"stats":{"file_count":42}}')).toBe(42);
+    expect(parseFileCount('Files: 17')).toBe(17);
+    expect(parseFileCount('nope')).toBe(0);
 
-    expect(client.parseFileCount('{"stats":{"file_count":42}}')).toBe(42);
-    expect(client.parseFileCount('Files: 17')).toBe(17);
-    expect(client.parseFileCount('nope')).toBe(0);
-
-    expect(client.parseImplementationsText('class MyImpl (/repo/a.php:42)')).toEqual([
+    expect(parseImplementationsText('class MyImpl (/repo/a.php:42)')).toEqual([
       { kind: 'class', name: 'MyImpl', file: '/repo/a.php', line: 42 },
     ]);
 
-    expect(client.parseHierarchyText(`Hierarchy for 'Base':\nParents:\n  Parent (extends)\nChildren:\n  Child (implements)  (/repo/child.ts:7)`, 'Base')).toEqual({
+    expect(parseHierarchyText(`Hierarchy for 'Base':\nParents:\n  Parent (extends)\nChildren:\n  Child (implements)  (/repo/child.ts:7)`, 'Base')).toEqual({
       name: 'Base',
       kind: 'class',
       parents: [{ name: 'Parent', kind: 'extends', children: [], file: undefined, line: undefined }],
       children: [{ name: 'Child', kind: 'implements', children: [], file: '/repo/child.ts', line: 7 }],
     });
 
-    expect(client.parseImportsText(`Imports in /repo/a.ts:\n{ foo, bar } from "./b"\n* as ns from "pkg"\nThing from "./thing"\nTotal: 3`)).toEqual([
+    expect(parseImportsText(`Imports in /repo/a.ts:\n{ foo, bar } from "./b"\n* as ns from "pkg"\nThing from "./thing"\nTotal: 3`)).toEqual([
       { specifiers: ['foo', 'bar'], source: './b' },
       { specifiers: ['ns'], source: 'pkg', isNamespace: true },
       { specifiers: ['Thing'], source: './thing', isDefault: true },
     ]);
 
-    expect(client.parseAgrepText('/repo/a.ts:10: matched text')).toEqual([
+    expect(parseAgrepText('/repo/a.ts:10: matched text')).toEqual([
       { file: '/repo/a.ts', line: 10, text: 'matched text' },
     ]);
-    expect(client.parseTodoText('/repo/a.ts:5: TODO: fix this')).toEqual([
+    expect(parseTodoText('/repo/a.ts:5: TODO: fix this')).toEqual([
       { file: '/repo/a.ts', line: 5, kind: 'TODO', text: 'fix this' },
     ]);
-    expect(client.parseDeprecatedText('function oldFn (/repo/a.ts:8) - use newFn')).toEqual([
+    expect(parseDeprecatedText('function oldFn (/repo/a.ts:8) - use newFn')).toEqual([
       { kind: 'function', name: 'oldFn', file: '/repo/a.ts', line: 8, message: 'use newFn' },
     ]);
-    expect(client.parseAnnotationsText('@Injectable class UserService (/repo/a.ts:2)', 'Injectable')).toEqual([
+    expect(parseAnnotationsText('@Injectable class UserService (/repo/a.ts:2)', 'Injectable')).toEqual([
       { kind: 'class', name: 'UserService', file: '/repo/a.ts', line: 2, annotation: 'Injectable' },
     ]);
-    expect(client.parseModuleListText('auth (src/auth) — 3 files')).toEqual([
+    expect(parseModuleListText('auth (src/auth) — 3 files')).toEqual([
       { name: 'auth', path: 'src/auth', file_count: 3 },
     ]);
-    expect(client.parseModuleDepText('→ db (src/db) [direct]')).toEqual([
+    expect(parseModuleDepText('→ db (src/db) [direct]')).toEqual([
       { name: 'db', path: 'src/db', type: 'direct' },
     ]);
-    expect(client.parseUnusedDepsText('⚠ legacy (src/legacy) — unused')).toEqual([
+    expect(parseUnusedDepsText('⚠ legacy (src/legacy) — unused')).toEqual([
       { name: 'legacy', path: 'src/legacy', reason: 'unused' },
     ]);
-    expect(client.parseModuleApiText('function login login() (/repo/src/auth.ts:12)')).toEqual([
+    expect(parseModuleApiText('function login login() (/repo/src/auth.ts:12)')).toEqual([
       { kind: 'function', name: 'login', signature: 'login()', file: '/repo/src/auth.ts', line: 12 },
     ]);
 
-    expect(client.mapKind('trait')).toBe('interface');
-    expect(client.mapVisibility('pub')).toBe('public');
-    expect(client.detectLanguage('thing.py')).toBe('Python');
-    expect(client.detectLanguage('thing.unknown')).toBe('Unknown');
+    expect(mapKind('trait')).toBe('interface');
+    expect(mapVisibility('pub')).toBe('public');
+    expect(detectLanguage('thing.py')).toBe('Python');
+    expect(detectLanguage('thing.unknown')).toBe('Unknown');
   });
 
   it('parses outline text and builds enriched file structures for python and php', async () => {
-    const client = new AstIndexClient(tempDir) as any;
-
-    const outlineEntries = client.parseOutlineText([
+    const outlineEntries = parseOutlineText([
       'Outline of src/file.ts:',
       '  :1 MyClass [class]',
       '    :3 methodA [function]',
@@ -175,7 +190,7 @@ describe('AstIndexClient', () => {
       '    async def run(self):',
       '        return 2',
     ].join('\n'));
-    const pyStructure = await client.buildFileStructure(pyFile, [
+    const pyStructure = await buildFileStructure(pyFile, [
       { name: 'MyClass', kind: 'class', start_line: 1, end_line: 6 },
     ]);
     expect(pyStructure.language).toBe('Python');
@@ -194,7 +209,7 @@ describe('AstIndexClient', () => {
       '    }',
       '}',
     ].join('\n'));
-    const phpStructure = await client.buildFileStructure(phpFile, [
+    const phpStructure = await buildFileStructure(phpFile, [
       { name: 'MyPhp', kind: 'class', start_line: 2, end_line: 9 },
     ]);
     expect(phpStructure.language).toBe('PHP');
@@ -203,8 +218,6 @@ describe('AstIndexClient', () => {
   });
 
   it('backtracks python method end lines around decorators and fixes nested last-entry ranges', async () => {
-    const client = new AstIndexClient(tempDir) as any;
-
     const pyFile = join(tempDir, 'decorated.py');
     await writeFile(pyFile, [
       'class Demo:',
@@ -220,7 +233,7 @@ describe('AstIndexClient', () => {
       '        return 4',
     ].join('\n'));
 
-    const pyStructure = await client.buildFileStructure(pyFile, [
+    const pyStructure = await buildFileStructure(pyFile, [
       { name: 'Demo', kind: 'class', start_line: 1, end_line: 11 },
     ]);
     expect(pyStructure.symbols[0].children[0].location.endLine).toBe(3);
@@ -239,7 +252,7 @@ describe('AstIndexClient', () => {
         ],
       },
     ];
-    client.fixLastEndLine(nested, 20);
+    fixLastEndLine(nested, 20);
     expect(nested[0].end_line).toBe(20);
     expect(nested[0].children[0].end_line).toBe(19);
   });
