@@ -49,6 +49,9 @@ import {
   detectLanguage,
 } from './parser.js';
 import { buildFileStructure } from './enricher.js';
+import { parseTypeScriptRegex } from './regex-parser.js';
+
+const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
 
 const execFileAsync = promisify(execFile);
 
@@ -213,7 +216,7 @@ export class AstIndexClient {
       if (entries.length === 0) return null;
       return await buildFileStructure(filePath, entries);
     } catch {
-      if (this.indexDisabled || this.indexOversized) return null;
+      if (this.indexDisabled || this.indexOversized) return this.regexFallback(filePath);
       try {
         await this.ensureIndex();
         const result = await this.exec(['outline', filePath]);
@@ -222,8 +225,23 @@ export class AstIndexClient {
         return await buildFileStructure(filePath, entries);
       } catch (err) {
         console.error(`[token-pilot] ast-index outline failed for ${filePath}: ${err instanceof Error ? err.message : err}`);
-        return null;
+        return this.regexFallback(filePath);
       }
+    }
+  }
+
+  /** Regex-based fallback for TS/JS when ast-index binary is unavailable. */
+  private async regexFallback(filePath: string): Promise<FileStructure | null> {
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+    if (!TS_JS_EXTENSIONS.has(ext)) return null;
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const content = await readFile(filePath, 'utf-8');
+      const entries = parseTypeScriptRegex(content);
+      if (entries.length === 0) return null;
+      return await buildFileStructure(filePath, entries);
+    } catch {
+      return null;
     }
   }
 

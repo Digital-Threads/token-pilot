@@ -532,8 +532,10 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           return outlineResult;
         }
 
-        case 'session_analytics':
-          return { content: [{ type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${analytics.report()}` }] };
+        case 'session_analytics': {
+          const verbose = (args as Record<string, unknown>)?.verbose === true;
+          return { content: [{ type: 'text', text: `TOKEN PILOT v${pkgVersion}\n\n${analytics.report(verbose)}` }] };
+        }
 
         case 'find_unused': {
           const unusedArgs = validateFindUnusedArgs(args);

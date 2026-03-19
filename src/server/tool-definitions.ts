@@ -178,10 +178,12 @@ export const TOOL_DEFINITIONS = [
   // --- Analytics ---
   {
     name: 'session_analytics',
-    description: 'Show token savings report: calls, tokens saved, per-tool breakdown, top files, cache hits.',
+    description: 'Show token savings report: calls, tokens saved, per-tool breakdown, top files, cache hits. Use verbose=true for full breakdown (per-intent, decision insights, savings by category).',
     inputSchema: {
       type: 'object' as const,
-      properties: {},
+      properties: {
+        verbose: { type: 'boolean', description: 'Show detailed breakdown: per-intent, savings by category, decision insights (default: false)' },
+      },
     },
   },
   // --- Analysis ---

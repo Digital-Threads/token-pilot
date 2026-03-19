@@ -132,4 +132,56 @@ describe('SessionAnalytics', () => {
       expect(report).not.toContain('Cache:');
     });
   });
+
+  describe('verbose mode', () => {
+    it('compact report does not contain detailed sections', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), savingsCategory: 'compression' });
+
+      const report = analytics.report();
+      expect(report).not.toContain('DETAILED BREAKDOWN');
+      expect(report).not.toContain('Savings breakdown:');
+    });
+
+    it('verbose report contains detailed sections', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), savingsCategory: 'compression' });
+      analytics.record({ tool: 'read_symbol', tokensReturned: 50, tokensWouldBe: 500, timestamp: Date.now(), savingsCategory: 'cache', sessionCacheHit: true });
+
+      const report = analytics.report(true);
+      expect(report).toContain('DETAILED BREAKDOWN');
+      expect(report).toContain('By tool:');
+      expect(report).toContain('Savings breakdown:');
+      expect(report).toContain('Compression (AST/structured)');
+      expect(report).toContain('Cache hits (session cache)');
+    });
+
+    it('verbose report shows low-value tools', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 90, tokensWouldBe: 100, timestamp: Date.now() });
+
+      const report = analytics.report(true);
+      expect(report).toContain('Needs improvement:');
+      expect(report).toContain('smart_read: only 10%');
+    });
+
+    it('verbose report shows per-intent breakdown when intents present', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now(), intent: 'explore' });
+
+      const report = analytics.report(true);
+      expect(report).toContain('Per-intent breakdown:');
+      expect(report).toContain('explore:');
+    });
+
+    it('verbose report shows context-mode architecture when detected', () => {
+      const analytics = new SessionAnalytics();
+      analytics.setContextModeStatus({ detected: true, source: 'mcp-json', toolPrefix: 'mcp__cm__' });
+      analytics.record({ tool: 'smart_read', tokensReturned: 100, tokensWouldBe: 1000, timestamp: Date.now() });
+
+      const report = analytics.report(true);
+      expect(report).toContain('Combined Architecture');
+      expect(report).toContain('Token Pilot handles: code files');
+    });
+  });
 });
