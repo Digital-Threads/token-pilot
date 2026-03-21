@@ -1,0 +1,21 @@
+{
+  "version": "0.14.2",
+  "generatedAt": 1773854014051,
+  "frameworks": [],
+  "entrypoints": [
+    "src/handlers/",
+    "src/core/",
+    "src/ast-index/",
+    "src/",
+    "src/config/",
+    "src/git/",
+    "src/formatters/",
+    "src/hooks/",
+    "src/integration/"
+  ],
+  "moduleCount": 17,
+  "sourceFileCount": 88,
+  "namingConventions": [],
+  "projectType": "TypeScript (88 files)",
+  "testLayout": "Hooks pattern"
+}

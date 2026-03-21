@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -189,14 +190,28 @@ export function handleHookRead(filePathArg?: string, denyThreshold = 300) {
 
   // Check file size
   let lineCount = 0;
+  let fileContent = '';
   try {
-    const content = readFileSync(filePath, 'utf-8');
-    lineCount = content.split('\n').length;
+    fileContent = readFileSync(filePath, 'utf-8');
+    lineCount = fileContent.split('\n').length;
     if (lineCount <= denyThreshold) {
       process.exit(0);
     }
   } catch {
     process.exit(0);
+  }
+
+  // Track denied read for session analytics
+  try {
+    const charEst = Math.ceil(fileContent.length / 4);
+    const wsRatio = (fileContent.match(/\s/g)?.length ?? 0) / fileContent.length;
+    const estTokens = Math.ceil(charEst * (1 - wsRatio * 0.3));
+    const entry = JSON.stringify({ filePath, lineCount, estimatedTokens: estTokens, timestamp: Date.now() });
+    const dir = join(process.cwd(), '.token-pilot');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'hook-denied.jsonl'), entry + '\n');
+  } catch {
+    // Silent fail — hook must not break
   }
 
   // Large code file, unbounded Read → DENY

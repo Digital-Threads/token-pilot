@@ -5,6 +5,12 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-03-21
+
+### Added
+- **Hook interception tracking** — PreToolUse hook now records denied Read calls (file path, line count, estimated tokens) to `.token-pilot/hook-denied.jsonl`. Session analytics shows how many tokens the hook saved by intercepting unbounded reads on large code files.
+- **`session_analytics` hook savings** — compact report adds "Hook: intercepted N reads, saved ~X tokens" line. Verbose mode shows per-file breakdown of intercepted reads.
+
 ## [0.16.0] - 2026-03-21
 
 ### Added

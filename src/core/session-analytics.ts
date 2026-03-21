@@ -3,6 +3,7 @@ import type { ContextModeStatus } from '../integration/context-mode-detector.js'
 import type { Intent } from './intent-classifier.js';
 import type { DecisionTrace } from './decision-trace.js';
 import { ALL_INTENTS } from './intent-classifier.js';
+import { loadDeniedReads, clearDeniedReads, type DeniedRead } from './hook-tracker.js';
 
 export type SavingsCategory = 'compression' | 'cache' | 'dedup' | 'none';
 
@@ -29,6 +30,11 @@ export class SessionAnalytics {
   private calls: ToolCall[] = [];
   private sessionStart = Date.now();
   private contextModeStatus: ContextModeStatus = { detected: false, source: 'none', toolPrefix: '' };
+  private projectRoot?: string;
+
+  setProjectRoot(root: string): void {
+    this.projectRoot = root;
+  }
 
   setContextModeStatus(status: ContextModeStatus): void {
     this.contextModeStatus = status;
@@ -100,6 +106,14 @@ export class SessionAnalytics {
     }
     if (extras.length > 0) {
       lines.push(extras.join('  ·  '));
+    }
+
+    // Hook interception savings
+    const deniedReads = loadDeniedReads(this.projectRoot);
+    const sessionDenied = deniedReads.filter(d => d.timestamp >= this.sessionStart);
+    if (sessionDenied.length > 0) {
+      const hookTokensSaved = sessionDenied.reduce((s, d) => s + d.estimatedTokens, 0);
+      lines.push(`Hook: intercepted ${sessionDenied.length} unbounded Read${sessionDenied.length === 1 ? '' : 's'}, saved ~${hookTokensSaved} tokens`);
     }
 
     if (!verbose) return lines.join('\n');
@@ -209,6 +223,24 @@ export class SessionAnalytics {
       }
     }
 
+    // Hook interception details
+    if (sessionDenied.length > 0) {
+      const hookTokensSaved = sessionDenied.reduce((s, d) => s + d.estimatedTokens, 0);
+      lines.push('');
+      lines.push(`Hook interceptions: ${sessionDenied.length} unbounded Read calls denied → ~${hookTokensSaved} tokens saved`);
+      const byHookFile = new Map<string, { count: number; tokens: number }>();
+      for (const d of sessionDenied) {
+        const e = byHookFile.get(d.filePath) ?? { count: 0, tokens: 0 };
+        e.count++;
+        e.tokens += d.estimatedTokens;
+        byHookFile.set(d.filePath, e);
+      }
+      const topHookFiles = Array.from(byHookFile.entries()).sort((a, b) => b[1].tokens - a[1].tokens).slice(0, 5);
+      for (const [file, stats] of topHookFiles) {
+        lines.push(`  ${file}: ${stats.count}× denied, ~${stats.tokens} tokens saved`);
+      }
+    }
+
     // Context-mode
     if (this.contextModeStatus.detected) {
       lines.push('');
@@ -224,5 +256,6 @@ export class SessionAnalytics {
   reset(): void {
     this.calls = [];
     this.sessionStart = Date.now();
+    clearDeniedReads(this.projectRoot);
   }
 }

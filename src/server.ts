@@ -174,6 +174,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
   // Session analytics
   const analytics = new SessionAnalytics();
+  analytics.setProjectRoot(projectRoot);
 
   // Session cache (tool-result-level caching, invalidated by file/AST/git changes)
   const sessionCache = config.sessionCache.enabled
