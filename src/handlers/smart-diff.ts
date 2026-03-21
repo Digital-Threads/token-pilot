@@ -288,6 +288,32 @@ function formatSmartDiff(
   lines.push(`CHANGES: ${allFiles.length} file${allFiles.length !== 1 ? 's' : ''}, +${totalAdded} -${totalRemoved} (${scopeLabel})`);
   lines.push('');
 
+  // Affected symbols summary
+  const allSymbolChanges: Array<{ file: string; symbol: SymbolChange }> = [];
+  for (const [file, changes] of symbolChanges) {
+    for (const sc of changes) {
+      allSymbolChanges.push({ file, symbol: sc });
+    }
+  }
+
+  if (allSymbolChanges.length > 0) {
+    lines.push('AFFECTED SYMBOLS:');
+
+    // Group by changeType
+    const modified = allSymbolChanges.filter(s => s.symbol.changeType === 'MODIFIED');
+    const added = allSymbolChanges.filter(s => s.symbol.changeType === 'ADDED');
+    const removed = allSymbolChanges.filter(s => s.symbol.changeType === 'REMOVED');
+
+    for (const [label, group] of [['MODIFIED', modified], ['ADDED', added], ['REMOVED', removed]] as const) {
+      if (group.length === 0) continue;
+      for (const item of group) {
+        const parens = ['function', 'method'].includes(item.symbol.kind) ? '()' : '';
+        lines.push(`  ${label}: ${item.file}::${item.symbol.name}${parens}`);
+      }
+    }
+    lines.push('');
+  }
+
   for (const fd of processedFiles) {
     if (lines.length >= MAX_OUTPUT_LINES) {
       lines.push(`... truncated (${allFiles.length - processedFiles.indexOf(fd)} more files)`);

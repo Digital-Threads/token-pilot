@@ -81,6 +81,53 @@ export function validateReadSymbolArgs(args: unknown): {
 }
 
 /**
+ * Validate read_symbols arguments (batch multi-symbol read).
+ */
+export function validateReadSymbolsArgs(args: unknown): {
+  path: string;
+  symbols: string[];
+  context_before?: number;
+  context_after?: number;
+  show?: 'full' | 'head' | 'tail' | 'outline';
+} {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+  if (!Array.isArray(a.symbols) || a.symbols.length === 0) {
+    throw new Error('Required parameter "symbols" must be a non-empty array of strings.');
+  }
+  if (a.symbols.length > 10) {
+    throw new Error('"symbols" can contain at most 10 symbols.');
+  }
+  for (const s of a.symbols) {
+    if (typeof s !== 'string' || s.length === 0) {
+      throw new Error('Each symbol in "symbols" must be a non-empty string.');
+    }
+  }
+
+  let show: 'full' | 'head' | 'tail' | 'outline' | undefined;
+  if (a.show !== undefined && a.show !== null) {
+    const valid = ['full', 'head', 'tail', 'outline'];
+    if (typeof a.show !== 'string' || !valid.includes(a.show)) {
+      throw new Error('"show" must be one of: full, head, tail, outline.');
+    }
+    show = a.show as typeof show;
+  }
+
+  return {
+    path: a.path,
+    symbols: a.symbols as string[],
+    context_before: optionalNumber(a.context_before, 'context_before'),
+    context_after: optionalNumber(a.context_after, 'context_after'),
+    show,
+  };
+}
+
+/**
  * Validate read_range arguments.
  */
 export function validateReadRangeArgs(args: unknown): {
@@ -137,6 +184,7 @@ export interface FindUsagesArgs {
   kind?: 'definitions' | 'imports' | 'usages' | 'all';
   limit?: number;
   lang?: string;
+  context_lines?: number;
 }
 
 export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
@@ -162,12 +210,18 @@ export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
     throw new Error('"limit" must be between 1 and 500.');
   }
 
+  const context_lines = optionalNumber(a.context_lines, 'context_lines');
+  if (context_lines !== undefined && (context_lines < 0 || context_lines > 10)) {
+    throw new Error('"context_lines" must be between 0 and 10.');
+  }
+
   return {
     symbol: a.symbol,
     scope: optionalString(a.scope, 'scope'),
     kind,
     limit,
     lang: optionalString(a.lang, 'lang'),
+    context_lines,
   };
 }
 
@@ -214,6 +268,7 @@ function optionalNumber(val: unknown, name: string): number | undefined {
 export function validateReadForEditArgs(args: unknown): {
   path: string;
   symbol?: string;
+  symbols?: string[];
   line?: number;
   context?: number;
   include_callers?: boolean;
@@ -227,12 +282,31 @@ export function validateReadForEditArgs(args: unknown): {
   if (typeof a.path !== 'string' || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
-  if (!a.symbol && !a.line) {
-    throw new Error('Either "symbol" or "line" must be provided.');
+  if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0)) {
+    throw new Error('Either "symbol", "symbols", or "line" must be provided.');
   }
+
+  // Validate symbols array (batch mode)
+  let symbols: string[] | undefined;
+  if (a.symbols !== undefined && a.symbols !== null) {
+    if (!Array.isArray(a.symbols)) {
+      throw new Error('"symbols" must be an array of strings.');
+    }
+    if (a.symbols.length > 10) {
+      throw new Error('"symbols" can contain at most 10 symbols.');
+    }
+    for (const s of a.symbols) {
+      if (typeof s !== 'string' || s.length === 0) {
+        throw new Error('Each symbol in "symbols" must be a non-empty string.');
+      }
+    }
+    symbols = a.symbols as string[];
+  }
+
   return {
     path: a.path,
     symbol: optionalString(a.symbol, 'symbol'),
+    symbols,
     line: optionalNumber(a.line, 'line'),
     context: optionalNumber(a.context, 'context'),
     include_callers: optionalBool(a.include_callers, 'include_callers'),

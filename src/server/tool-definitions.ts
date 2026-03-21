@@ -11,6 +11,7 @@ export const MCP_INSTRUCTIONS = [
   '2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)',
   '3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)',
   '4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)',
+  '4b. Need MULTIPLE function/class bodies from same file → read_symbols (batch — one call instead of N)',
   '5. Preparing an edit → read_for_edit (returns exact text for Edit old_string)',
   '6. Verify edits after editing → read_diff (only changed hunks — REQUIRES smart_read BEFORE editing)',
   '7. Multiple files at once → smart_read_many (batch up to 20 files)',
@@ -29,7 +30,7 @@ export const MCP_INSTRUCTIONS = [
   'WORKFLOWS:',
   '• Explore: project_overview → explore_area → smart_read → read_symbol',
   '• Edit: smart_read → read_for_edit → Edit → read_diff',
-  '• Refactor: find_usages → read_symbol → read_for_edit → Edit → test_summary',
+  '• Refactor: find_usages → read_symbols → read_for_edit → Edit → test_summary',
   '• Audit: code_audit + find_unused + Grep (for regex patterns)',
 ].join('\n');
 
@@ -65,6 +66,25 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'read_symbols',
+    description: 'Batch read MULTIPLE symbols from ONE file in a single call — saves N-1 round-trips vs calling read_symbol N times. Returns all requested symbol bodies.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'File path' },
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of symbol names (max 10), e.g. ["UserService.create", "UserService.update", "UserService.delete"]',
+        },
+        context_before: { type: 'number', description: 'Lines of context before each symbol (default: 2)' },
+        context_after: { type: 'number', description: 'Lines of context after each symbol (default: 0)' },
+        show: { type: 'string', enum: ['full', 'head', 'tail', 'outline'], description: 'Display mode for each symbol (default: auto)' },
+      },
+      required: ['path', 'symbols'],
+    },
+  },
+  {
     name: 'read_range',
     description: 'Read a specific line range from a file. Use when you know exact lines — lighter than reading the whole file.',
     inputSchema: {
@@ -91,12 +111,17 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'read_for_edit',
-    description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool. Optional: include_callers, include_tests, include_changes for enriched context.',
+    description: 'Use INSTEAD OF Read when preparing an edit. Returns exact raw code around a symbol or line — copy directly as old_string for Edit tool. Supports batch: pass "symbols" array to get multiple edit contexts in one call. Optional: include_callers, include_tests, include_changes for enriched context.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         path: { type: 'string', description: 'File path' },
         symbol: { type: 'string', description: 'Symbol name to edit (e.g. "UserService.updateUser")' },
+        symbols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of symbol names for batch edit context (max 10). Alternative to single "symbol" — returns all symbols in one call.',
+        },
         line: { type: 'number', description: 'Line number to edit (alternative to symbol)' },
         context: { type: 'number', description: 'Lines of context around target (default: 5)' },
         include_callers: { type: 'boolean', description: 'Show top callers of this symbol (saves a separate find_usages call)' },
@@ -124,7 +149,7 @@ export const TOOL_DEFINITIONS = [
   // --- Search & navigation ---
   {
     name: 'find_usages',
-    description: 'Use INSTEAD OF Grep for finding symbol references. Semantic search — groups by: definitions, imports, usages. Supports scope, kind, limit, lang filters.',
+    description: 'Use INSTEAD OF Grep for finding symbol references. Semantic search — groups by: definitions, imports, usages. Supports scope, kind, limit, lang filters. Use context_lines to include surrounding code.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -133,6 +158,7 @@ export const TOOL_DEFINITIONS = [
         kind: { type: 'string', enum: ['definitions', 'imports', 'usages', 'all'], description: 'Show only specific section (default: "all")' },
         limit: { type: 'number', description: 'Max results per category (default: 50, max: 500)' },
         lang: { type: 'string', description: 'Filter by language/extension (e.g., "php", "typescript")' },
+        context_lines: { type: 'number', description: 'Lines of source context around each match (0-10). When set, shows surrounding code — saves follow-up read_symbol calls.' },
       },
       required: ['symbol'],
     },

@@ -24,6 +24,7 @@ const execFilePromise = promisify(execFile);
 import { FileWatcher } from './git/file-watcher.js';
 import { handleSmartRead } from './handlers/smart-read.js';
 import { handleReadSymbol } from './handlers/read-symbol.js';
+import { handleReadSymbols } from './handlers/read-symbols.js';
 import { handleReadRange } from './handlers/read-range.js';
 import { handleReadDiff } from './handlers/read-diff.js';
 import { handleFindUsages } from './handlers/find-usages.js';
@@ -49,6 +50,7 @@ import { createTokenEstimates } from './server/token-estimates.js';
 import {
   validateSmartReadArgs,
   validateReadSymbolArgs,
+  validateReadSymbolsArgs,
   validateReadRangeArgs,
   validateReadDiffArgs,
   validateFindUsagesArgs,
@@ -359,6 +361,16 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           return symResult;
         }
 
+        case 'read_symbols': {
+          const rsArgs = validateReadSymbolsArgs(args);
+          const rsResult = await handleReadSymbols(rsArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex, config.smartRead.advisoryReminders);
+          const rsText = rsResult.content[0]?.text ?? '';
+          const rsTokens = estimateTokens(rsText);
+          const fullTokensRs = await fullFileTokens(rsArgs.path);
+          recordWithTrace({ tool: 'read_symbols', path: rsArgs.path, tokensReturned: rsTokens, tokensWouldBe: fullTokensRs || rsTokens, timestamp: Date.now(), savingsCategory: 'compression', absPath: resolve(projectRoot, rsArgs.path), args: rsArgs });
+          return rsResult;
+        }
+
         case 'read_range': {
           const rangeArgs = validateReadRangeArgs(args);
           const rangeResult = await handleReadRange(rangeArgs, projectRoot, fileCache, contextRegistry, config.smartRead.advisoryReminders);
@@ -418,7 +430,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             recordWithTrace({ tool: 'find_usages', path: usagesArgs.symbol, tokensReturned: cachedUsages.tokenEstimate, tokensWouldBe: cachedUsages.tokensWouldBe ?? cachedUsages.tokenEstimate, timestamp: Date.now(), sessionCacheHit: true, savingsCategory: 'cache', args: usagesArgs });
             return cachedUsages.result;
           }
-          const usagesResult = await handleFindUsages(usagesArgs, astIndex);
+          const usagesResult = await handleFindUsages(usagesArgs, astIndex, projectRoot);
           const usagesText = usagesResult.content[0]?.text ?? '';
           const usagesTokens = estimateTokens(usagesText);
           const usagesWouldBe = await estimateFindUsagesWorkflowTokens(usagesResult.meta.files);

@@ -5,6 +5,19 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-03-21
+
+### Added
+- **`read_symbols` tool** — batch read multiple symbols from one file in a single call (max 10). File is read once, AST resolved once. Saves N-1 round-trips vs calling `read_symbol` N times.
+- **`read_for_edit` batch mode** — new `symbols` array parameter reads multiple symbol edit contexts in one call. Each symbol returns raw code ready for Edit tool's `old_string`.
+- **`find_usages` context_lines** — new `context_lines` parameter (0-10) shows surrounding source code for each match. Eliminates follow-up `read_symbol` calls after finding usages.
+- **`smart_diff` affected symbols summary** — consolidated "AFFECTED SYMBOLS" section at the top of diff output, grouped by MODIFIED/ADDED/REMOVED. See all changed functions/classes at a glance.
+
+### Changed
+- **19 tools** (was 18) — added `read_symbols`.
+- **MCP instructions** — added batch read_symbols to decision rules and refactor workflow.
+- **427 tests** (unchanged — all pass with new features).
+
 ## [0.15.0] - 2026-03-19
 
 ### Added

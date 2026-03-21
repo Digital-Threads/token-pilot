@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { FindUsagesArgs } from '../core/validation.js';
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
@@ -62,6 +64,61 @@ function renderSection(
 }
 
 /**
+ * Render a section with surrounding source context lines.
+ */
+async function renderSectionWithContext(
+  title: string,
+  items: Array<{ file: string; line: number; text: string }>,
+  contextLines: number,
+  projectRoot: string,
+): Promise<string[]> {
+  if (items.length === 0) return [];
+  const lines: string[] = [`${title}:`];
+
+  const byFile = new Map<string, Array<{ line: number; text: string }>>();
+  for (const item of items) {
+    const arr = byFile.get(item.file) ?? [];
+    arr.push({ line: item.line, text: item.text });
+    byFile.set(item.file, arr);
+  }
+
+  for (const [file, matches] of byFile) {
+    matches.sort((a, b) => a.line - b.line);
+    lines.push(`  ${file}:`);
+
+    // Read file for context
+    let fileLines: string[] | null = null;
+    try {
+      const content = await readFile(resolve(projectRoot, file), 'utf-8');
+      fileLines = content.split('\n');
+    } catch {
+      // File unreadable — fall back to text-only
+      for (const m of matches) {
+        lines.push(`    :${m.line}  ${m.text}`);
+      }
+      continue;
+    }
+
+    for (let mi = 0; mi < matches.length; mi++) {
+      const m = matches[mi];
+      const start = Math.max(0, m.line - 1 - contextLines);
+      const end = Math.min(fileLines.length, m.line + contextLines);
+      for (let i = start; i < end; i++) {
+        const lineNum = i + 1;
+        const marker = lineNum === m.line ? '>' : ' ';
+        lines.push(`    ${marker} ${lineNum} | ${fileLines[i]}`);
+      }
+      if (mi < matches.length - 1) {
+        lines.push('');
+      }
+    }
+  }
+
+  lines.push('');
+  return lines;
+}
+
+/**
  * Find all usages of a symbol across the project.
  *
  * Strategy: combine ast-index `refs` (structured: definitions + usages)
@@ -74,6 +131,7 @@ function renderSection(
 export async function handleFindUsages(
   args: FindUsagesArgs,
   astIndex: AstIndexClient,
+  projectRoot?: string,
 ): Promise<{
   content: Array<{ type: 'text'; text: string }>;
   meta: { files: string[]; definitions: number; imports: number; usages: number; total: number };
@@ -200,9 +258,20 @@ export async function handleFindUsages(
     '',
   ];
 
-  lines.push(...renderSection('DEFINITIONS', definitions));
-  lines.push(...renderSection('IMPORTS', allImports));
-  lines.push(...renderSection('USAGES', allUsages));
+  if (args.context_lines !== undefined && args.context_lines > 0 && projectRoot) {
+    const [defSection, impSection, useSection] = await Promise.all([
+      renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot),
+      renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot),
+      renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot),
+    ]);
+    lines.push(...defSection);
+    lines.push(...impSection);
+    lines.push(...useSection);
+  } else {
+    lines.push(...renderSection('DEFINITIONS', definitions));
+    lines.push(...renderSection('IMPORTS', allImports));
+    lines.push(...renderSection('USAGES', allUsages));
+  }
 
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
 

@@ -16,6 +16,7 @@ const execFileAsync = promisify(execFile);
 export interface ReadForEditArgs {
   path: string;
   symbol?: string;
+  symbols?: string[];
   line?: number;
   context?: number;
   include_callers?: boolean;
@@ -64,6 +65,83 @@ export async function handleReadForEdit(
       hash,
       lastAccess: Date.now(),
     });
+  }
+
+  // --- Batch mode: multiple symbols ---
+  if (args.symbols && args.symbols.length > 0) {
+    let structure = cached?.structure;
+    if (!structure) {
+      structure = await astIndex.outline(absPath) ?? undefined;
+    }
+
+    const sections: string[] = [];
+    sections.push(`--- EDIT CONTEXT (BATCH: ${args.symbols.length} symbols) ---`);
+    sections.push(`FILE: ${args.path}`);
+    sections.push('');
+
+    let resolved_count = 0;
+    for (let i = 0; i < args.symbols.length; i++) {
+      const symName = args.symbols[i];
+      const resolved = await symbolResolver.resolve(symName, structure);
+
+      if (!resolved) {
+        sections.push(`=== SYMBOL ${i + 1}/${args.symbols.length}: ${symName} — NOT FOUND ===`);
+        sections.push('');
+        continue;
+      }
+
+      resolved_count++;
+      const symbolLines = resolved.endLine - resolved.startLine + 1;
+      const MAX_EDIT_LINES = 60;
+
+      let effStart = resolved.startLine;
+      let effEnd: number;
+      let label: string;
+
+      if (symbolLines <= MAX_EDIT_LINES) {
+        effEnd = resolved.endLine;
+        label = `${symName} [L${effStart}-${effEnd}] (${symbolLines} lines, full)`;
+      } else {
+        effEnd = effStart + MAX_EDIT_LINES - 1;
+        label = `${symName} [L${effStart}-${resolved.endLine}] (showing first ${MAX_EDIT_LINES} of ${symbolLines} lines)`;
+      }
+
+      const rangeStart = Math.max(1, effStart - ctx);
+      const rangeEnd = Math.min(lines.length, effEnd + ctx);
+      const rawCode = lines.slice(rangeStart - 1, rangeEnd).join('\n');
+
+      sections.push(`=== SYMBOL ${i + 1}/${args.symbols.length}: ${label} ===`);
+      sections.push('');
+      sections.push(rawCode);
+      sections.push('');
+
+      // Track each symbol
+      contextRegistry.trackLoad(absPath, {
+        type: 'symbol',
+        symbolName: symName,
+        startLine: rangeStart,
+        endLine: rangeEnd,
+        tokens: estimateTokens(rawCode),
+      });
+    }
+
+    sections.push('--- END EDIT CONTEXT ---');
+    sections.push('');
+    sections.push(`To edit: use exact text from each section as old_string in Edit tool.`);
+    if (resolved_count < args.symbols.length) {
+      sections.push(`WARNING: ${args.symbols.length - resolved_count} symbol(s) not found. Use smart_read to see available symbols.`);
+    }
+
+    const confidenceMeta = assessConfidence({
+      symbolResolved: resolved_count > 0,
+      fullFile: false,
+      truncated: false,
+      astAvailable: true,
+    });
+    sections.push(formatConfidence(confidenceMeta));
+
+    const output = sections.join('\n');
+    return { content: [{ type: 'text', text: output }] };
   }
 
   let startLine: number;

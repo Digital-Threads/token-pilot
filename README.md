@@ -168,7 +168,7 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (18)
+## MCP Tools (19)
 
 ### Core Reading
 
@@ -176,7 +176,8 @@ For more control, you can add rules to your project:
 |------|-----------|-------------|
 | `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 90% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. |
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
-| `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. |
+| `read_symbols` | N x `read_symbol` | Batch read multiple symbols from one file in a single call (max 10). One round-trip instead of N. |
+| `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. Batch mode: pass `symbols` array for multiple edit contexts. |
 | `read_range` | `Read` offset | Read a specific line range from a file. |
 | `read_diff` | re-`Read` | Show only changed hunks since last smart_read. Requires smart_read before editing (for baseline). Works with any edit tool. |
 | `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files in one call. |
@@ -185,14 +186,14 @@ For more control, you can add rules to your project:
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. Filters: `scope` (path prefix), `kind` (definitions/imports/usages), `lang`, `limit`. |
+| `find_usages` | `Grep` (refs) | All usages of a symbol: definitions, imports, references. Filters: `scope`, `kind`, `lang`, `limit`. Use `context_lines` to include surrounding source code. |
 | `project_overview` | `ls` + explore | Dual-detection (ast-index + config files) with confidence scoring. Project type, frameworks, quality tools, CI, architecture, directory map. Filter sections with `include`. |
 | `related_files` | manual explore | Import graph: what a file imports, what imports it, test files. |
 | `outline` | multiple `smart_read` | Compact overview of all code files in a directory. One call instead of 5-6. Supports `recursive` mode with `max_depth` for deep exploration. |
 | `find_unused` | manual | Detect dead code — unused functions, classes, variables. |
 | `code_audit` | multiple `Grep` | Code quality issues in one call: TODO/FIXME comments, deprecated symbols, structural code patterns (via ast-grep), decorator search. |
 | `module_info` | manual analysis | Module dependency analysis: dependencies, dependents, public API, unused deps. Use for architecture understanding and dependency cleanup. |
-| `smart_diff` | raw `git diff` | Structural diff with AST symbol mapping — shows which functions/classes changed instead of raw patch. Scopes: unstaged, staged, commit, branch. |
+| `smart_diff` | raw `git diff` | Structural diff with AST symbol mapping — shows which functions/classes changed instead of raw patch. Affected symbols summary at top. Scopes: unstaged, staged, commit, branch. |
 | `explore_area` | outline + related_files + git log | One-call directory exploration: structure, imports, tests, recent changes. Replaces 3-5 separate calls. |
 | `smart_log` | raw `git log` | Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref. |
 | `test_summary` | raw test output | Run tests and get structured summary: total/passed/failed + failure details. Supports vitest, jest, pytest, phpunit, go, cargo, rspec, mocha. |
