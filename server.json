@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Digital-Threads/token-pilot",
+  "description": "Save up to 80% tokens when AI reads code via AST-aware structural reading",
+  "repository": {
+    "url": "https://github.com/Digital-Threads/token-pilot",
+    "source": "github"
+  },
+  "version": "0.16.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "token-pilot",
+      "version": "0.16.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": []
+    }
+  ]
+}

@@ -58,6 +58,7 @@
   "bugs": {
     "url": "https://github.com/Digital-Threads/token-pilot/issues"
   },
+  "mcpName": "io.github.digital-threads/token-pilot",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

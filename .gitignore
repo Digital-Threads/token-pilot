@@ -26,3 +26,6 @@ Thumbs.db
 docs/rnd.md
 docs/sdd.md
 docs/code-review-report.md
+
+# MCP Registry auth tokens
+.mcpregistry_*
