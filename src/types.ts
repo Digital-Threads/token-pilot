@@ -69,6 +69,7 @@ export interface ContextEntry {
   contentHash: string;
   tokenEstimate: number;
   loadedAt: number;
+  symbolNames?: string[];
 }
 
 export interface LoadedRegion {

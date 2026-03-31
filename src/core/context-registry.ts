@@ -199,6 +199,17 @@ export class ContextRegistry {
     return total;
   }
 
+  trackStructureSymbols(path: string, symbolNames: string[]): void {
+    const entry = this.entries.get(path);
+    if (entry) {
+      entry.symbolNames = symbolNames;
+    }
+  }
+
+  getSymbolNames(path: string): string[] | undefined {
+    return this.entries.get(path)?.symbolNames;
+  }
+
   invalidateByGitDiff(changedFiles: string[]): void {
     for (const file of changedFiles) {
       this.entries.delete(file);

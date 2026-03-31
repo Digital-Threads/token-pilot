@@ -10,6 +10,7 @@ import { resolveSafePath } from '../core/validation.js';
 import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
 import { parseTypeScriptRegex } from '../ast-index/regex-parser.js';
 import { buildFileStructure } from '../ast-index/enricher.js';
+import { formatDuration } from '../core/format-duration.js';
 
 const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
@@ -147,6 +148,63 @@ export async function handleSmartRead(
     }
   }
 
+  // 5b. Auto-delta: file changed since last load, recently loaded
+  if (
+    config.smartRead.autoDelta?.enabled &&
+    previouslyLoaded &&
+    contextRegistry.isStale(absPath, cached.hash)
+  ) {
+    const entry = (contextRegistry as any)['entries']?.get(absPath);
+    if (entry && (Date.now() - entry.loadedAt) < (config.smartRead.autoDelta.maxAgeSec ?? 120) * 1000) {
+      const prevNames = contextRegistry.getSymbolNames(absPath) ?? [];
+      const currentNames = cached.structure.symbols.map((s: { name: string }) => s.name);
+
+      const added = currentNames.filter((n: string) => !prevNames.includes(n));
+      const removed = prevNames.filter((n: string) => !currentNames.includes(n));
+      const unchanged = currentNames.filter((n: string) => prevNames.includes(n));
+
+      const elapsed = formatDuration(Date.now() - entry.loadedAt);
+      const deltaLines: string[] = [
+        `FILE: ${args.path} (DELTA — changed since last read ${elapsed} ago)`,
+        '',
+      ];
+
+      if (added.length > 0) {
+        deltaLines.push('ADDED:');
+        for (const name of added) {
+          const sym = cached.structure.symbols.find((s: { name: string }) => s.name === name);
+          if (sym) deltaLines.push(`  ${sym.kind} ${sym.signature} [L${sym.location.startLine}-${sym.location.endLine}]`);
+        }
+        deltaLines.push('');
+      }
+
+      if (removed.length > 0) {
+        deltaLines.push(`REMOVED: ${removed.join(', ')}`);
+        deltaLines.push('');
+      }
+
+      if (unchanged.length > 0) {
+        deltaLines.push(`UNCHANGED (${unchanged.length} symbols):`);
+        for (const name of (unchanged as string[]).slice(0, 15)) {
+          const sym = cached.structure.symbols.find((s: { name: string }) => s.name === name);
+          if (sym) deltaLines.push(`  ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`);
+        }
+        if (unchanged.length > 15) deltaLines.push(`  ... and ${unchanged.length - 15} more`);
+        deltaLines.push('');
+      }
+
+      deltaLines.push(`HINT: For full re-read: smart_read("${args.path}", scope="full")`);
+
+      const deltaText = deltaLines.join('\n');
+      const deltaTokens = estimateTokens(deltaText);
+      contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: cached.structure.meta.lines, tokens: deltaTokens });
+      contextRegistry.setContentHash(absPath, cached.hash);
+      contextRegistry.trackStructureSymbols(absPath, currentNames);
+
+      return { content: [{ type: 'text', text: deltaText }] };
+    }
+  }
+
   // 6. Format output
   const output = formatOutline(cached.structure, {
     showImports: args.show_imports ?? config.display.showImports,
@@ -168,6 +226,9 @@ export async function handleSmartRead(
       tokens: fullTokens,
     });
     contextRegistry.setContentHash(absPath, cached.hash);
+    if (cached.structure.symbols.length > 0) {
+      contextRegistry.trackStructureSymbols(absPath, cached.structure.symbols.map((s: { name: string }) => s.name));
+    }
 
     return {
       content: [{
@@ -190,6 +251,7 @@ export async function handleSmartRead(
     tokens: structureTokens,
   });
   contextRegistry.setContentHash(absPath, cached.hash);
+  contextRegistry.trackStructureSymbols(absPath, cached.structure.symbols.map((s: { name: string }) => s.name));
 
   // 9. Confidence metadata
   const confidenceMeta = assessConfidence({
