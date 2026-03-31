@@ -51,6 +51,16 @@ export async function handleSmartReadMany(
     const batch = uniquePaths.slice(i, i + BATCH_CONCURRENCY);
     const settled = await Promise.allSettled(
       batch.map(async (path): Promise<BatchEntry> => {
+        // Per-file dedup: if file is in context and unchanged, return compact reminder
+        const absPath = resolveSafePath(projectRoot, path);
+        const cachedFile = fileCache.get(absPath);
+        if (cachedFile && contextRegistry.hasAnyLoaded(absPath) && !contextRegistry.isStale(absPath, cachedFile.hash)) {
+          const reminder = contextRegistry.compactReminder(absPath, cachedFile.structure?.symbols ?? []);
+          const reminderText = reminder || `FILE: ${path} (already in context, unchanged)`;
+          const fullTokens = await estimateFullFileTokens(projectRoot, path);
+          return { path, text: reminderText + `\nFor full re-read: smart_read("${path}")`, fullTokens };
+        }
+
         const result = await handleSmartRead(
           { path },
           projectRoot,
