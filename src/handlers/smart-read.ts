@@ -20,6 +20,7 @@ export interface SmartReadArgs {
   show_docs?: boolean;
   show_references?: boolean;
   depth?: number;
+  scope?: 'full' | 'nav' | 'exports';
 }
 
 export async function handleSmartRead(
@@ -152,6 +153,7 @@ export async function handleSmartRead(
     showDocs: args.show_docs ?? config.display.showDocs,
     showDependencyHints: config.smartRead.showDependencyHints,
     maxDepth: args.depth ?? config.display.maxDepth,
+    scope: args.scope ?? 'full',
   });
 
   // 6b. Adaptive fallback: if outline is not significantly smaller than raw, return raw

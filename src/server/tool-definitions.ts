@@ -46,6 +46,11 @@ export const TOOL_DEFINITIONS = [
         show_imports: { type: 'boolean', description: 'Include import details (default: true)' },
         show_docs: { type: 'boolean', description: 'Include doc comments (default: true)' },
         depth: { type: 'number', description: 'Max depth for nested symbols (default: 2)' },
+        scope: {
+          type: 'string',
+          enum: ['full', 'nav', 'exports'],
+          description: 'Output scope: full (default, all details), nav (names + lines only, 2-3x smaller), exports (public API only)',
+        },
       },
       required: ['path'],
     },

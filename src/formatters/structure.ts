@@ -6,6 +6,7 @@ export interface FormatOptions {
   showDependencyHints?: boolean;
   maxDepth?: number;
   showTokenSavings?: boolean;
+  scope?: 'full' | 'nav' | 'exports';
 }
 
 /**
@@ -17,15 +18,55 @@ export function formatOutline(structure: FileStructure, options: FormatOptions =
     showDocs = true,
     showDependencyHints = true,
     maxDepth = 2,
+    scope = 'full',
   } = options;
 
   const lines: string[] = [];
 
   // Header
   const sizeKB = (structure.meta.bytes / 1024).toFixed(1);
-  lines.push(`FILE: ${structure.path} (${structure.meta.lines} lines, ${sizeKB}KB)`);
+  const scopeLabel = scope !== 'full' ? `, ${scope} mode` : '';
+  lines.push(`FILE: ${structure.path} (${structure.meta.lines} lines, ${sizeKB}KB${scopeLabel})`);
   lines.push(`LANGUAGE: ${structure.language}`);
   lines.push('');
+
+  // NAV scope: compact names + line ranges only
+  if (scope === 'nav') {
+    lines.push('SYMBOLS:');
+    for (const sym of structure.symbols) {
+      formatSymbolNav(sym, lines, 1, maxDepth);
+    }
+    lines.push('');
+    lines.push('HINT: Use scope="full" for type signatures and imports. Use read_symbol(path, symbol) to load code.');
+    return lines.join('\n');
+  }
+
+  // EXPORTS scope: only exported symbols
+  if (scope === 'exports') {
+    const exportNames = new Set(structure.exports.map(e => e.name));
+    const exportedSymbols = structure.symbols.filter(s => exportNames.has(s.name));
+    const hiddenCount = structure.symbols.length - exportedSymbols.length;
+
+    lines.push('EXPORTS:');
+    for (const exp of structure.exports) {
+      const defaultLabel = exp.isDefault ? ' (default)' : '';
+      lines.push(`  ${exp.kind} ${exp.name}${defaultLabel}`);
+    }
+    lines.push('');
+
+    lines.push('STRUCTURE:');
+    for (const sym of exportedSymbols) {
+      formatSymbolTree(sym, lines, 1, maxDepth, showDocs, showDependencyHints);
+    }
+    lines.push('');
+
+    if (hiddenCount > 0) {
+      lines.push(`HINT: ${hiddenCount} non-exported symbol(s) hidden. Use scope="full" to see all symbols.`);
+    } else {
+      lines.push('HINT: Use read_symbol(path, symbol) to load a specific symbol\'s code.');
+    }
+    return lines.join('\n');
+  }
 
   // Imports
   if (showImports && structure.imports.length > 0) {
@@ -143,6 +184,18 @@ function formatSymbolTree(
     }
   } else if (sym.children.length > 0) {
     lines.push(`${indent}  (${sym.children.length} members — increase depth to see)`);
+  }
+}
+
+function formatSymbolNav(sym: SymbolInfo, lines: string[], depth: number, maxDepth: number): void {
+  const indent = '  '.repeat(depth);
+  const loc = `[L${sym.location.startLine}-${sym.location.endLine}]`;
+  const callable = sym.kind === 'function' || sym.kind === 'method' ? '()' : '';
+  lines.push(`${indent}${sym.name}${callable} ${loc}`);
+  if (depth < maxDepth && sym.children.length > 0) {
+    for (const child of sym.children) {
+      formatSymbolNav(child, lines, depth + 1, maxDepth);
+    }
   }
 }
 

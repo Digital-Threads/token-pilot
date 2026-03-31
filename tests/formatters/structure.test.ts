@@ -34,6 +34,52 @@ function makeStructure(symbols: SymbolInfo[]): FileStructure {
   };
 }
 
+/** Factory used in scope tests — 1 import, 2 exports, 3 symbols */
+function makeScopeStructure(): FileStructure {
+  const method1 = makeSymbol({
+    name: 'method1',
+    kind: 'method',
+    visibility: 'public',
+    location: { startLine: 25, endLine: 35, lineCount: 11 },
+  });
+
+  const publicFunc = makeSymbol({
+    name: 'publicFunc',
+    kind: 'function',
+    async: true,
+    signature: 'publicFunc(x: number, y: string): boolean',
+    location: { startLine: 5, endLine: 15, lineCount: 11 },
+    references: ['dep.foo'],
+  });
+
+  const PublicClass = makeSymbol({
+    name: 'PublicClass',
+    kind: 'class',
+    location: { startLine: 20, endLine: 80, lineCount: 61 },
+    children: [method1],
+  });
+
+  const internalHelper = makeSymbol({
+    name: 'internalHelper',
+    kind: 'function',
+    location: { startLine: 85, endLine: 95, lineCount: 11 },
+  });
+
+  return {
+    path: '/src/mymodule.ts',
+    language: 'TypeScript',
+    meta: { lines: 100, bytes: 4096, lastModified: Date.now(), contentHash: 'def' },
+    imports: [
+      { source: './dep', specifiers: ['dep'], isDefault: false, isNamespace: false, line: 1 },
+    ],
+    exports: [
+      { name: 'publicFunc', kind: 'function', isDefault: false, line: 5 },
+      { name: 'PublicClass', kind: 'class', isDefault: false, line: 20 },
+    ],
+    symbols: [publicFunc, PublicClass, internalHelper],
+  };
+}
+
 describe('formatOutline', () => {
   it('includes file header', () => {
     const structure = makeStructure([]);
@@ -165,5 +211,85 @@ describe('formatOutline', () => {
     const output = formatOutline(structure);
 
     expect(output).toContain('HINT: Use read_symbol');
+  });
+});
+
+describe('formatOutline scope parameter', () => {
+  it('scope=nav: contains symbol names and line ranges', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'nav' });
+
+    expect(output).toContain('publicFunc()');
+    expect(output).toContain('[L5-15]');
+    expect(output).toContain('PublicClass');
+    expect(output).toContain('[L20-80]');
+    expect(output).toContain('internalHelper()');
+    expect(output).toContain('[L85-95]');
+  });
+
+  it('scope=nav: does NOT contain type signatures, IMPORTS section, or calls lines', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'nav' });
+
+    expect(output).not.toContain('x: number');
+    expect(output).not.toContain('IMPORTS:');
+    expect(output).not.toContain('calls:');
+  });
+
+  it('scope=nav: shows SYMBOLS header and scope hint', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'nav' });
+
+    expect(output).toContain('SYMBOLS:');
+    expect(output).toContain('scope="full"');
+  });
+
+  it('scope=nav: shows nested children (method1 under PublicClass)', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'nav' });
+
+    expect(output).toContain('method1()');
+    expect(output).toContain('[L25-35]');
+  });
+
+  it('scope=exports: contains exported symbols publicFunc and PublicClass', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'exports' });
+
+    expect(output).toContain('publicFunc');
+    expect(output).toContain('PublicClass');
+  });
+
+  it('scope=exports: does NOT contain internalHelper', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'exports' });
+
+    expect(output).not.toContain('internalHelper');
+  });
+
+  it('scope=exports: contains HINT about hidden non-exported symbols', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'exports' });
+
+    expect(output).toContain('HINT');
+  });
+
+  it('scope=full (default): contains IMPORTS, type signatures, internalHelper, calls', () => {
+    const structure = makeScopeStructure();
+    const output = formatOutline(structure, { scope: 'full' });
+
+    expect(output).toContain('IMPORTS:');
+    expect(output).toContain('internalHelper');
+    expect(output).toContain('x: number');
+    expect(output).toContain('calls:');
+  });
+
+  it('scope default (undefined) behaves like full', () => {
+    const structure = makeScopeStructure();
+    const outputDefault = formatOutline(structure);
+    const outputFull = formatOutline(structure, { scope: 'full' });
+
+    expect(outputDefault).toContain('IMPORTS:');
+    expect(outputDefault).toContain('internalHelper');
   });
 });
