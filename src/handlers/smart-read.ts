@@ -154,8 +154,8 @@ export async function handleSmartRead(
     previouslyLoaded &&
     contextRegistry.isStale(absPath, cached.hash)
   ) {
-    const entry = (contextRegistry as any)['entries']?.get(absPath);
-    if (entry && (Date.now() - entry.loadedAt) < (config.smartRead.autoDelta.maxAgeSec ?? 120) * 1000) {
+    const loadedAt = contextRegistry.getLoadedAt(absPath);
+    if (loadedAt !== undefined && (Date.now() - loadedAt) < (config.smartRead.autoDelta.maxAgeSec ?? 120) * 1000) {
       const prevNames = contextRegistry.getSymbolNames(absPath) ?? [];
       const currentNames = cached.structure.symbols.map((s: { name: string }) => s.name);
 
@@ -163,7 +163,7 @@ export async function handleSmartRead(
       const removed = prevNames.filter((n: string) => !currentNames.includes(n));
       const unchanged = currentNames.filter((n: string) => prevNames.includes(n));
 
-      const elapsed = formatDuration(Date.now() - entry.loadedAt);
+      const elapsed = formatDuration(Date.now() - loadedAt);
       const deltaLines: string[] = [
         `FILE: ${args.path} (DELTA — changed since last read ${elapsed} ago)`,
         '',

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { FindUsagesArgs } from '../core/validation.js';
@@ -101,7 +101,6 @@ async function renderSectionWithContext(
       fileLines = fileCache.get(file)!;
     } else if (filesRead < MAX_CONTEXT_FILES) {
       try {
-        const { stat } = await import('node:fs/promises');
         const fileStat = await stat(resolve(projectRoot, file));
         if (fileStat.size <= MAX_CONTEXT_FILE_SIZE) {
           const content = await readFile(resolve(projectRoot, file), 'utf-8');
