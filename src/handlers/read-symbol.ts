@@ -165,6 +165,8 @@ export async function handleReadSymbol(
     outputLines.push('```');
     outputLines.push(truncatedRaw);
     outputLines.push('```');
+    outputLines.push('');
+    outputLines.push(`AFTER EDIT: Use read_diff("${args.path}") to verify (90% cheaper than smart_read).`);
   }
 
   const output = outputLines.join('\n');

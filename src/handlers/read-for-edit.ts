@@ -269,6 +269,11 @@ export async function handleReadForEdit(
   });
   outputLines.push(formatConfidence(confidenceMeta));
 
+  // Add post-edit hint
+  const hintPath = args.path;
+  outputLines.push('');
+  outputLines.push(`AFTER EDIT: Use read_diff("${hintPath}") to verify changes (90% cheaper than re-reading the file).`);
+
   const output = outputLines.join('\n');
   const tokens = estimateTokens(output);
 

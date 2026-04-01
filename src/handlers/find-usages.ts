@@ -63,14 +63,22 @@ function renderSection(
   return lines;
 }
 
+/** Max unique files to read for context (prevents unbounded I/O). */
+const MAX_CONTEXT_FILES = 30;
+
+/** Max file size (bytes) to read for context lines. */
+const MAX_CONTEXT_FILE_SIZE = 500_000;
+
 /**
  * Render a section with surrounding source context lines.
+ * Uses shared fileCache to avoid re-reading the same file across sections.
  */
 async function renderSectionWithContext(
   title: string,
   items: Array<{ file: string; line: number; text: string }>,
   contextLines: number,
   projectRoot: string,
+  fileCache: Map<string, string[] | null>,
 ): Promise<string[]> {
   if (items.length === 0) return [];
   const lines: string[] = [`${title}:`];
@@ -82,17 +90,31 @@ async function renderSectionWithContext(
     byFile.set(item.file, arr);
   }
 
+  let filesRead = 0;
   for (const [file, matches] of byFile) {
     matches.sort((a, b) => a.line - b.line);
     lines.push(`  ${file}:`);
 
-    // Read file for context
+    // Read file for context (with shared cache and limits)
     let fileLines: string[] | null = null;
-    try {
-      const content = await readFile(resolve(projectRoot, file), 'utf-8');
-      fileLines = content.split('\n');
-    } catch {
-      // File unreadable — fall back to text-only
+    if (fileCache.has(file)) {
+      fileLines = fileCache.get(file)!;
+    } else if (filesRead < MAX_CONTEXT_FILES) {
+      try {
+        const { stat } = await import('node:fs/promises');
+        const fileStat = await stat(resolve(projectRoot, file));
+        if (fileStat.size <= MAX_CONTEXT_FILE_SIZE) {
+          const content = await readFile(resolve(projectRoot, file), 'utf-8');
+          fileLines = content.split('\n');
+        }
+      } catch {
+        // File unreadable
+      }
+      fileCache.set(file, fileLines);
+      filesRead++;
+    }
+
+    if (!fileLines) {
       for (const m of matches) {
         lines.push(`    :${m.line}  ${m.text}`);
       }
@@ -259,10 +281,12 @@ export async function handleFindUsages(
   ];
 
   if (args.context_lines !== undefined && args.context_lines > 0 && projectRoot) {
+    // Shared file cache across all three sections to avoid re-reading the same files
+    const contextFileCache = new Map<string, string[] | null>();
     const [defSection, impSection, useSection] = await Promise.all([
-      renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot),
-      renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot),
-      renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot),
+      renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot, contextFileCache),
+      renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot, contextFileCache),
+      renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot, contextFileCache),
     ]);
     lines.push(...defSection);
     lines.push(...impSection);
@@ -274,6 +298,11 @@ export async function handleFindUsages(
   }
 
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
+
+  if (totalCount > 20) {
+    lines.push('');
+    lines.push(`NARROW: ${totalCount} matches found. Use find_usages("${args.symbol}", path="specific_dir/") to filter by location.`);
+  }
 
   // Confidence metadata
   const confidenceMeta = assessConfidence({
