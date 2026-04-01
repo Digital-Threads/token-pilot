@@ -168,6 +168,11 @@ export const TOOL_DEFINITIONS = [
         limit: { type: 'number', description: 'Max results per category (default: 50, max: 500)' },
         lang: { type: 'string', description: 'Filter by language/extension (e.g., "php", "typescript")' },
         context_lines: { type: 'number', description: 'Lines of source context around each match (0-10). When set, shows surrounding code — saves follow-up read_symbol calls.' },
+        mode: {
+          type: 'string',
+          enum: ['full', 'list'],
+          description: 'Output mode: full (with context, default), list (file:line only, 5-10x smaller for initial discovery)',
+        },
       },
       required: ['symbol'],
     },

@@ -268,6 +268,41 @@ export async function handleFindUsages(
     };
   }
 
+  // ─── List mode — compact file:line output ───
+  if (args.mode === 'list') {
+    const allItems = [...definitions, ...allImports, ...allUsages];
+    const byFile = new Map<string, number[]>();
+    for (const item of allItems) {
+      const arr = byFile.get(item.file) ?? [];
+      arr.push(item.line);
+      byFile.set(item.file, arr);
+    }
+
+    const listLines: string[] = [
+      `USAGES OF "${args.symbol}" (${allItems.length} matches in ${byFile.size} files):`,
+      '',
+    ];
+
+    for (const [file, fileLines] of byFile) {
+      const sorted = [...new Set(fileLines)].sort((a, b) => a - b);
+      listLines.push(`  ${file}: L${sorted.join(', L')}`);
+    }
+
+    listLines.push('');
+    listLines.push(`HINT: Use find_usages("${args.symbol}", path="specific_dir/") to narrow, or read_symbol() on specific matches.`);
+
+    return {
+      content: [{ type: 'text', text: listLines.join('\n') }],
+      meta: {
+        files: Array.from(byFile.keys()),
+        definitions: definitions.length,
+        imports: allImports.length,
+        usages: allUsages.length,
+        total: allItems.length,
+      },
+    };
+  }
+
   // Build header with active filters
   const filterHints: string[] = [];
   if (args.scope) filterHints.push(`scope="${args.scope}"`);
