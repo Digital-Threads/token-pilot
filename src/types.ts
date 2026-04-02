@@ -69,6 +69,7 @@ export interface ContextEntry {
   contentHash: string;
   tokenEstimate: number;
   loadedAt: number;
+  symbolNames?: string[];
 }
 
 export interface LoadedRegion {
@@ -102,6 +103,10 @@ export interface TokenPilotConfig {
     smallFileThreshold: number;
     showDependencyHints: boolean;
     advisoryReminders: boolean;
+    autoDelta: {
+      enabled: boolean;
+      maxAgeSec: number;
+    };
   };
   git: {
     watchHead: boolean;
@@ -123,6 +128,7 @@ export interface TokenPilotConfig {
     showReferences: boolean;
     maxDepth: number;
     showTokenSavings: boolean;
+    actionableHints: boolean;
   };
   contextMode: {
     enabled: boolean | 'auto';

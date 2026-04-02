@@ -53,6 +53,55 @@ describe('handleSmartRead', () => {
     expect(result.content[0].text).toContain('Use read_range() for full content');
   });
 
+  it('returns a delta response when a file has changed since last read', async () => {
+    // Build a file with enough lines (>10 threshold) and TS functions for regex parser
+    const makeContent = (fns: string[]) => {
+      const lines = fns.map(n => [
+        `export function ${n}(x: number): number {`,
+        `  // implementation of ${n}`,
+        `  return x + 1;`,
+        `}`,
+        ``,
+      ].join('\n'));
+      return lines.join('\n');
+    };
+
+    const initialFunctions = ['alpha', 'beta', 'gamma'];
+    const updatedFunctions = ['alpha', 'beta', 'delta']; // gamma removed, delta added
+
+    const filePath = join(tempDir, 'delta-test.ts');
+    await writeFile(filePath, makeContent(initialFunctions));
+
+    const fileCache = new FileCache();
+    const registry = new ContextRegistry();
+    const config = {
+      ...DEFAULT_CONFIG,
+      smartRead: {
+        ...DEFAULT_CONFIG.smartRead,
+        smallFileThreshold: 10, // file will have ~15+ lines, above threshold
+        advisoryReminders: true,
+        autoDelta: { enabled: true, maxAgeSec: 120 },
+      },
+    };
+
+    // astIndex returns null so the regex fallback is used
+    const astIndex = { outline: async () => null } as any;
+
+    // First read: loads structure into context
+    await handleSmartRead({ path: 'delta-test.ts' }, tempDir, astIndex, fileCache, registry, config);
+
+    // Modify the file
+    await writeFile(filePath, makeContent(updatedFunctions));
+
+    // Invalidate the file cache so fresh parse happens
+    fileCache.invalidate(filePath);
+
+    // Second read: file changed → should produce DELTA response
+    const second = await handleSmartRead({ path: 'delta-test.ts' }, tempDir, astIndex, fileCache, registry, config);
+
+    expect(second.content[0].text).toContain('DELTA');
+  });
+
   it('serves a compact reminder on repeated reads of unchanged files', async () => {
     const content = Array.from({ length: 30 }, (_, i) => `export function thing${i}() { return ${i}; }`).join('\n');
     await writeFile(join(tempDir, 'big.ts'), content);

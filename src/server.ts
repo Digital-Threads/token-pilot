@@ -344,6 +344,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             }
           }
 
+          // Dedup is handled inside handleSmartRead (step 5)
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const text = result.content[0]?.text ?? '';
           const fullTokensSR = await fullFileTokens(validArgs.path);
@@ -354,6 +355,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'read_symbol': {
           const symArgs = validateReadSymbolArgs(args);
+
+          // Dedup is handled inside handleReadSymbol
           const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex, config.smartRead.advisoryReminders);
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
@@ -394,7 +397,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
         case 'read_for_edit': {
           const editArgs = validateReadForEditArgs(args);
-          const editResult = await handleReadForEdit(editArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex);
+          const editResult = await handleReadForEdit(editArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex, { actionableHints: config.display.actionableHints });
           const editText = editResult.content[0]?.text ?? '';
           const editTokens = estimateTokens(editText);
           const fullTokensEdit = await fullFileTokens(editArgs.path);

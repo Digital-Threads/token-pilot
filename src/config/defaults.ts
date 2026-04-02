@@ -14,6 +14,10 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     smallFileThreshold: 200,
     showDependencyHints: true,
     advisoryReminders: true,
+    autoDelta: {
+      enabled: true,
+      maxAgeSec: 120,
+    },
   },
   git: {
     watchHead: true,
@@ -35,6 +39,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     showReferences: false,
     maxDepth: 2,
     showTokenSavings: true,
+    actionableHints: true,
   },
   contextMode: {
     enabled: 'auto' as const,

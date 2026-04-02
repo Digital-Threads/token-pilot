@@ -10,6 +10,7 @@ import { resolveSafePath } from '../core/validation.js';
 import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
 import { parseTypeScriptRegex } from '../ast-index/regex-parser.js';
 import { buildFileStructure } from '../ast-index/enricher.js';
+import { formatDuration } from '../core/format-duration.js';
 
 const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
@@ -20,6 +21,7 @@ export interface SmartReadArgs {
   show_docs?: boolean;
   show_references?: boolean;
   depth?: number;
+  scope?: 'full' | 'nav' | 'exports';
 }
 
 export async function handleSmartRead(
@@ -146,12 +148,72 @@ export async function handleSmartRead(
     }
   }
 
+  // 5b. Auto-delta: file changed since last load, recently loaded
+  if (
+    config.smartRead.autoDelta?.enabled &&
+    previouslyLoaded &&
+    contextRegistry.isStale(absPath, cached.hash)
+  ) {
+    const loadedAt = contextRegistry.getLoadedAt(absPath);
+    if (loadedAt !== undefined && (Date.now() - loadedAt) < (config.smartRead.autoDelta.maxAgeSec ?? 120) * 1000) {
+      const prevNames = contextRegistry.getSymbolNames(absPath) ?? [];
+      const prevSet = new Set(prevNames);
+      const currentNames = cached.structure.symbols.map(s => s.name);
+      const currentSet = new Set(currentNames);
+
+      const added = currentNames.filter(n => !prevSet.has(n));
+      const removed = prevNames.filter(n => !currentSet.has(n));
+      const unchanged = currentNames.filter(n => prevSet.has(n));
+
+      const elapsed = formatDuration(Date.now() - loadedAt);
+      const deltaLines: string[] = [
+        `FILE: ${args.path} (DELTA — changed since last read ${elapsed} ago)`,
+        '',
+      ];
+
+      if (added.length > 0) {
+        deltaLines.push('ADDED:');
+        for (const name of added) {
+          const sym = cached.structure.symbols.find(s => s.name === name);
+          if (sym) deltaLines.push(`  ${sym.kind} ${sym.signature} [L${sym.location.startLine}-${sym.location.endLine}]`);
+        }
+        deltaLines.push('');
+      }
+
+      if (removed.length > 0) {
+        deltaLines.push(`REMOVED: ${removed.join(', ')}`);
+        deltaLines.push('');
+      }
+
+      if (unchanged.length > 0) {
+        deltaLines.push(`UNCHANGED (${unchanged.length} symbols):`);
+        for (const name of unchanged.slice(0, 15)) {
+          const sym = cached.structure.symbols.find(s => s.name === name);
+          if (sym) deltaLines.push(`  ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`);
+        }
+        if (unchanged.length > 15) deltaLines.push(`  ... and ${unchanged.length - 15} more`);
+        deltaLines.push('');
+      }
+
+      deltaLines.push(`HINT: For full re-read: smart_read("${args.path}", scope="full")`);
+
+      const deltaText = deltaLines.join('\n');
+      const deltaTokens = estimateTokens(deltaText);
+      contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: cached.structure.meta.lines, tokens: deltaTokens });
+      contextRegistry.setContentHash(absPath, cached.hash);
+      contextRegistry.trackStructureSymbols(absPath, currentNames);
+
+      return { content: [{ type: 'text', text: deltaText }] };
+    }
+  }
+
   // 6. Format output
   const output = formatOutline(cached.structure, {
     showImports: args.show_imports ?? config.display.showImports,
     showDocs: args.show_docs ?? config.display.showDocs,
     showDependencyHints: config.smartRead.showDependencyHints,
     maxDepth: args.depth ?? config.display.maxDepth,
+    scope: args.scope ?? 'full',
   });
 
   // 6b. Adaptive fallback: if outline is not significantly smaller than raw, return raw
@@ -166,6 +228,9 @@ export async function handleSmartRead(
       tokens: fullTokens,
     });
     contextRegistry.setContentHash(absPath, cached.hash);
+    if (cached.structure.symbols.length > 0) {
+      contextRegistry.trackStructureSymbols(absPath, cached.structure.symbols.map(s => s.name));
+    }
 
     return {
       content: [{
@@ -188,6 +253,7 @@ export async function handleSmartRead(
     tokens: structureTokens,
   });
   contextRegistry.setContentHash(absPath, cached.hash);
+  contextRegistry.trackStructureSymbols(absPath, cached.structure.symbols.map(s => s.name));
 
   // 9. Confidence metadata
   const confidenceMeta = assessConfidence({

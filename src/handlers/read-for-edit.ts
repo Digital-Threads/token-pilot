@@ -33,6 +33,7 @@ export async function handleReadForEdit(
   fileCache: FileCache,
   contextRegistry: ContextRegistry,
   astIndex: AstIndexClient,
+  options?: { actionableHints?: boolean },
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
   const ctx = args.context ?? DEFAULT_CONTEXT;
@@ -268,6 +269,12 @@ export async function handleReadForEdit(
     astAvailable: true,
   });
   outputLines.push(formatConfidence(confidenceMeta));
+
+  // Add post-edit hint (config-gated)
+  if (options?.actionableHints !== false) {
+    outputLines.push('');
+    outputLines.push(`AFTER EDIT: Use read_diff("${args.path}") to verify changes (90% cheaper than re-reading the file).`);
+  }
 
   const output = outputLines.join('\n');
   const tokens = estimateTokens(output);

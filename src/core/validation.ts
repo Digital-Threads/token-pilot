@@ -185,6 +185,7 @@ export interface FindUsagesArgs {
   limit?: number;
   lang?: string;
   context_lines?: number;
+  mode?: 'full' | 'list';
 }
 
 export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
@@ -215,6 +216,15 @@ export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
     throw new Error('"context_lines" must be between 0 and 10.');
   }
 
+  let mode: FindUsagesArgs['mode'];
+  if (a.mode !== undefined && a.mode !== null) {
+    const validModes = ['full', 'list'];
+    if (typeof a.mode !== 'string' || !validModes.includes(a.mode)) {
+      throw new Error(`"mode" must be one of: ${validModes.join(', ')}`);
+    }
+    mode = a.mode as FindUsagesArgs['mode'];
+  }
+
   return {
     symbol: a.symbol,
     scope: optionalString(a.scope, 'scope'),
@@ -222,6 +232,7 @@ export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
     limit,
     lang: optionalString(a.lang, 'lang'),
     context_lines,
+    mode,
   };
 }
 
