@@ -153,20 +153,20 @@ export async function handleReadSymbol(
   outputLines.push('');
   outputLines.push('CONTEXT TRACKED: This symbol is now in your context.');
 
-  // Append raw edit context if requested
+  // Optional: append raw edit context to save a separate read_for_edit call (small symbols only)
   if (args.include_edit_context) {
     const rawLines = lines.slice(resolved.startLine - 1, resolved.endLine);
     const maxEditLines = 60;
-    const truncatedRaw = rawLines.length > maxEditLines
-      ? rawLines.slice(0, maxEditLines).join('\n') + `\n... truncated at ${maxEditLines} lines`
-      : rawLines.join('\n');
-    outputLines.push('');
-    outputLines.push('EDIT_CONTEXT (raw — copy directly as old_string):');
-    outputLines.push('```');
-    outputLines.push(truncatedRaw);
-    outputLines.push('```');
-    outputLines.push('');
-    outputLines.push(`AFTER EDIT: Use read_diff("${args.path}") to verify (90% cheaper than smart_read).`);
+    if (rawLines.length <= maxEditLines) {
+      outputLines.push('');
+      outputLines.push('EDIT_CONTEXT (raw — copy directly as old_string):');
+      outputLines.push('```');
+      outputLines.push(rawLines.join('\n'));
+      outputLines.push('```');
+    } else {
+      outputLines.push('');
+      outputLines.push(`EDIT_CONTEXT: Symbol too large (${rawLines.length} lines). Use read_for_edit("${args.path}", symbol="${args.symbol}") instead.`);
+    }
   }
 
   const output = outputLines.join('\n');

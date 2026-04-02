@@ -315,13 +315,11 @@ export async function handleFindUsages(
   ];
 
   if (args.context_lines !== undefined && args.context_lines > 0 && projectRoot) {
-    // Shared file cache across all three sections to avoid re-reading the same files
+    // Shared file cache across sections — sequential to avoid concurrent Map writes
     const contextFileCache = new Map<string, string[] | null>();
-    const [defSection, impSection, useSection] = await Promise.all([
-      renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot, contextFileCache),
-      renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot, contextFileCache),
-      renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot, contextFileCache),
-    ]);
+    const defSection = await renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot, contextFileCache);
+    const impSection = await renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot, contextFileCache);
+    const useSection = await renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot, contextFileCache);
     lines.push(...defSection);
     lines.push(...impSection);
     lines.push(...useSection);

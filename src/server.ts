@@ -344,28 +344,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
             }
           }
 
-          // Early dedup: skip handler if file unchanged and already in context
-          {
-            const earlyAbsPath = resolve(projectRoot, validArgs.path);
-            const earlyCache = fileCache.get(earlyAbsPath);
-            if (earlyCache && !await fileCache.isStale(earlyAbsPath)) {
-              if (contextRegistry.hasAnyLoaded(earlyAbsPath) && !contextRegistry.isStale(earlyAbsPath, earlyCache.hash)) {
-                const reminder = contextRegistry.compactReminder(earlyAbsPath, earlyCache.structure?.symbols ?? []);
-                if (reminder) {
-                  const reminderTokens = estimateTokens(reminder);
-                  const fullTokens = estimateTokens(earlyCache.content);
-                  recordWithTrace({
-                    tool: 'smart_read', path: validArgs.path,
-                    tokensReturned: reminderTokens, tokensWouldBe: fullTokens,
-                    timestamp: Date.now(), savingsCategory: 'dedup', sessionCacheHit: true,
-                    absPath: earlyAbsPath, args: validArgs,
-                  });
-                  return { content: [{ type: 'text', text: reminder }] };
-                }
-              }
-            }
-          }
-
+          // Dedup is handled inside handleSmartRead (step 5)
           const result = await handleSmartRead(validArgs, projectRoot, astIndex, fileCache, contextRegistry, config);
           const text = result.content[0]?.text ?? '';
           const fullTokensSR = await fullFileTokens(validArgs.path);
@@ -377,28 +356,7 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
         case 'read_symbol': {
           const symArgs = validateReadSymbolArgs(args);
 
-          // Early dedup: skip handler if exact symbol already in context
-          {
-            const symAbsPath = resolve(projectRoot, symArgs.path);
-            const symCache = fileCache.get(symAbsPath);
-            if (symCache && !await fileCache.isStale(symAbsPath)) {
-              if (!contextRegistry.isStale(symAbsPath, symCache.hash) && contextRegistry.isSymbolLoaded(symAbsPath, symArgs.symbol)) {
-                const reminder = contextRegistry.symbolReminder(symAbsPath, symArgs.symbol);
-                if (reminder) {
-                  const reminderTokens = estimateTokens(reminder);
-                  const fullTokens = estimateTokens(symCache.content);
-                  recordWithTrace({
-                    tool: 'read_symbol', path: symArgs.path,
-                    tokensReturned: reminderTokens, tokensWouldBe: fullTokens,
-                    timestamp: Date.now(), savingsCategory: 'dedup', sessionCacheHit: true,
-                    absPath: symAbsPath, args: symArgs,
-                  });
-                  return { content: [{ type: 'text', text: reminder }] };
-                }
-              }
-            }
-          }
-
+          // Dedup is handled inside handleReadSymbol
           const symResult = await handleReadSymbol(symArgs, projectRoot, symbolResolver, fileCache, contextRegistry, astIndex, config.smartRead.advisoryReminders);
           const symText = symResult.content[0]?.text ?? '';
           const symTokens = estimateTokens(symText);
