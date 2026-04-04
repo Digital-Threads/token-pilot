@@ -152,6 +152,10 @@ export const TOOL_DEFINITIONS = [
         include_callers: { type: 'boolean', description: 'Show top callers of this symbol (saves a separate find_usages call)' },
         include_tests: { type: 'boolean', description: 'Show related test file and test names' },
         include_changes: { type: 'boolean', description: 'Show recent git changes in the target region' },
+        section: {
+          type: 'string',
+          description: 'Markdown section heading to edit (e.g., "API Reference"). Returns raw section content for Edit old_string. Only for .md files.',
+        },
       },
       required: ['path'],
     },

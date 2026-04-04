@@ -285,6 +285,7 @@ export function validateReadForEditArgs(args: unknown): {
   include_callers?: boolean;
   include_tests?: boolean;
   include_changes?: boolean;
+  section?: string;
 } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
@@ -293,7 +294,7 @@ export function validateReadForEditArgs(args: unknown): {
   if (typeof a.path !== 'string' || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
-  if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0)) {
+  if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0) && !a.section) {
     throw new Error('Either "symbol", "symbols", or "line" must be provided.');
   }
 
@@ -323,6 +324,7 @@ export function validateReadForEditArgs(args: unknown): {
     include_callers: optionalBool(a.include_callers, 'include_callers'),
     include_tests: optionalBool(a.include_tests, 'include_tests'),
     include_changes: optionalBool(a.include_changes, 'include_changes'),
+    section: optionalString(a.section, 'section'),
   };
 }
 

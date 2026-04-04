@@ -2,7 +2,8 @@ import { readFile, stat, access } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import { relative, join } from 'node:path';
+import { relative, join, extname } from 'node:path';
+import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
@@ -22,6 +23,7 @@ export interface ReadForEditArgs {
   include_callers?: boolean;
   include_tests?: boolean;
   include_changes?: boolean;
+  section?: string;
 }
 
 const DEFAULT_CONTEXT = 5;
@@ -37,6 +39,58 @@ export async function handleReadForEdit(
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
   const ctx = args.context ?? DEFAULT_CONTEXT;
+
+  // Section mode: markdown section extraction for edit
+  if (args.section) {
+    const ext = extname(absPath).toLowerCase();
+    if (ext !== '.md' && ext !== '.markdown') {
+      return {
+        content: [{
+          type: 'text',
+          text: `"section" parameter only works with Markdown files. Got: ${ext}. Use "symbol" for code files.`,
+        }],
+      };
+    }
+
+    const fileContent = await readFile(absPath, 'utf-8');
+    const fileLines = fileContent.split('\n');
+    const sections = parseMarkdownSections(fileContent);
+    const section = findSection(sections, args.section);
+
+    if (!section) {
+      const available = sections.map(s => s.heading).join(', ');
+      return {
+        content: [{
+          type: 'text',
+          text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+        }],
+      };
+    }
+
+    const rawContent = extractSectionContent(fileLines, section);
+    const hashes = '#'.repeat(section.level);
+
+    const outputLines: string[] = [
+      `FILE: ${args.path}`,
+      `EDIT SECTION: ${hashes} ${section.heading} [L${section.startLine}-${section.endLine}] (${section.lineCount} lines)`,
+      '',
+      rawContent,
+      '',
+      `AFTER EDIT: Use read_diff("${args.path}") to verify changes (90% cheaper than re-reading).`,
+    ];
+
+    const output = outputLines.join('\n');
+    const tokens = estimateTokens(output);
+
+    contextRegistry.trackLoad(absPath, {
+      type: 'range',
+      startLine: section.startLine,
+      endLine: section.endLine,
+      tokens,
+    });
+
+    return { content: [{ type: 'text', text: output }] };
+  }
 
   // Get file content — also cache for read_diff baseline
   const cached = fileCache.get(absPath);
