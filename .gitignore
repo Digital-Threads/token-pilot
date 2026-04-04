@@ -29,3 +29,8 @@ docs/code-review-report.md
 
 # MCP Registry auth tokens
 .mcpregistry_*
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

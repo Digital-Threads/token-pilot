@@ -1,23 +1,45 @@
 {
   "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "Read",
         "hooks": [
           {
-            "type": "command",
-            "command": "token-pilot hook-read"
+            "command": "token-pilot hook-read",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Read"
       },
       {
-        "matcher": "Edit",
         "hooks": [
           {
-            "type": "command",
-            "command": "token-pilot hook-edit"
+            "command": "token-pilot hook-edit",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Edit"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bd prime",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
       }
     ]
   }
