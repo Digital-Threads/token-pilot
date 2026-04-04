@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { relative, join, extname } from 'node:path';
 import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
+import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
@@ -44,12 +45,12 @@ export async function handleReadForEdit(
   // Section mode: markdown/YAML section extraction for edit
   if (args.section) {
     const ext = extname(absPath).toLowerCase();
-    const supportedExts = new Set(['.md', '.markdown', '.yaml', '.yml']);
+    const supportedExts = new Set(['.md', '.markdown', '.yaml', '.yml', '.json']);
     if (!supportedExts.has(ext)) {
       return {
         content: [{
           type: 'text',
-          text: `"section" parameter only works with Markdown or YAML files. Got: ${ext}. Use "symbol" for code files.`,
+          text: `"section" parameter only works with Markdown, YAML, or JSON files. Got: ${ext}. Use "symbol" for code files.`,
         }],
       };
     }
@@ -61,7 +62,7 @@ export async function handleReadForEdit(
     if (!fileCache.get(absPath)) {
       const fileStat = await stat(absPath);
       const hash = createHash('sha256').update(fileContent).digest('hex');
-      const language = ext === '.md' || ext === '.markdown' ? 'markdown' : 'yaml';
+      const language = ext === '.json' ? 'json' : (ext === '.md' || ext === '.markdown') ? 'markdown' : 'yaml';
       fileCache.set(absPath, {
         structure: { path: absPath, language, meta: { lines: fileLines.length, bytes: fileContent.length, lastModified: fileStat.mtimeMs, contentHash: hash }, imports: [], exports: [], symbols: [] },
         content: fileContent, lines: fileLines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
@@ -97,6 +98,19 @@ export async function handleReadForEdit(
         };
       }
       sectionResult = { ...section, rawContent: extractYamlSectionContent(fileLines, section), label: section.heading };
+    } else if (ext === '.json') {
+      const sections = parseJsonSections(fileContent);
+      const section = findJsonSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      sectionResult = { ...section, rawContent: extractJsonSectionContent(fileLines, section), label: section.heading };
     }
 
     if (!sectionResult) {

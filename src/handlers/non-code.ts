@@ -6,6 +6,7 @@ import type { ContextRegistry } from '../core/context-registry.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
 import { parseMarkdownSections } from './markdown-sections.js';
 import { parseYamlSections } from './yaml-sections.js';
+import { parseJsonSections } from './json-sections.js';
 
 /**
  * Detect if a file is a non-code structured file (JSON, YAML, Markdown, etc.)
@@ -103,7 +104,7 @@ function summarizeJson(filePath: string, content: string, lineCount: number): st
         const type = Array.isArray(value)
           ? `array[${value.length}]`
           : typeof value === 'object' && value !== null
-            ? `object{${Object.keys(value).length} keys}`
+            ? `object{${Object.keys(value as object).length} keys}`
             : typeof value;
         lines.push(`  ${key}: ${type}`);
       }
@@ -111,6 +112,19 @@ function summarizeJson(filePath: string, content: string, lineCount: number): st
   } catch {
     lines.push('(Invalid JSON — parse error)');
   }
+
+  // Add section line ranges for navigation
+  const jsonSections = parseJsonSections(content);
+  if (jsonSections.length > 0) {
+    lines.push('');
+    lines.push('SECTION RANGES:');
+    for (const sec of jsonSections) {
+      lines.push(`  "${sec.heading}" [L${sec.startLine}-${sec.endLine}] (${sec.lineCount} lines)`);
+    }
+  }
+
+  lines.push('');
+  lines.push(`HINT: Use read_section("${filePath}", heading="<key>") to load a specific section.`);
 
   return lines.join('\n');
 }

@@ -5,6 +5,7 @@ import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
+import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
 
 export interface ReadSectionArgs {
   path: string;
@@ -49,11 +50,23 @@ export async function handleReadSection(
       };
     }
     sectionData = { ...section, content: extractYamlSectionContent(lines, section), label: section.heading };
+  } else if (ext === '.json') {
+    const sections = parseJsonSections(content);
+    const section = findJsonSection(sections, args.heading);
+    if (!section) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
+        }],
+      };
+    }
+    sectionData = { ...section, content: extractJsonSectionContent(lines, section), label: section.heading };
   } else {
     return {
       content: [{
         type: 'text',
-        text: `read_section supports: .md, .yaml, .yml. Got: ${ext}`,
+        text: `read_section supports: .md, .yaml, .yml, .json. Got: ${ext}`,
       }],
     };
   }

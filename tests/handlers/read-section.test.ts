@@ -84,6 +84,26 @@ describe('handleReadSection', () => {
     expect(registry.hasAnyLoaded(join(tempDir, 'doc.md'))).toBe(true);
   });
 
+  it('reads a JSON section by top-level key', async () => {
+    const json = JSON.stringify({
+      name: "test",
+      dependencies: { express: "^4.0.0", zod: "^3.0.0" },
+      scripts: { build: "tsc", test: "vitest" },
+    }, null, 2);
+    await writeFile(join(tempDir, 'package.json'), json);
+
+    const result = await handleReadSection(
+      { path: 'package.json', heading: 'dependencies' },
+      tempDir,
+      new ContextRegistry(),
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('SECTION: dependencies');
+    expect(text).toContain('express');
+    expect(text).not.toContain('vitest');
+  });
+
   it('reads a YAML section by top-level key', async () => {
     const yaml = [
       'services:',
