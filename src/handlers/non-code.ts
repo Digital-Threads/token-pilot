@@ -7,13 +7,14 @@ import type { ContextModeStatus } from '../integration/context-mode-detector.js'
 import { parseMarkdownSections } from './markdown-sections.js';
 import { parseYamlSections } from './yaml-sections.js';
 import { parseJsonSections } from './json-sections.js';
+import { parseCsvOutline, formatCsvOutline } from './csv-sections.js';
 
 /**
  * Detect if a file is a non-code structured file (JSON, YAML, Markdown, etc.)
  */
 export function isNonCodeStructured(filePath: string): boolean {
   const ext = extname(filePath).toLowerCase();
-  return ['.json', '.yaml', '.yml', '.md', '.markdown', '.toml'].includes(ext);
+  return ['.json', '.yaml', '.yml', '.md', '.markdown', '.toml', '.csv'].includes(ext);
 }
 
 export interface NonCodeOptions {
@@ -56,6 +57,9 @@ export async function handleNonCodeRead(
       break;
     case '.toml':
       summary = summarizeToml(filePath, content, lines.length);
+      break;
+    case '.csv':
+      summary = summarizeCsv(filePath, content, lines.length);
       break;
     default:
       return null;
@@ -309,4 +313,9 @@ function summarizeToml(filePath: string, content: string, lineCount: number): st
   }
 
   return lines.join('\n');
+}
+
+function summarizeCsv(filePath: string, content: string, lineCount: number): string {
+  const outline = parseCsvOutline(content);
+  return formatCsvOutline(filePath, outline, lineCount);
 }

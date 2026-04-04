@@ -6,6 +6,7 @@ import { resolveSafePath } from '../core/validation.js';
 import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
 import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
+import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
 
 export interface ReadSectionArgs {
   path: string;
@@ -62,11 +63,23 @@ export async function handleReadSection(
       };
     }
     sectionData = { ...section, content: extractJsonSectionContent(lines, section), label: section.heading };
+  } else if (ext === '.csv') {
+    const outline = parseCsvOutline(content);
+    const section = parseCsvSectionSpec(args.heading, outline.rowCount);
+    if (!section) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Invalid section spec "${args.heading}" for CSV. Use format: rows:1-50 or row:5\nTotal rows: ${outline.rowCount}`,
+        }],
+      };
+    }
+    sectionData = { ...section, content: extractCsvSectionContent(lines, section), label: section.heading };
   } else {
     return {
       content: [{
         type: 'text',
-        text: `read_section supports: .md, .yaml, .yml, .json. Got: ${ext}`,
+        text: `read_section supports: .md, .yaml, .yml, .json, .csv. Got: ${ext}`,
       }],
     };
   }

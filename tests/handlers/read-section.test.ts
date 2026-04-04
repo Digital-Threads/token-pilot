@@ -127,4 +127,23 @@ describe('handleReadSection', () => {
     expect(text).toContain('image: nginx');
     expect(text).not.toContain('volumes:');
   });
+
+  it('reads CSV rows by range', async () => {
+    const csv = 'id,name\n1,Alice\n2,Bob\n3,Charlie\n4,Dave\n5,Eve';
+    await writeFile(join(tempDir, 'data.csv'), csv);
+
+    const result = await handleReadSection(
+      { path: 'data.csv', heading: 'rows:2-4' },
+      tempDir,
+      new ContextRegistry(),
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('id,name'); // header always included
+    expect(text).toContain('Bob');
+    expect(text).toContain('Charlie');
+    expect(text).toContain('Dave');
+    expect(text).not.toContain('Alice');
+    expect(text).not.toContain('Eve');
+  });
 });
