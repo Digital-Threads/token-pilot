@@ -4,6 +4,7 @@ import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
+import { parseMarkdownSections } from './markdown-sections.js';
 
 /**
  * Detect if a file is a non-code structured file (JSON, YAML, Markdown, etc.)
@@ -233,17 +234,20 @@ function summarizeMarkdown(filePath: string, content: string, lineCount: number)
   const lines: string[] = [
     `FILE: ${filePath} (${lineCount} lines, Markdown)`,
     '',
-    'TABLE OF CONTENTS:',
   ];
 
-  // Extract headings
-  for (const line of content.split('\n')) {
-    const match = line.match(/^(#{1,6})\s+(.+)/);
-    if (match) {
-      const level = match[1].length;
-      const indent = '  '.repeat(level - 1);
-      lines.push(`${indent}${match[2]}`);
-    }
+  const sections = parseMarkdownSections(content);
+
+  if (sections.length === 0) {
+    lines.push('(No headings found)');
+    return lines.join('\n');
+  }
+
+  lines.push('SECTIONS:');
+  for (const sec of sections) {
+    const indent = '  '.repeat(sec.level);
+    const hashes = '#'.repeat(sec.level);
+    lines.push(`${indent}${hashes} ${sec.heading} [L${sec.startLine}-${sec.endLine}] (${sec.lineCount} lines)`);
   }
 
   // Count code blocks
@@ -252,6 +256,10 @@ function summarizeMarkdown(filePath: string, content: string, lineCount: number)
     lines.push('');
     lines.push(`Code blocks: ${Math.floor(codeBlocks)}`);
   }
+
+  lines.push('');
+  lines.push(`HINT: Use read_section("${filePath}", heading="<name>") to load a specific section.`);
+  lines.push(`      Use read_for_edit("${filePath}", section="<name>") for edit context.`);
 
   return lines.join('\n');
 }
