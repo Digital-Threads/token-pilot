@@ -41,6 +41,7 @@ import { handleSmartDiff } from './handlers/smart-diff.js';
 import { handleExploreArea } from './handlers/explore-area.js';
 import { handleSmartLog } from './handlers/smart-log.js';
 import { handleTestSummary } from './handlers/test-summary.js';
+import { handleReadSection } from './handlers/read-section.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
 import { estimateTokens } from './core/token-estimator.js';
@@ -66,6 +67,7 @@ import {
   validateExploreAreaArgs,
   validateSmartLogArgs,
   validateTestSummaryArgs,
+  validateReadSectionArgs,
 } from './core/validation.js';
 
 export async function createServer(projectRoot: string, options?: { skipAstIndex?: boolean }) {
@@ -383,6 +385,21 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const fullTokensRange = await fullFileTokens(rangeArgs.path);
           recordWithTrace({ tool: 'read_range', path: rangeArgs.path, tokensReturned: rangeTokens, tokensWouldBe: fullTokensRange || rangeTokens, timestamp: Date.now(), savingsCategory: detectSavingsCategory(rangeText), absPath: resolve(projectRoot, rangeArgs.path), args: rangeArgs });
           return rangeResult;
+        }
+
+        case 'read_section': {
+          const secArgs = validateReadSectionArgs(args);
+          const secResult = await handleReadSection(secArgs, projectRoot, contextRegistry);
+          const secText = secResult.content[0]?.text ?? '';
+          const secTokens = estimateTokens(secText);
+          const fullTokensSec = await fullFileTokens(secArgs.path);
+          recordWithTrace({
+            tool: 'read_section', path: secArgs.path,
+            tokensReturned: secTokens, tokensWouldBe: fullTokensSec || secTokens,
+            timestamp: Date.now(), savingsCategory: 'compression',
+            absPath: resolve(projectRoot, secArgs.path), args: secArgs,
+          });
+          return secResult;
         }
 
         case 'read_diff': {

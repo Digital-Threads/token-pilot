@@ -111,6 +111,18 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'read_section',
+    description: 'Read a specific section from a Markdown file by heading name. Returns section content with line numbers. Much cheaper than reading the whole file.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'Path to markdown file' },
+        heading: { type: 'string', description: 'Section heading to read (e.g., "API Reference"). Case-insensitive.' },
+      },
+      required: ['path', 'heading'],
+    },
+  },
+  {
     name: 'read_diff',
     description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks. REQUIRES: call smart_read or read_for_edit BEFORE editing to create baseline snapshot.',
     inputSchema: {
