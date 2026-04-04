@@ -6,6 +6,7 @@ import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
+import { MAX_SYMBOL_LINES, MAX_FULL_LINES, SYMBOL_HEAD_LINES, SYMBOL_TAIL_LINES } from './symbol-display-constants.js';
 
 export interface ReadSymbolArgs {
   path: string;
@@ -13,6 +14,7 @@ export interface ReadSymbolArgs {
   context_before?: number;
   context_after?: number;
   show?: 'full' | 'head' | 'tail' | 'outline';
+  include_edit_context?: boolean;
 }
 
 export async function handleReadSymbol(
@@ -76,10 +78,9 @@ export async function handleReadSymbol(
   const lineCount = resolved.endLine - resolved.startLine + 1;
 
   // Show mode: control how large symbols are displayed
-  const MAX_SYMBOL_LINES = 300;
-  const MAX_FULL_LINES = 500;
-  const HEAD = 50;
-  const TAIL = 30;
+  // Display constants from shared module (imported at top level)
+  const HEAD = SYMBOL_HEAD_LINES;
+  const TAIL = SYMBOL_TAIL_LINES;
   let displaySource = source;
   let truncated = false;
 
@@ -151,6 +152,22 @@ export async function handleReadSymbol(
   // Build full output including tracking message, THEN estimate tokens
   outputLines.push('');
   outputLines.push('CONTEXT TRACKED: This symbol is now in your context.');
+
+  // Optional: append raw edit context to save a separate read_for_edit call (small symbols only)
+  if (args.include_edit_context) {
+    const rawLines = lines.slice(resolved.startLine - 1, resolved.endLine);
+    const maxEditLines = 60;
+    if (rawLines.length <= maxEditLines) {
+      outputLines.push('');
+      outputLines.push('EDIT_CONTEXT (raw — copy directly as old_string):');
+      outputLines.push('```');
+      outputLines.push(rawLines.join('\n'));
+      outputLines.push('```');
+    } else {
+      outputLines.push('');
+      outputLines.push(`EDIT_CONTEXT: Symbol too large (${rawLines.length} lines). Use read_for_edit("${args.path}", symbol="${args.symbol}") instead.`);
+    }
+  }
 
   const output = outputLines.join('\n');
   const tokens = estimateTokens(output);

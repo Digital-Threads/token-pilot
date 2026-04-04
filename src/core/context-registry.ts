@@ -199,6 +199,22 @@ export class ContextRegistry {
     return total;
   }
 
+  trackStructureSymbols(path: string, symbolNames: string[]): void {
+    const entry = this.entries.get(path);
+    if (entry) {
+      entry.symbolNames = symbolNames;
+    }
+  }
+
+  getSymbolNames(path: string): string[] | undefined {
+    return this.entries.get(path)?.symbolNames;
+  }
+
+  /** Get the timestamp when a file was last loaded into context. */
+  getLoadedAt(path: string): number | undefined {
+    return this.entries.get(path)?.loadedAt;
+  }
+
   invalidateByGitDiff(changedFiles: string[]): void {
     for (const file of changedFiles) {
       this.entries.delete(file);

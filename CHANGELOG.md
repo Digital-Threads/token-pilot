@@ -5,6 +5,22 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-04-02
+
+### Added
+- **`smart_read` scope parameter** — `scope="nav"` returns names + line ranges only (2-3x smaller), `scope="exports"` shows only public API. Default `scope="full"` unchanged.
+- **`smart_read` auto-delta** — when a file changed since last load (within 120s), shows ADDED/REMOVED/UNCHANGED symbols instead of full re-read. Config: `smartRead.autoDelta.enabled`.
+- **`read_symbol` include_edit_context** — optional `include_edit_context=true` appends raw code block (max 60 lines) to save a separate `read_for_edit` call. Large symbols fall back to `read_for_edit`.
+- **`find_usages` mode=list** — compact `file:line` output for initial discovery, 5-10x smaller than full mode.
+- **`smart_read_many` per-file dedup** — skips files already in context and unchanged, returns compact reminder instead.
+- **Actionable hints** — `read_for_edit` suggests `read_diff` after editing. Config: `display.actionableHints`.
+- **`symbol-display-constants.ts`** — shared display constants for symbol rendering.
+
+### Changed
+- **441 tests** (was 427) — new tests for scope, list mode, include_edit_context, dedup.
+- **MCP instructions** updated with scope/mode/include_edit_context guidance.
+- **find_usages context rendering** — sequential instead of concurrent to prevent shared cache race condition.
+
 ## [0.16.1] - 2026-03-21
 
 ### Added

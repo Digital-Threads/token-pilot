@@ -225,6 +225,78 @@ describe('handleReadSymbol', () => {
     });
   });
 
+  describe('include_edit_context', () => {
+    it('appends EDIT_CONTEXT section with raw code when include_edit_context is true', async () => {
+      const resolved = {
+        symbol: {
+          kind: 'function',
+          children: [],
+          references: [],
+        },
+        startLine: 2,
+        endLine: 4,
+      };
+      const source = 'function foo() {\n  return 1;\n}';
+      const symbolResolver = {
+        resolve: async () => resolved,
+        extractSource: () => source,
+      } as any;
+
+      const fc = new FileCache();
+      const absPath = join(tempDir, 'file.ts');
+      fc.set(absPath, {
+        structure: { language: 'typescript', imports: [], exports: [], symbols: [] } as any,
+        content: 'line 1\nfunction foo() {\n  return 1;\n}\nline 5',
+        lines: ['line 1', 'function foo() {', '  return 1;', '}', 'line 5'],
+        mtime: Date.now(),
+        hash: 'abc',
+        lastAccess: Date.now(),
+      });
+
+      const result = await handleReadSymbol(
+        { path: 'file.ts', symbol: 'foo', include_edit_context: true },
+        tempDir,
+        symbolResolver,
+        fc,
+        new ContextRegistry(),
+      );
+
+      const text = result.content[0].text;
+      expect(text).toContain('EDIT_CONTEXT (raw — copy directly as old_string):');
+      expect(text).toContain('```');
+      // Raw lines (no line number prefixes)
+      expect(text).toContain('function foo() {');
+      expect(text).toContain('  return 1;');
+    });
+
+    it('does NOT include EDIT_CONTEXT section when include_edit_context is not set', async () => {
+      const resolved = {
+        symbol: {
+          kind: 'function',
+          children: [],
+          references: [],
+        },
+        startLine: 2,
+        endLine: 4,
+      };
+      const source = 'function foo() {\n  return 1;\n}';
+      const symbolResolver = {
+        resolve: async () => resolved,
+        extractSource: () => source,
+      } as any;
+
+      const result = await handleReadSymbol(
+        { path: 'file.ts', symbol: 'foo' },
+        tempDir,
+        symbolResolver,
+        new FileCache(),
+        new ContextRegistry(),
+      );
+
+      expect(result.content[0].text).not.toContain('EDIT_CONTEXT');
+    });
+  });
+
   it('renders outline mode with child methods and tracks the symbol', async () => {
     const registry = new ContextRegistry();
     const resolved = {

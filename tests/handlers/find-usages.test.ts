@@ -69,6 +69,51 @@ describe('handleFindUsages', () => {
     expect(text.split('src/app.ts').length - 1).toBe(1);
   });
 
+  it('mode=list returns compact file:line output without context snippets', async () => {
+    const astIndex = {
+      isDisabled: () => false,
+      isOversized: () => false,
+      isAvailable: () => true,
+      refs: async () => ({
+        definitions: [{ path: 'src/user.ts', line: 10, signature: 'export function user() {}', name: 'user' }],
+        imports: [{ path: 'src/consumer.ts', line: 3, context: 'import { user } from "./user"', name: 'user' }],
+        usages: [
+          { path: 'src/consumer.ts', line: 8, context: 'return user()', name: 'user' },
+          { path: 'src/consumer.ts', line: 15, context: 'user(data)', name: 'user' },
+        ],
+      }),
+      search: async () => [],
+    } as any;
+
+    const result = await handleFindUsages(
+      { symbol: 'user', mode: 'list' },
+      astIndex,
+    );
+
+    const text = result.content[0].text;
+
+    // Should contain the "USAGES OF" header
+    expect(text).toContain('USAGES OF "user"');
+
+    // Should contain file paths with line numbers
+    expect(text).toContain('src/user.ts: L10');
+    expect(text).toContain('src/consumer.ts: L3, L8, L15');
+
+    // Should contain the hint
+    expect(text).toContain('HINT:');
+
+    // Should NOT contain context code snippets (lines with '>' marker or raw code)
+    expect(text).not.toContain('> ');
+    expect(text).not.toContain('export function user()');
+    expect(text).not.toContain('import { user }');
+    expect(text).not.toContain('return user()');
+
+    // meta should reflect the counts
+    expect(result.meta.total).toBe(4);
+    expect(result.meta.files).toContain('src/user.ts');
+    expect(result.meta.files).toContain('src/consumer.ts');
+  });
+
   it('returns disabled guidance when ast-index is unavailable', async () => {
     const astIndex = {
       isDisabled: () => true,
