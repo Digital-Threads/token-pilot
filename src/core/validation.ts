@@ -295,7 +295,7 @@ export function validateReadForEditArgs(args: unknown): {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
   if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0) && !a.section) {
-    throw new Error('Either "symbol", "symbols", or "line" must be provided.');
+    throw new Error('Either "symbol", "symbols", "line", or "section" must be provided.');
   }
 
   // Validate symbols array (batch mode)

@@ -67,6 +67,16 @@ export async function handleReadForEdit(
       };
     }
 
+    // Cache file in fileCache for read_diff baseline
+    if (!fileCache.get(absPath)) {
+      const fileStat = await stat(absPath);
+      const hash = createHash('sha256').update(fileContent).digest('hex');
+      fileCache.set(absPath, {
+        structure: { path: absPath, language: 'markdown', meta: { lines: fileLines.length, bytes: fileContent.length, lastModified: fileStat.mtimeMs, contentHash: hash }, imports: [], exports: [], symbols: [] },
+        content: fileContent, lines: fileLines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
+      });
+    }
+
     const rawContent = extractSectionContent(fileLines, section);
     const hashes = '#'.repeat(section.level);
 
