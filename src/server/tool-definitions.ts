@@ -115,12 +115,12 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'read_section',
-    description: 'Read a specific section from a Markdown file by heading name. Returns section content with line numbers. Much cheaper than reading the whole file.',
+    description: 'Read a specific section from a Markdown or YAML file by heading/key name. Returns section content with line numbers. Much cheaper than reading the whole file.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: 'Path to markdown file' },
-        heading: { type: 'string', description: 'Section heading to read (e.g., "API Reference"). Case-insensitive.' },
+        path: { type: 'string', description: 'Path to markdown or YAML file' },
+        heading: { type: 'string', description: 'Section heading (Markdown) or top-level key (YAML) to read. Case-insensitive.' },
       },
       required: ['path', 'heading'],
     },

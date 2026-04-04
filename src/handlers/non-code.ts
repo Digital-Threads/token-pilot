@@ -5,6 +5,7 @@ import { resolveSafePath } from '../core/validation.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
 import { parseMarkdownSections } from './markdown-sections.js';
+import { parseYamlSections } from './yaml-sections.js';
 
 /**
  * Detect if a file is a non-code structured file (JSON, YAML, Markdown, etc.)
@@ -125,8 +126,19 @@ function summarizeYaml(filePath: string, content: string, lineCount: number): st
   const lines: string[] = [
     `FILE: ${filePath} (${lineCount} lines, YAML)`,
     '',
-    'STRUCTURE:',
   ];
+
+  // Add top-level section overview with line ranges
+  const yamlSections = parseYamlSections(content);
+  if (yamlSections.length > 0) {
+    lines.push('SECTIONS:');
+    for (const sec of yamlSections) {
+      lines.push(`  ${sec.heading}: [L${sec.startLine}-${sec.endLine}] (${sec.lineCount} lines)`);
+    }
+    lines.push('');
+  }
+
+  lines.push('STRUCTURE:');
 
   const rawLines = content.split('\n');
   const roots: YamlNode[] = [];
@@ -199,6 +211,9 @@ function summarizeYaml(filePath: string, content: string, lineCount: number): st
       formatYamlNode(root, lines, 1, 3); // max 3 levels deep
     }
   }
+
+  lines.push('');
+  lines.push(`HINT: Use read_section("${filePath}", heading="<key>") to load a specific section.`);
 
   return lines.join('\n');
 }

@@ -4,6 +4,7 @@ import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
+import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
 
 export interface ReadSectionArgs {
   path: string;
@@ -17,41 +18,53 @@ export async function handleReadSection(
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
   const ext = extname(absPath).toLowerCase();
-
-  if (ext !== '.md' && ext !== '.markdown') {
-    return {
-      content: [{
-        type: 'text',
-        text: `read_section only works with Markdown files (.md, .markdown). Got: ${ext}`,
-      }],
-    };
-  }
-
   const content = await readFile(absPath, 'utf-8');
   const lines = content.split('\n');
-  const sections = parseMarkdownSections(content);
-  const section = findSection(sections, args.heading);
 
-  if (!section) {
-    const available = sections.map(s => s.heading).join(', ');
+  // Dispatch to format-specific parser
+  let sectionData: { heading: string; startLine: number; endLine: number; lineCount: number; content: string; label: string } | null = null;
+
+  if (ext === '.md' || ext === '.markdown') {
+    const sections = parseMarkdownSections(content);
+    const section = findSection(sections, args.heading);
+    if (!section) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
+        }],
+      };
+    }
+    const hashes = '#'.repeat(section.level);
+    sectionData = { ...section, content: extractSectionContent(lines, section), label: `${hashes} ${section.heading}` };
+  } else if (ext === '.yaml' || ext === '.yml') {
+    const sections = parseYamlSections(content);
+    const section = findYamlSection(sections, args.heading);
+    if (!section) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
+        }],
+      };
+    }
+    sectionData = { ...section, content: extractYamlSectionContent(lines, section), label: section.heading };
+  } else {
     return {
       content: [{
         type: 'text',
-        text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${available}`,
+        text: `read_section supports: .md, .yaml, .yml. Got: ${ext}`,
       }],
     };
   }
-
-  const sectionContent = extractSectionContent(lines, section);
-  const hashes = '#'.repeat(section.level);
 
   const outputLines: string[] = [
     `FILE: ${args.path}`,
-    `SECTION: ${hashes} ${section.heading} [L${section.startLine}-${section.endLine}] (${section.lineCount} lines)`,
+    `SECTION: ${sectionData.label} [L${sectionData.startLine}-${sectionData.endLine}] (${sectionData.lineCount} lines)`,
     '',
-    sectionContent,
+    sectionData.content,
     '',
-    `HINT: Use read_for_edit("${args.path}", section="${section.heading}") for edit context.`,
+    `HINT: Use read_for_edit("${args.path}", section="${sectionData.heading}") for edit context.`,
     'CONTEXT TRACKED.',
   ];
 
@@ -60,8 +73,8 @@ export async function handleReadSection(
 
   contextRegistry.trackLoad(absPath, {
     type: 'range',
-    startLine: section.startLine,
-    endLine: section.endLine,
+    startLine: sectionData.startLine,
+    endLine: sectionData.endLine,
     tokens,
   });
 

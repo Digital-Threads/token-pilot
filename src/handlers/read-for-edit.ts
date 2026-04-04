@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { relative, join, extname } from 'node:path';
 import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
+import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
@@ -40,51 +41,73 @@ export async function handleReadForEdit(
   const absPath = resolveSafePath(projectRoot, args.path);
   const ctx = args.context ?? DEFAULT_CONTEXT;
 
-  // Section mode: markdown section extraction for edit
+  // Section mode: markdown/YAML section extraction for edit
   if (args.section) {
     const ext = extname(absPath).toLowerCase();
-    if (ext !== '.md' && ext !== '.markdown') {
+    const supportedExts = new Set(['.md', '.markdown', '.yaml', '.yml']);
+    if (!supportedExts.has(ext)) {
       return {
         content: [{
           type: 'text',
-          text: `"section" parameter only works with Markdown files. Got: ${ext}. Use "symbol" for code files.`,
+          text: `"section" parameter only works with Markdown or YAML files. Got: ${ext}. Use "symbol" for code files.`,
         }],
       };
     }
 
     const fileContent = await readFile(absPath, 'utf-8');
     const fileLines = fileContent.split('\n');
-    const sections = parseMarkdownSections(fileContent);
-    const section = findSection(sections, args.section);
-
-    if (!section) {
-      const available = sections.map(s => s.heading).join(', ');
-      return {
-        content: [{
-          type: 'text',
-          text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
-        }],
-      };
-    }
 
     // Cache file in fileCache for read_diff baseline
     if (!fileCache.get(absPath)) {
       const fileStat = await stat(absPath);
       const hash = createHash('sha256').update(fileContent).digest('hex');
+      const language = ext === '.md' || ext === '.markdown' ? 'markdown' : 'yaml';
       fileCache.set(absPath, {
-        structure: { path: absPath, language: 'markdown', meta: { lines: fileLines.length, bytes: fileContent.length, lastModified: fileStat.mtimeMs, contentHash: hash }, imports: [], exports: [], symbols: [] },
+        structure: { path: absPath, language, meta: { lines: fileLines.length, bytes: fileContent.length, lastModified: fileStat.mtimeMs, contentHash: hash }, imports: [], exports: [], symbols: [] },
         content: fileContent, lines: fileLines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
       });
     }
 
-    const rawContent = extractSectionContent(fileLines, section);
-    const hashes = '#'.repeat(section.level);
+    let sectionResult: { heading: string; startLine: number; endLine: number; lineCount: number; rawContent: string; label: string } | null = null;
+
+    if (ext === '.md' || ext === '.markdown') {
+      const sections = parseMarkdownSections(fileContent);
+      const section = findSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      const hashes = '#'.repeat(section.level);
+      sectionResult = { ...section, rawContent: extractSectionContent(fileLines, section), label: `${hashes} ${section.heading}` };
+    } else if (ext === '.yaml' || ext === '.yml') {
+      const sections = parseYamlSections(fileContent);
+      const section = findYamlSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      sectionResult = { ...section, rawContent: extractYamlSectionContent(fileLines, section), label: section.heading };
+    }
+
+    if (!sectionResult) {
+      return { content: [{ type: 'text', text: `Unsupported file type: ${ext}` }] };
+    }
 
     const outputLines: string[] = [
       `FILE: ${args.path}`,
-      `EDIT SECTION: ${hashes} ${section.heading} [L${section.startLine}-${section.endLine}] (${section.lineCount} lines)`,
+      `EDIT SECTION: ${sectionResult.label} [L${sectionResult.startLine}-${sectionResult.endLine}] (${sectionResult.lineCount} lines)`,
       '',
-      rawContent,
+      sectionResult.rawContent,
       '',
       `AFTER EDIT: Use read_diff("${args.path}") to verify changes (90% cheaper than re-reading).`,
     ];
@@ -94,8 +117,8 @@ export async function handleReadForEdit(
 
     contextRegistry.trackLoad(absPath, {
       type: 'range',
-      startLine: section.startLine,
-      endLine: section.endLine,
+      startLine: sectionResult.startLine,
+      endLine: sectionResult.endLine,
       tokens,
     });
 
