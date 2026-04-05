@@ -115,12 +115,12 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'read_section',
-    description: 'Read a specific section from a Markdown or YAML file by heading/key name. Returns section content with line numbers. Much cheaper than reading the whole file.',
+    description: 'Read a specific section from Markdown, YAML, JSON, or CSV files. Markdown: by heading name. YAML/JSON: by top-level key. CSV: by row range (rows:1-50). Much cheaper than reading the whole file.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        path: { type: 'string', description: 'Path to markdown or YAML file' },
-        heading: { type: 'string', description: 'Section heading (Markdown) or top-level key (YAML) to read. Case-insensitive.' },
+        path: { type: 'string', description: 'Path to .md, .yaml, .yml, .json, or .csv file' },
+        heading: { type: 'string', description: 'Section heading (Markdown), top-level key (YAML/JSON), or row range "rows:1-50" (CSV). Case-insensitive.' },
       },
       required: ['path', 'heading'],
     },
@@ -157,7 +157,7 @@ export const TOOL_DEFINITIONS = [
         include_changes: { type: 'boolean', description: 'Show recent git changes in the target region' },
         section: {
           type: 'string',
-          description: 'Markdown section heading to edit (e.g., "API Reference"). Returns raw section content for Edit old_string. Only for .md files.',
+          description: 'Section to edit: heading (Markdown), top-level key (YAML/JSON), or "rows:1-50" (CSV). Returns raw section content for Edit old_string.',
         },
       },
       required: ['path'],
