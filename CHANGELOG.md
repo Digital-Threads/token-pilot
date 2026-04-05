@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-04-05
+
+### Added
+- **`read_section` tool** — read a specific section from Markdown, YAML, JSON, or CSV files. Markdown: by heading name. YAML/JSON: by top-level key. CSV: by row range (`rows:1-50`). Much cheaper than reading the whole file.
+- **`read_for_edit` section parameter** — prepare edit context for non-code file sections. Works with all 4 formats.
+- **Markdown outline with line ranges** — `smart_read` on `.md` files now shows `[L5-20]` ranges and hints for `read_section`.
+- **YAML/JSON section ranges** — `smart_read` on `.yaml`/`.json` shows top-level key ranges.
+- **CSV smart_read** — shows columns, row count, sample rows, and hints for row-range reading.
+- **4 section parsers** — `markdown-sections.ts`, `yaml-sections.ts`, `json-sections.ts`, `csv-sections.ts`.
+
+### Changed
+- **20 tools** (was 19) — added `read_section`.
+- **492 tests** (was 441).
+
+### Fixed
+- `npm audit` — resolved brace-expansion, path-to-regexp, picomatch vulnerabilities.
+
 ## [0.17.0] - 2026-04-02
 
 ### Added
