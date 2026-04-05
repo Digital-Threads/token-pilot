@@ -238,4 +238,125 @@ describe('handleReadForEdit', () => {
     expect(result.content[0].text).not.toContain('TESTS:');
     expect(result.content[0].text).not.toContain('RECENT CHANGES');
   });
+
+  describe('batch mode (symbols array)', () => {
+    it('returns batch edit context for multiple symbols', async () => {
+      const registry = new ContextRegistry();
+      let resolveCount = 0;
+      const symbolResolver = {
+        resolve: async (name: string) => {
+          resolveCount++;
+          if (name === 'funcA') return { startLine: 10, endLine: 20 };
+          if (name === 'funcB') return { startLine: 30, endLine: 40 };
+          return null;
+        },
+      } as any;
+
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbols: ['funcA', 'funcB'] },
+        tempDir,
+        symbolResolver,
+        new FileCache(),
+        registry,
+        { outline: async () => null } as any,
+      );
+
+      const text = result.content[0].text;
+      expect(text).toContain('EDIT CONTEXT (BATCH: 2 symbols)');
+      expect(text).toContain('SYMBOL 1/2:');
+      expect(text).toContain('funcA');
+      expect(text).toContain('SYMBOL 2/2:');
+      expect(text).toContain('funcB');
+      expect(text).toContain('END EDIT CONTEXT');
+      expect(resolveCount).toBe(2);
+    });
+
+    it('shows NOT FOUND for missing symbols in batch', async () => {
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbols: ['exists', 'missing'] },
+        tempDir,
+        {
+          resolve: async (name: string) => {
+            if (name === 'exists') return { startLine: 5, endLine: 15 };
+            return null;
+          },
+        } as any,
+        new FileCache(),
+        new ContextRegistry(),
+        { outline: async () => null } as any,
+      );
+
+      const text = result.content[0].text;
+      expect(text).toContain('SYMBOL 1/2:');
+      expect(text).toContain('exists');
+      expect(text).toContain('SYMBOL 2/2: missing');
+      expect(text).toContain('NOT FOUND');
+      expect(text).toContain('WARNING: 1 symbol(s) not found');
+    });
+
+    it('truncates large symbols to MAX_EDIT_LINES', async () => {
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbols: ['BigFunc'] },
+        tempDir,
+        {
+          resolve: async () => ({ startLine: 1, endLine: 90 }),
+        } as any,
+        new FileCache(),
+        new ContextRegistry(),
+        { outline: async () => null } as any,
+      );
+
+      const text = result.content[0].text;
+      expect(text).toContain('showing first 60 of 90 lines');
+    });
+
+    it('tracks each batch symbol in context registry', async () => {
+      const registry = new ContextRegistry();
+      const absPath = join(tempDir, 'file.ts');
+
+      await handleReadForEdit(
+        { path: 'file.ts', symbols: ['alpha', 'beta'] },
+        tempDir,
+        {
+          resolve: async () => ({ startLine: 10, endLine: 20 }),
+        } as any,
+        new FileCache(),
+        registry,
+        { outline: async () => null } as any,
+      );
+
+      expect(registry.isSymbolLoaded(absPath, 'alpha')).toBe(true);
+      expect(registry.isSymbolLoaded(absPath, 'beta')).toBe(true);
+    });
+  });
+
+  it('returns raw section content when section parameter is provided for markdown', async () => {
+    const md = [
+      '# Doc',
+      '',
+      '## Overview',
+      'Overview content here.',
+      'Second line.',
+      '',
+      '## API',
+      'API content.',
+    ].join('\n');
+    await writeFile(join(tempDir, 'doc.md'), md);
+
+    const result = await handleReadForEdit(
+      { path: 'doc.md', section: 'Overview' },
+      tempDir,
+      {} as any,
+      new FileCache(),
+      new ContextRegistry(),
+      {} as any,
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('EDIT SECTION: ## Overview');
+    expect(text).toContain('Overview content here.');
+    expect(text).toContain('Second line.');
+    expect(text).not.toContain('API content.');
+    expect(text).toContain('AFTER EDIT');
+  });
 });

@@ -28,12 +28,15 @@ export const MCP_INSTRUCTIONS = [
   '15. Code quality → code_audit (TODOs, deprecated, structural patterns)',
   '16. Dead code → find_unused (unreferenced symbols across project)',
   '17. Module architecture → module_info (deps, dependents, public API)',
+  '18. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)',
+  '   - For editing sections: read_for_edit(path, section="Section Name")',
   '',
   'USE DEFAULT TOOLS ONLY FOR: regex text search → Grep | exact raw content → Read | non-code configs → Read',
   '',
   'WORKFLOWS:',
   '• Explore: project_overview → explore_area → smart_read → read_symbol',
   '• Edit: smart_read → read_symbol(include_edit_context=true) → Edit → read_diff',
+  '• Docs: smart_read (outline) → read_section → read_for_edit(section=) → Edit → read_diff',
   '• Refactor: find_usages → read_symbols → read_for_edit → Edit → test_summary',
   '• Audit: code_audit + find_unused + Grep (for regex patterns)',
 ].join('\n');
@@ -111,6 +114,18 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'read_section',
+    description: 'Read a specific section from Markdown, YAML, JSON, or CSV files. Markdown: by heading name. YAML/JSON: by top-level key. CSV: by row range (rows:1-50). Much cheaper than reading the whole file.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        path: { type: 'string', description: 'Path to .md, .yaml, .yml, .json, or .csv file' },
+        heading: { type: 'string', description: 'Section heading (Markdown), top-level key (YAML/JSON), or row range "rows:1-50" (CSV). Case-insensitive.' },
+      },
+      required: ['path', 'heading'],
+    },
+  },
+  {
     name: 'read_diff',
     description: 'Use INSTEAD OF re-reading whole file after edits. Shows only changed hunks. REQUIRES: call smart_read or read_for_edit BEFORE editing to create baseline snapshot.',
     inputSchema: {
@@ -140,6 +155,10 @@ export const TOOL_DEFINITIONS = [
         include_callers: { type: 'boolean', description: 'Show top callers of this symbol (saves a separate find_usages call)' },
         include_tests: { type: 'boolean', description: 'Show related test file and test names' },
         include_changes: { type: 'boolean', description: 'Show recent git changes in the target region' },
+        section: {
+          type: 'string',
+          description: 'Section to edit: heading (Markdown), top-level key (YAML/JSON), or "rows:1-50" (CSV). Returns raw section content for Edit old_string.',
+        },
       },
       required: ['path'],
     },

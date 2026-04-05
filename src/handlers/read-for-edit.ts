@@ -2,7 +2,11 @@ import { readFile, stat, access } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import { relative, join } from 'node:path';
+import { relative, join, extname } from 'node:path';
+import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
+import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
+import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
+import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
@@ -22,6 +26,7 @@ export interface ReadForEditArgs {
   include_callers?: boolean;
   include_tests?: boolean;
   include_changes?: boolean;
+  section?: string;
 }
 
 const DEFAULT_CONTEXT = 5;
@@ -37,6 +42,115 @@ export async function handleReadForEdit(
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
   const ctx = args.context ?? DEFAULT_CONTEXT;
+
+  // Section mode: markdown/YAML section extraction for edit
+  if (args.section) {
+    const ext = extname(absPath).toLowerCase();
+    const supportedExts = new Set(['.md', '.markdown', '.yaml', '.yml', '.json', '.csv']);
+    if (!supportedExts.has(ext)) {
+      return {
+        content: [{
+          type: 'text',
+          text: `"section" parameter only works with Markdown, YAML, or JSON files. Got: ${ext}. Use "symbol" for code files.`,
+        }],
+      };
+    }
+
+    const fileContent = await readFile(absPath, 'utf-8');
+    const fileLines = fileContent.split('\n');
+
+    // Cache file in fileCache for read_diff baseline
+    if (!fileCache.get(absPath)) {
+      const fileStat = await stat(absPath);
+      const hash = createHash('sha256').update(fileContent).digest('hex');
+      const language = ext === '.csv' ? 'csv' : ext === '.json' ? 'json' : (ext === '.md' || ext === '.markdown') ? 'markdown' : 'yaml';
+      fileCache.set(absPath, {
+        structure: { path: absPath, language, meta: { lines: fileLines.length, bytes: fileContent.length, lastModified: fileStat.mtimeMs, contentHash: hash }, imports: [], exports: [], symbols: [] },
+        content: fileContent, lines: fileLines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
+      });
+    }
+
+    let sectionResult: { heading: string; startLine: number; endLine: number; lineCount: number; rawContent: string; label: string } | null = null;
+
+    if (ext === '.md' || ext === '.markdown') {
+      const sections = parseMarkdownSections(fileContent);
+      const section = findSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      const hashes = '#'.repeat(section.level);
+      sectionResult = { ...section, rawContent: extractSectionContent(fileLines, section), label: `${hashes} ${section.heading}` };
+    } else if (ext === '.yaml' || ext === '.yml') {
+      const sections = parseYamlSections(fileContent);
+      const section = findYamlSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      sectionResult = { ...section, rawContent: extractYamlSectionContent(fileLines, section), label: section.heading };
+    } else if (ext === '.json') {
+      const sections = parseJsonSections(fileContent);
+      const section = findJsonSection(sections, args.section);
+      if (!section) {
+        const available = sections.map(s => s.heading).join(', ');
+        return {
+          content: [{
+            type: 'text',
+            text: `Section "${args.section}" not found in ${args.path}.\nAvailable: ${available}`,
+          }],
+        };
+      }
+      sectionResult = { ...section, rawContent: extractJsonSectionContent(fileLines, section), label: section.heading };
+    } else if (ext === '.csv') {
+      const outline = parseCsvOutline(fileContent);
+      const section = parseCsvSectionSpec(args.section, outline.rowCount);
+      if (!section) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Invalid section "${args.section}" for CSV. Use: rows:1-50 or row:5\nTotal rows: ${outline.rowCount}`,
+          }],
+        };
+      }
+      sectionResult = { ...section, rawContent: extractCsvSectionContent(fileLines, section), label: section.heading };
+    }
+
+    if (!sectionResult) {
+      return { content: [{ type: 'text', text: `Unsupported file type: ${ext}` }] };
+    }
+
+    const outputLines: string[] = [
+      `FILE: ${args.path}`,
+      `EDIT SECTION: ${sectionResult.label} [L${sectionResult.startLine}-${sectionResult.endLine}] (${sectionResult.lineCount} lines)`,
+      '',
+      sectionResult.rawContent,
+      '',
+      `AFTER EDIT: Use read_diff("${args.path}") to verify changes (90% cheaper than re-reading).`,
+    ];
+
+    const output = outputLines.join('\n');
+    const tokens = estimateTokens(output);
+
+    contextRegistry.trackLoad(absPath, {
+      type: 'range',
+      startLine: sectionResult.startLine,
+      endLine: sectionResult.endLine,
+      tokens,
+    });
+
+    return { content: [{ type: 'text', text: output }] };
+  }
 
   // Get file content — also cache for read_diff baseline
   const cached = fileCache.get(absPath);

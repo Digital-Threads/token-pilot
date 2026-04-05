@@ -107,4 +107,26 @@ describe('handleNonCodeRead context-mode delegation', () => {
     expect(result).not.toBeNull();
     expect(result!.content[0].text).not.toContain('ADVISORY');
   });
+
+  it('markdown summary includes SECTIONS with line ranges', async () => {
+    const md = [
+      '# Title',
+      '',
+      '## Overview',
+      'Some text.',
+      '',
+      '## API',
+      'More text.',
+    ].join('\n');
+    await writeFile(resolve(testDir, 'doc.md'), md);
+
+    const result = await handleNonCodeRead('doc.md', testDir, new ContextRegistry());
+    const text = result!.content[0].text;
+
+    expect(text).toContain('SECTIONS:');
+    expect(text).toContain('[L1');
+    expect(text).toContain('[L3');
+    expect(text).toContain('[L6');
+    expect(text).toContain('read_section');
+  });
 });

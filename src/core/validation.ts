@@ -285,6 +285,7 @@ export function validateReadForEditArgs(args: unknown): {
   include_callers?: boolean;
   include_tests?: boolean;
   include_changes?: boolean;
+  section?: string;
 } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
@@ -293,8 +294,8 @@ export function validateReadForEditArgs(args: unknown): {
   if (typeof a.path !== 'string' || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
-  if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0)) {
-    throw new Error('Either "symbol", "symbols", or "line" must be provided.');
+  if (!a.symbol && !a.line && (!Array.isArray(a.symbols) || (a.symbols as unknown[]).length === 0) && !a.section) {
+    throw new Error('Either "symbol", "symbols", "line", or "section" must be provided.');
   }
 
   // Validate symbols array (batch mode)
@@ -323,6 +324,7 @@ export function validateReadForEditArgs(args: unknown): {
     include_callers: optionalBool(a.include_callers, 'include_callers'),
     include_tests: optionalBool(a.include_tests, 'include_tests'),
     include_changes: optionalBool(a.include_changes, 'include_changes'),
+    section: optionalString(a.section, 'section'),
   };
 }
 
@@ -622,6 +624,20 @@ export function validateTestSummaryArgs(args: unknown): TestSummaryArgs {
   }
 
   return { command: a.command, runner, timeout };
+}
+
+export function validateReadSectionArgs(args: unknown): { path: string; heading: string } {
+  if (!args || typeof args !== 'object') {
+    throw new Error('Arguments must be an object.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.path !== 'string' || a.path.length === 0) {
+    throw new Error('Required parameter "path" must be a non-empty string.');
+  }
+  if (typeof a.heading !== 'string' || a.heading.length === 0) {
+    throw new Error('Required parameter "heading" must be a non-empty string.');
+  }
+  return { path: a.path, heading: a.heading };
 }
 
 /** Detect roots that would cause ast-index to scan the entire filesystem */
