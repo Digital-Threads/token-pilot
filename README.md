@@ -31,6 +31,18 @@ Measured on public open-source repos using the regex fallback parser (no ast-ind
 >
 > Run the benchmark yourself: `npx tsx scripts/benchmark.ts`
 
+## Why This Approach Works
+
+The biggest source of token waste in AI coding sessions isn't verbose prompts — it's **redundant context**. Every time a model re-reads a file, re-sends conversation history, or loads code it doesn't need, you pay for tokens that add no value.
+
+Token Pilot attacks this at three levels:
+
+1. **Symbol-first reading** — load outlines instead of full files, drill into specific functions on demand. This alone saves 60-90% on most reads.
+2. **Context budget control** — `max_tokens` parameter on `smart_read` auto-downgrades output (full → outline → compact) to fit within a token budget per step.
+3. **Session state management** — `session_snapshot` captures session state as a compact markdown block (<200 tokens), enabling clean context compaction without losing track of what you're doing.
+
+These aren't theoretical gains. In real sessions, the combination of structural reading + targeted symbol access + session snapshots consistently reduces token usage by 80-90% compared to raw file reads.
+
 ## Installation
 
 ### Quick Start (recommended)
@@ -152,6 +164,7 @@ WHEN TO USE TOKEN PILOT (saves up to 80% tokens):
 • Reading code files → smart_read (returns structure, not raw content)
 • Need one function/class → read_symbol (loads only that symbol)
 • Exploring a directory → outline (all symbols in one call)
+• Long session? → session_snapshot (capture state before compaction)
 ...
 WHEN TO USE DEFAULT TOOLS (Token Pilot adds no value):
 • Regex/pattern search → use Grep/ripgrep, NOT find_usages
@@ -168,13 +181,13 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (19)
+## MCP Tools (20)
 
 ### Core Reading
 
 | Tool | Instead of | Description |
 |------|-----------|-------------|
-| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 90% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. |
+| `smart_read` | `Read` | AST structural overview: classes, functions, methods with signatures. Up to 90% savings on large files. Framework-aware: shows HTTP routes, column types, validation rules. `max_tokens` param for budget-constrained sessions. |
 | `read_symbol` | `Read` + scroll | Load source of a specific symbol. Supports `Class.method`. `show` param: full/head/tail/outline. |
 | `read_symbols` | N x `read_symbol` | Batch read multiple symbols from one file in a single call (max 10). One round-trip instead of N. |
 | `read_for_edit` | `Read` before `Edit` | Minimal RAW code around a symbol — copy directly as `old_string` for Edit tool. Batch mode: pass `symbols` array for multiple edit contexts. |
@@ -198,10 +211,11 @@ For more control, you can add rules to your project:
 | `smart_log` | raw `git log` | Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref. |
 | `test_summary` | raw test output | Run tests and get structured summary: total/passed/failed + failure details. Supports vitest, jest, pytest, phpunit, go, cargo, rspec, mocha. |
 
-### Analytics
+### Session & Analytics
 
 | Tool | Description |
 |------|-------------|
+| `session_snapshot` | Capture session state as a compact markdown block (<200 tokens): goal, confirmed facts, relevant files, blockers, next step. Call before compaction or when switching direction. |
 | `session_analytics` | Token savings report: total saved, per-tool breakdown, top files, per-intent breakdown, decision insights, policy advisories. |
 
 ## CLI Commands

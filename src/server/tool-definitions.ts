@@ -30,6 +30,8 @@ export const MCP_INSTRUCTIONS = [
   '17. Module architecture → module_info (deps, dependents, public API)',
   '18. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)',
   '   - For editing sections: read_for_edit(path, section="Section Name")',
+  '19. Long session / before compaction → session_snapshot (capture goal, confirmed facts, files, next step as <200 token block)',
+  '   - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size',
   '',
   'USE DEFAULT TOOLS ONLY FOR: regex text search → Grep | exact raw content → Read | non-code configs → Read',
   '',
@@ -39,6 +41,7 @@ export const MCP_INSTRUCTIONS = [
   '• Docs: smart_read (outline) → read_section → read_for_edit(section=) → Edit → read_diff',
   '• Refactor: find_usages → read_symbols → read_for_edit → Edit → test_summary',
   '• Audit: code_audit + find_unused + Grep (for regex patterns)',
+  '• Long session: session_snapshot → compact context → continue with minimal state',
 ].join('\n');
 
 export const TOOL_DEFINITIONS = [
