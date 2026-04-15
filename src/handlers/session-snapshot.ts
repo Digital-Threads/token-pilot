@@ -1,5 +1,6 @@
 export interface SessionSnapshotArgs {
   goal: string;
+  decisions?: string[];
   confirmed?: string[];
   files?: string[];
   blocked?: string;
@@ -10,6 +11,13 @@ export function handleSessionSnapshot(args: SessionSnapshotArgs): { content: { t
   const lines: string[] = ['## Session State'];
 
   lines.push(`**Goal:** ${args.goal}`);
+
+  if (args.decisions?.length) {
+    lines.push('**Decisions:**');
+    for (const item of args.decisions) {
+      lines.push(`- ${item}`);
+    }
+  }
 
   if (args.confirmed?.length) {
     lines.push('**Confirmed:**');

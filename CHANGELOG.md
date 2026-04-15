@@ -5,6 +5,11 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-04-15
+
+### Added
+- **`decisions` field in `session_snapshot`** — stores key decisions with reasoning (e.g., "removed sysfee step — caused double counting"). Prevents the model from revisiting rejected approaches after context compaction.
+
 ## [0.19.0] - 2026-04-15
 
 ### Added

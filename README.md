@@ -215,7 +215,7 @@ For more control, you can add rules to your project:
 
 | Tool | Description |
 |------|-------------|
-| `session_snapshot` | Capture session state as a compact markdown block (<200 tokens): goal, confirmed facts, relevant files, blockers, next step. Call before compaction or when switching direction. |
+| `session_snapshot` | Capture session state as a compact markdown block (<200 tokens): goal, decisions (with reasoning), confirmed facts, relevant files, blockers, next step. Decisions field prevents revisiting rejected approaches after compaction. |
 | `session_analytics` | Token savings report: total saved, per-tool breakdown, top files, per-intent breakdown, decision insights, policy advisories. |
 
 ## CLI Commands

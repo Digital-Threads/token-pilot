@@ -30,7 +30,7 @@ export const MCP_INSTRUCTIONS = [
   '17. Module architecture → module_info (deps, dependents, public API)',
   '18. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)',
   '   - For editing sections: read_for_edit(path, section="Section Name")',
-  '19. Long session / before compaction → session_snapshot (capture goal, confirmed facts, files, next step as <200 token block)',
+  '19. Long session / before compaction → session_snapshot (capture goal, decisions, confirmed facts, files, next step as <200 token block)',
   '   - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size',
   '',
   'USE DEFAULT TOOLS ONLY FOR: regex text search → Grep | exact raw content → Read | non-code configs → Read',
@@ -364,6 +364,7 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         goal: { type: 'string', description: 'Session goal — what and why' },
+        decisions: { type: 'array', items: { type: 'string' }, description: 'Key decisions made and why (e.g., "removed sysfee step — caused double counting"). Prevents revisiting rejected approaches.' },
         confirmed: { type: 'array', items: { type: 'string' }, description: 'Established facts (what has been verified)' },
         files: { type: 'array', items: { type: 'string' }, description: 'Relevant file paths' },
         blocked: { type: 'string', description: 'Current blocker or obstacle' },
