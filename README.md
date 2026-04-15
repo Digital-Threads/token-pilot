@@ -21,11 +21,11 @@ Measured on public open-source repos using the regex fallback parser (no ast-ind
 
 | Repo | Files | Raw Tokens | Outline Tokens | Savings |
 |------|------:|----------:|--------------:|--------:|
-| [token-pilot](https://github.com/Digital-Threads/token-pilot) (TS) | 48 | 88,920 | 8,123 | **91%** |
+| [token-pilot](https://github.com/Digital-Threads/token-pilot) (TS) | 55 | 102,086 | 8,992 | **91%** |
 | [express](https://github.com/expressjs/express) (JS) | 6 | 14,421 | 193 | **99%** |
 | [fastify](https://github.com/fastify/fastify) (JS) | 23 | 50,000 | 3,161 | **94%** |
 | [flask](https://github.com/pallets/flask) (Python) | 20 | 78,236 | 7,418 | **91%** |
-| **Total** | **97** | **231,577** | **18,895** | **92%** |
+| **Total** | **104** | **244,743** | **19,764** | **92%** |
 
 > This measures `smart_read` structural outline savings only. Real sessions also benefit from session cache, dedup reminders, `read_symbol` targeted loading, and `read_for_edit` minimal context.
 >
@@ -181,7 +181,7 @@ For more control, you can add rules to your project:
 - **Cursor** → `.cursorrules` in project root
 - **Codex** → `AGENTS.md` in project root
 
-## MCP Tools (20)
+## MCP Tools (21)
 
 ### Core Reading
 

@@ -5,6 +5,19 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-04-15
+
+### Added
+- **`session_snapshot` tool** — capture current session state (goal, confirmed facts, files, blockers, next step) as a compact markdown block (<200 tokens). Call before context compaction or when switching direction in long sessions.
+- **`max_tokens` parameter** on `smart_read` and `smart_read_many` — token budget per read. Output auto-downgrades through three levels: full content → structural outline → compact (symbol names + line ranges only). Enables context-constrained sessions.
+- **Session compaction advisory** — policy engine now tracks total tool calls and tokens returned. Advises calling `session_snapshot()` when thresholds are reached (default: every 15 calls or after 8,000 tokens). Configurable via `compactionCallThreshold` and `compactionTokenThreshold`.
+- **"Why This Approach Works"** section in README explaining the 3-level optimization strategy.
+
+### Changed
+- **21 tools** (was 20) — added `session_snapshot`.
+- **MCP instructions** updated with `session_snapshot` workflow and `max_tokens` guidance.
+- Benchmark numbers updated: 55 files, 102K raw → 9K outline tokens (91% savings).
+
 ## [0.18.0] - 2026-04-05
 
 ### Added
