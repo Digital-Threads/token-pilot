@@ -17,6 +17,10 @@ export interface PolicyConfig {
   warnOnLargeReads: boolean;
   /** Token threshold for large read warning */
   largeReadThreshold: number;
+  /** Suggest compaction after N total tool calls (0 = disabled) */
+  compactionCallThreshold: number;
+  /** Suggest compaction after N total tokens returned (0 = disabled) */
+  compactionTokenThreshold: number;
 }
 
 export const DEFAULT_POLICIES: PolicyConfig = {
@@ -26,6 +30,8 @@ export const DEFAULT_POLICIES: PolicyConfig = {
   maxFullFileReads: 10,
   warnOnLargeReads: true,
   largeReadThreshold: 2000,
+  compactionCallThreshold: 15,
+  compactionTokenThreshold: 8000,
 };
 
 /** Full-file read tools that count toward maxFullFileReads */
@@ -45,6 +51,8 @@ export interface PolicyCheckContext {
   tokensReturned: number;
   readForEditCalled?: Set<string>;
   editTargetPath?: string;
+  totalCallCount?: number;
+  totalTokensReturned?: number;
 }
 
 export interface PolicyAdvisory {
@@ -106,6 +114,33 @@ export function checkPolicy(
     return {
       level: 'info',
       message: `POLICY: Consider using read_for_edit("${context.editTargetPath}") before editing to get precise edit context.`,
+    };
+  }
+
+  // 5. Session compaction advisory — by call count
+  if (
+    policy.compactionCallThreshold > 0 &&
+    context.totalCallCount !== undefined &&
+    context.totalCallCount > 0 &&
+    context.totalCallCount % policy.compactionCallThreshold === 0
+  ) {
+    return {
+      level: 'info',
+      message: `COMPACTION: ${context.totalCallCount} tool calls this session. Consider calling session_snapshot() to capture state, then compact context.`,
+    };
+  }
+
+  // 6. Session compaction advisory — by total tokens
+  if (
+    policy.compactionTokenThreshold > 0 &&
+    context.totalTokensReturned !== undefined &&
+    context.totalTokensReturned > policy.compactionTokenThreshold &&
+    context.totalCallCount !== undefined &&
+    context.totalCallCount % 5 === 0 // don't spam every call, check every 5th
+  ) {
+    return {
+      level: 'info',
+      message: `COMPACTION: ~${context.totalTokensReturned} tokens returned this session. Consider calling session_snapshot() to capture state, then compact context.`,
     };
   }
 

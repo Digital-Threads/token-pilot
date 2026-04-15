@@ -150,6 +150,8 @@ export interface TokenPilotConfig {
     maxFullFileReads: number;
     warnOnLargeReads: boolean;
     largeReadThreshold: number;
+    compactionCallThreshold: number;
+    compactionTokenThreshold: number;
   };
   ignore: string[];
 }

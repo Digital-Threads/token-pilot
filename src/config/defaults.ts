@@ -61,6 +61,8 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     maxFullFileReads: 10,
     warnOnLargeReads: true,
     largeReadThreshold: 2000,
+    compactionCallThreshold: 15,
+    compactionTokenThreshold: 8000,
   },
   ignore: [
     'node_modules/**',

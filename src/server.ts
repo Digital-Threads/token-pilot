@@ -186,6 +186,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
 
   // Policy engine state
   let fullFileReadsCount = 0;
+  let totalCallCount = 0;
+  let totalTokensReturned = 0;
   const readForEditCalled = new Set<string>();
 
   // Detect context-mode companion
@@ -290,6 +292,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
     });
 
     // Policy tracking
+    totalCallCount++;
+    totalTokensReturned += rest.tokensReturned;
     if (isFullReadTool(rest.tool)) {
       fullFileReadsCount++;
     }
@@ -302,6 +306,8 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
       fullFileReadsCount,
       tokensReturned: rest.tokensReturned,
       readForEditCalled,
+      totalCallCount,
+      totalTokensReturned,
     });
 
     return advisory ? `\n${advisory.message}` : null;
