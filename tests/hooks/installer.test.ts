@@ -84,4 +84,59 @@ describe('Hook Installer', () => {
     expect(preToolUse[0].hooks[0].command).toContain('hook-read');
     expect(preToolUse[1].hooks[0].command).toContain('hook-edit');
   });
+
+  it('uses absolute paths when scriptPath is provided', async () => {
+    const result = await installHook(tempDir, {
+      scriptPath: '/usr/local/lib/node_modules/token-pilot/dist/index.js',
+      nodeExecPath: '/usr/local/bin/node',
+    });
+    expect(result.installed).toBe(true);
+
+    const settings = JSON.parse(await readFile(join(tempDir, '.claude', 'settings.json'), 'utf-8'));
+    const readHook = settings.hooks.PreToolUse.find((h: any) => h.matcher === 'Read');
+    expect(readHook.hooks[0].command).toBe(
+      '/usr/local/bin/node /usr/local/lib/node_modules/token-pilot/dist/index.js hook-read'
+    );
+    const editHook = settings.hooks.PreToolUse.find((h: any) => h.matcher === 'Edit');
+    expect(editHook.hooks[0].command).toBe(
+      '/usr/local/bin/node /usr/local/lib/node_modules/token-pilot/dist/index.js hook-edit'
+    );
+  });
+
+  it('skips install when running as plugin (CLAUDE_PLUGIN_ROOT set)', async () => {
+    const orig = process.env.CLAUDE_PLUGIN_ROOT;
+    process.env.CLAUDE_PLUGIN_ROOT = '/some/plugin/path';
+    try {
+      const result = await installHook(tempDir);
+      expect(result.installed).toBe(false);
+      expect(result.message).toContain('plugin');
+    } finally {
+      if (orig === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+      else process.env.CLAUDE_PLUGIN_ROOT = orig;
+    }
+  });
+
+  it('replaces old bare "token-pilot" hooks with absolute paths', async () => {
+    // Simulate old broken hooks
+    await mkdir(join(tempDir, '.claude'), { recursive: true });
+    await writeFile(join(tempDir, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Read', hooks: [{ type: 'command', command: 'token-pilot hook-read' }] },
+          { matcher: 'Edit', hooks: [{ type: 'command', command: 'token-pilot hook-edit' }] },
+        ],
+      },
+    }));
+
+    const result = await installHook(tempDir, {
+      scriptPath: '/opt/node/lib/token-pilot/dist/index.js',
+      nodeExecPath: '/opt/node/bin/node',
+    });
+    expect(result.installed).toBe(true);
+
+    const settings = JSON.parse(await readFile(join(tempDir, '.claude', 'settings.json'), 'utf-8'));
+    const readHook = settings.hooks.PreToolUse.find((h: any) => h.matcher === 'Read');
+    expect(readHook.hooks[0].command).toContain('/opt/node/bin/node');
+    expect(readHook.hooks[0].command).not.toBe('token-pilot hook-read');
+  });
 });

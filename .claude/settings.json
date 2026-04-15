@@ -11,26 +11,6 @@
         "matcher": ""
       }
     ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "token-pilot hook-read",
-            "type": "command"
-          }
-        ],
-        "matcher": "Read"
-      },
-      {
-        "hooks": [
-          {
-            "command": "token-pilot hook-edit",
-            "type": "command"
-          }
-        ],
-        "matcher": "Edit"
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [

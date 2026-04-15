@@ -5,6 +5,21 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-04-15
+
+### Added
+- **npm-first binary install** — `install-ast-index` now tries `npm install -g @ast-index/cli` before falling back to GitHub download. Works on all platforms including Windows (no more "ZIP extraction not supported" error).
+- **npm binary discovery** — `findBinary` now checks the npm global prefix (`npm config get prefix`) as a 3rd resolution strategy: config → system PATH → npm global → managed install.
+
+### Fixed
+- **Hook installer uses absolute paths** — hooks now write `<node> <script> hook-read` instead of bare `token-pilot hook-read`. Fixes `token-pilot: not found` in `/bin/sh` environments (nvm, npx, non-login shells).
+- **Skip auto-install when running as plugin** — when `CLAUDE_PLUGIN_ROOT` is set, the MCP server no longer writes duplicate hooks into `.claude/settings.json`.
+- **Auto-upgrade broken hooks** — old hooks with bare `token-pilot` commands are automatically replaced with absolute-path versions on next server start.
+
+### Changed
+- **`BinaryStatus.source`** now includes `'npm'` as a value (shown in `doctor` and `session_analytics`).
+- **498 tests** (was 492).
+
 ## [0.19.1] - 2026-04-15
 
 ### Added
@@ -22,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **21 tools** (was 20) — added `session_snapshot`.
 - **MCP instructions** updated with `session_snapshot` workflow and `max_tokens` guidance.
 - Benchmark numbers updated: 55 files, 102K raw → 9K outline tokens (91% savings).
+
+## [0.18.1] - 2026-04-13
+
+### Fixed
+- **Hook installer uses absolute paths** — hooks now write `<node> <script> hook-read` instead of bare `token-pilot hook-read`. Fixes `token-pilot: not found` errors in `/bin/sh` environments (nvm, npx, non-login shells).
+- **Skip auto-install when running as plugin** — when `CLAUDE_PLUGIN_ROOT` is set, the MCP server no longer writes duplicate hooks into `.claude/settings.json` (the plugin system handles this via `hooks.json`).
+- **Auto-upgrade broken hooks** — old hooks with bare `token-pilot` commands are automatically replaced with absolute-path versions on next server start.
+
+### Changed
+- **495 tests** (was 492).
 
 ## [0.18.0] - 2026-04-05
 

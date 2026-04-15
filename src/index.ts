@@ -132,7 +132,15 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   checkAllUpdates(config, binaryStatus).catch(() => { /* ignore */ });
 
   // Auto-install PreToolUse hook (non-blocking, Claude Code only)
-  installHook(projectRoot).then(result => {
+  // Uses absolute paths to node + script so hooks work in /bin/sh (nvm, npx, etc.)
+  let hookOptions: { scriptPath?: string; nodeExecPath?: string } | undefined;
+  try {
+    const rawPath = fileURLToPath(new URL('./index.js', import.meta.url));
+    hookOptions = { scriptPath: realpathSync(rawPath), nodeExecPath: process.execPath };
+  } catch {
+    // Can't resolve script path (e.g. running from src/ in tests) — fall back to bare command
+  }
+  installHook(projectRoot, hookOptions).then(result => {
     if (result.installed) {
       console.error(`[token-pilot] hook auto-installed: ${result.message}`);
     }
@@ -266,7 +274,14 @@ export function handleHookEdit() {
 
 
 export async function handleInstallHook(projectRoot: string) {
-  const result = await installHook(projectRoot);
+  let hookOptions: { scriptPath?: string; nodeExecPath?: string } | undefined;
+  try {
+    const rawPath = fileURLToPath(new URL('./index.js', import.meta.url));
+    hookOptions = { scriptPath: realpathSync(rawPath), nodeExecPath: process.execPath };
+  } catch {
+    // Fall back to bare command
+  }
+  const result = await installHook(projectRoot, hookOptions);
   console.log(result.message);
   process.exit(result.fatal ? 1 : 0);
 }

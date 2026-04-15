@@ -13,37 +13,66 @@ export interface HookUninstallResult {
   message: string;
 }
 
-const HOOK_CONFIG = {
-  hooks: {
-    PreToolUse: [
-      {
-        matcher: "Read",
-        hooks: [
-          {
-            type: "command" as const,
-            command: "token-pilot hook-read",
-          },
-        ],
-      },
-      {
-        matcher: "Edit",
-        hooks: [
-          {
-            type: "command" as const,
-            command: "token-pilot hook-edit",
-          },
-        ],
-      },
-    ],
-  },
-};
+export interface HookInstallOptions {
+  /** Absolute path to the entry script (dist/index.js). When provided, hooks use absolute paths instead of bare "token-pilot". */
+  scriptPath?: string;
+  /** Absolute path to the node binary. Defaults to process.execPath. */
+  nodeExecPath?: string;
+}
+
+/**
+ * Build hook command that works in any shell (/bin/sh, bash, etc.)
+ * Uses absolute paths to node + script to avoid PATH/nvm issues.
+ * Falls back to bare "token-pilot" only for manual CLI installs.
+ */
+function buildHookCommand(action: string, options?: HookInstallOptions): string {
+  if (options?.scriptPath) {
+    const node = options.nodeExecPath || process.execPath;
+    return `${node} ${options.scriptPath} ${action}`;
+  }
+  return `token-pilot ${action}`;
+}
+
+function createHookConfig(options?: HookInstallOptions) {
+  return {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "Read",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand('hook-read', options),
+            },
+          ],
+        },
+        {
+          matcher: "Edit",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand('hook-edit', options),
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
 
 /**
  * Install Token Pilot hook into Claude Code settings.
  * Creates or updates .claude/settings.json with PreToolUse hook.
  */
-export async function installHook(projectRoot: string): Promise<HookInstallResult> {
+export async function installHook(projectRoot: string, options?: HookInstallOptions): Promise<HookInstallResult> {
+  // Skip auto-install when running as a Claude Code plugin —
+  // the plugin system already registers hooks via .claude-plugin/hooks/hooks.json
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    return { installed: false, fatal: false, message: 'Running as plugin — hooks registered via plugin system.' };
+  }
+
   const settingsPath = resolve(projectRoot, '.claude', 'settings.json');
+  const hookConfig = createHookConfig(options);
 
   try {
     // Ensure .claude dir exists
@@ -81,24 +110,37 @@ export async function installHook(projectRoot: string): Promise<HookInstallResul
       h.hooks?.some((hook: any) => hook.command?.includes('token-pilot'));
 
     if (Array.isArray(existingHooks)) {
-      const hasRead = existingHooks.some((h: any) => h.matcher === 'Read' && isTokenPilotHook(h));
-      const hasEdit = existingHooks.some((h: any) => h.matcher === 'Edit' && isTokenPilotHook(h));
+      // Remove old broken hooks (bare "token-pilot" without absolute path)
+      // and replace with working ones using absolute paths
+      const oldBrokenHooks = existingHooks.filter((h: any) =>
+        isTokenPilotHook(h) && h.hooks?.some((hook: any) =>
+          hook.command?.match(/^token-pilot\s/) // bare command without path
+        )
+      );
 
-      if (hasRead && hasEdit) {
-        return { installed: false, fatal: false, message: 'Token Pilot hooks already installed.' };
+      if (oldBrokenHooks.length > 0 && options?.scriptPath) {
+        // Remove old broken hooks, will re-add with absolute paths below
+        settings.hooks.PreToolUse = existingHooks.filter((h: any) => !isTokenPilotHook(h));
+      } else {
+        const hasRead = existingHooks.some((h: any) => h.matcher === 'Read' && isTokenPilotHook(h));
+        const hasEdit = existingHooks.some((h: any) => h.matcher === 'Edit' && isTokenPilotHook(h));
+
+        if (hasRead && hasEdit) {
+          return { installed: false, fatal: false, message: 'Token Pilot hooks already installed.' };
+        }
       }
 
       // Add missing hooks
-      for (const hookDef of HOOK_CONFIG.hooks.PreToolUse) {
-        const exists = existingHooks.some((h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h));
+      for (const hookDef of hookConfig.hooks.PreToolUse) {
+        const exists = settings.hooks.PreToolUse.some((h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h));
         if (!exists) {
-          existingHooks.push(hookDef);
+          settings.hooks.PreToolUse.push(hookDef);
         }
       }
     } else {
       // Create hooks section
       if (!settings.hooks) settings.hooks = {};
-      settings.hooks.PreToolUse = HOOK_CONFIG.hooks.PreToolUse;
+      settings.hooks.PreToolUse = hookConfig.hooks.PreToolUse;
     }
 
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n');

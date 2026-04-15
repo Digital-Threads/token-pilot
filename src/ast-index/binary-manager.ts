@@ -17,11 +17,11 @@ export interface BinaryStatus {
   available: boolean;
   path: string;
   version: string | null;
-  source: 'system' | 'managed' | 'none';
+  source: 'system' | 'npm' | 'managed' | 'none';
 }
 
 /**
- * Find ast-index binary: check system PATH first, then managed install.
+ * Find ast-index binary: config → system PATH → npm global → managed install.
  */
 export async function findBinary(configPath?: string | null): Promise<BinaryStatus> {
   // 1. Config override
@@ -39,7 +39,16 @@ export async function findBinary(configPath?: string | null): Promise<BinaryStat
     return { available: true, path: systemPath, version, source: 'system' };
   }
 
-  // 3. Managed install
+  // 3. npm global install (@ast-index/cli)
+  const npmPath = await findViaNpmBin();
+  if (npmPath) {
+    const version = await getBinaryVersion(npmPath);
+    if (version) {
+      return { available: true, path: npmPath, version, source: 'npm' };
+    }
+  }
+
+  // 4. Managed install (GitHub download)
   const managedPath = resolve(INSTALL_DIR, BINARY_NAME);
   const version = await getBinaryVersion(managedPath);
   if (version) {
@@ -50,13 +59,48 @@ export async function findBinary(configPath?: string | null): Promise<BinaryStat
 }
 
 /**
- * Download and install ast-index binary from GitHub releases.
+ * Install ast-index: tries npm global first (all platforms), falls back to GitHub download.
  */
 export async function installBinary(
   onProgress?: (msg: string) => void,
 ): Promise<BinaryStatus> {
   const log = onProgress ?? (() => {});
 
+  // Try npm first — simpler, handles all platforms including Windows
+  try {
+    return await installViaNpm(log);
+  } catch (npmErr) {
+    log(`npm install failed (${npmErr instanceof Error ? npmErr.message : npmErr}), trying GitHub download...`);
+  }
+
+  // GitHub download fallback
+  return installViaNpmFallback(log);
+}
+
+async function installViaNpm(onProgress: (msg: string) => void): Promise<BinaryStatus> {
+  onProgress('Installing @ast-index/cli via npm...');
+
+  await new Promise<void>((resolve, reject) => {
+    execFile('npm', ['install', '-g', '@ast-index/cli'],
+      { timeout: 120_000 },
+      (err, _stdout, stderr) => {
+        if (err) reject(new Error(stderr.trim() || err.message));
+        else resolve();
+      },
+    );
+  });
+
+  const binPath = await findViaNpmBin();
+  if (!binPath) {
+    throw new Error('@ast-index/cli installed but binary not found in npm prefix');
+  }
+
+  const version = await getBinaryVersion(binPath);
+  onProgress(`Installed ast-index ${version} via npm at ${binPath}`);
+  return { available: true, path: binPath, version, source: 'npm' };
+}
+
+async function installViaNpmFallback(onProgress: (msg: string) => void): Promise<BinaryStatus> {
   // Determine platform/arch
   const plat = getPlatform();
   const ar = getArch();
@@ -64,7 +108,7 @@ export async function installBinary(
     throw new Error(`Unsupported platform: ${platform()} ${arch()}`);
   }
 
-  log('Fetching latest release info...');
+  onProgress('Fetching latest release info...');
   const release = await fetchLatestRelease();
 
   const assetName = buildAssetName(release.tag, plat, ar);
@@ -75,7 +119,7 @@ export async function installBinary(
     );
   }
 
-  log(`Downloading ${asset.name} (${(asset.size / 1024 / 1024).toFixed(1)}MB)...`);
+  onProgress(`Downloading ${asset.name} (${(asset.size / 1024 / 1024).toFixed(1)}MB)...`);
 
   await mkdir(INSTALL_DIR, { recursive: true });
   const tmpPath = resolve(INSTALL_DIR, `${BINARY_NAME}.tmp`);
@@ -84,21 +128,18 @@ export async function installBinary(
   try {
     if (assetName.endsWith('.tar.gz')) {
       await downloadAndExtractTarGz(asset.url, INSTALL_DIR, BINARY_NAME);
-    } else if (assetName.endsWith('.zip')) {
-      // For Windows, download zip and extract
+    } else {
       await downloadFile(asset.url, tmpPath);
-      // Simple approach: use system unzip if available
-      throw new Error('ZIP extraction not yet supported. Please install ast-index manually on Windows.');
+      throw new Error('ZIP extraction not yet supported. Please use: npm install -g @ast-index/cli');
     }
 
     await chmod(finalPath, 0o755);
 
     const version = await getBinaryVersion(finalPath);
-    log(`Installed ast-index ${version} to ${finalPath}`);
+    onProgress(`Installed ast-index ${version} to ${finalPath}`);
 
     return { available: true, path: finalPath, version, source: 'managed' };
   } catch (err) {
-    // Cleanup on failure
     try { await rm(tmpPath, { force: true }); } catch {}
     try { await rm(finalPath, { force: true }); } catch {}
     throw err;
@@ -154,6 +195,34 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 // --- Internal helpers ---
+
+/**
+ * Find ast-index binary installed via `npm install -g @ast-index/cli`.
+ * Checks the npm global prefix bin directory.
+ */
+async function findViaNpmBin(): Promise<string | null> {
+  try {
+    const prefix = await new Promise<string>((resolve, reject) => {
+      execFile('npm', ['config', 'get', 'prefix'], { timeout: 3000 }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout.trim());
+      });
+    });
+
+    // Unix: <prefix>/bin/ast-index  |  Windows: <prefix>\ast-index.exe or <prefix>\bin\ast-index.exe
+    const candidates = platform() === 'win32'
+      ? [resolve(prefix, BINARY_NAME), resolve(prefix, 'bin', BINARY_NAME)]
+      : [resolve(prefix, 'bin', BINARY_NAME)];
+
+    for (const candidate of candidates) {
+      try {
+        await access(candidate);
+        return candidate;
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
 
 function getPlatform(): string | null {
   switch (platform()) {
