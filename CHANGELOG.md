@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`BinaryStatus.source`** now includes `'npm'` as a value (shown in `doctor` and `session_analytics`).
+- **`search()` supports `--type` filter** — filter results by symbol type (`class`, `function`, `interface`, etc.). Leverages ast-index ≥3.30.0.
+- **`hierarchy()` supports `--in-file` / `--module` filters** — scope class hierarchy queries by filename or module path. Leverages ast-index ≥3.30.0.
 - **498 tests** (was 492).
 
 ## [0.19.1] - 2026-04-15

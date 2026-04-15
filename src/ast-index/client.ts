@@ -274,10 +274,11 @@ export class AstIndexClient {
     }
   }
 
-  async search(query: string, options?: { inFile?: string; maxResults?: number; fuzzy?: boolean }): Promise<AstIndexSearchResult[]> {
+  async search(query: string, options?: { inFile?: string; type?: string; maxResults?: number; fuzzy?: boolean }): Promise<AstIndexSearchResult[]> {
     await this.ensureIndex();
     const args = ['search', query, '--format', 'json'];
     if (options?.inFile) args.push('--in-file', options.inFile);
+    if (options?.type) args.push('--type', options.type);
     if (options?.maxResults) args.push('--limit', String(options.maxResults));
     if (options?.fuzzy) args.push('--fuzzy');
     try {
@@ -346,10 +347,13 @@ export class AstIndexClient {
     }
   }
 
-  async hierarchy(name: string): Promise<AstIndexHierarchyNode | null> {
+  async hierarchy(name: string, options?: { inFile?: string; module?: string }): Promise<AstIndexHierarchyNode | null> {
     await this.ensureIndex();
     try {
-      const result = await this.exec(['hierarchy', name, '--format', 'json']);
+      const args = ['hierarchy', name, '--format', 'json'];
+      if (options?.inFile) args.push('--in-file', options.inFile);
+      if (options?.module) args.push('--module', options.module);
+      const result = await this.exec(args);
       try {
         return JSON.parse(result);
       } catch {
