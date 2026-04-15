@@ -41,6 +41,7 @@ import { handleSmartDiff } from './handlers/smart-diff.js';
 import { handleExploreArea } from './handlers/explore-area.js';
 import { handleSmartLog } from './handlers/smart-log.js';
 import { handleTestSummary } from './handlers/test-summary.js';
+import { handleSessionSnapshot } from './handlers/session-snapshot.js';
 import { handleReadSection } from './handlers/read-section.js';
 import { detectContextMode } from './integration/context-mode-detector.js';
 import type { ContextModeStatus } from './integration/context-mode-detector.js';
@@ -671,6 +672,18 @@ export async function createServer(projectRoot: string, options?: { skipAstIndex
           const tsTokens = estimateTokens(tsText);
           recordWithTrace({ tool: 'test_summary', path: tsArgs.command, tokensReturned: tsTokens, tokensWouldBe: tsResult.rawTokens || tsTokens, timestamp: Date.now(), savingsCategory: 'compression', args: tsArgs });
           return { content: tsResult.content };
+        }
+
+        case 'session_snapshot': {
+          const snapshotArgs = args as { goal: string; confirmed?: string[]; files?: string[]; blocked?: string; next?: string };
+          if (!snapshotArgs.goal) {
+            return { content: [{ type: 'text', text: 'Error: goal is required' }], isError: true };
+          }
+          const snapshotResult = handleSessionSnapshot(snapshotArgs);
+          const snapshotText = snapshotResult.content[0]?.text ?? '';
+          const snapshotTokens = estimateTokens(snapshotText);
+          recordWithTrace({ tool: 'session_snapshot', tokensReturned: snapshotTokens, tokensWouldBe: snapshotTokens, timestamp: Date.now(), savingsCategory: 'compression' });
+          return { content: snapshotResult.content };
         }
 
         default:

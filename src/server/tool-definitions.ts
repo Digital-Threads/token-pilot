@@ -351,4 +351,20 @@ export const TOOL_DEFINITIONS = [
       required: ['command'],
     },
   },
+  // --- Session ---
+  {
+    name: 'session_snapshot',
+    description: 'Capture current session state as a compact markdown block (<200 tokens). Call before compaction, when switching direction, or periodically in long sessions. Model provides the facts, tool formats them.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        goal: { type: 'string', description: 'Session goal — what and why' },
+        confirmed: { type: 'array', items: { type: 'string' }, description: 'Established facts (what has been verified)' },
+        files: { type: 'array', items: { type: 'string' }, description: 'Relevant file paths' },
+        blocked: { type: 'string', description: 'Current blocker or obstacle' },
+        next: { type: 'string', description: 'Next step to take' },
+      },
+      required: ['goal'],
+    },
+  },
 ];
