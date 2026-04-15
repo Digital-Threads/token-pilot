@@ -9,6 +9,7 @@ import { resolveSafePath } from '../core/validation.js';
 
 export interface SmartReadManyArgs {
   paths: string[];
+  max_tokens?: number;
 }
 
 const MAX_BATCH_FILES = 20;
@@ -62,7 +63,7 @@ export async function handleSmartReadMany(
         }
 
         const result = await handleSmartRead(
-          { path },
+          { path, max_tokens: args.max_tokens },
           projectRoot,
           astIndex,
           fileCache,

@@ -24,6 +24,7 @@ export function validateSmartReadArgs(args: unknown): {
   show_docs?: boolean;
   show_references?: boolean;
   depth?: number;
+  max_tokens?: number;
 } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
@@ -38,6 +39,7 @@ export function validateSmartReadArgs(args: unknown): {
     show_docs: optionalBool(a.show_docs, 'show_docs'),
     show_references: optionalBool(a.show_references, 'show_references'),
     depth: optionalNumber(a.depth, 'depth'),
+    max_tokens: optionalNumber(a.max_tokens, 'max_tokens'),
   };
 }
 
@@ -239,7 +241,7 @@ export function validateFindUsagesArgs(args: unknown): FindUsagesArgs {
 /**
  * Validate smart_read_many arguments.
  */
-export function validateSmartReadManyArgs(args: unknown): { paths: string[] } {
+export function validateSmartReadManyArgs(args: unknown): { paths: string[]; max_tokens?: number } {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
   }
@@ -252,7 +254,7 @@ export function validateSmartReadManyArgs(args: unknown): { paths: string[] } {
       throw new Error('Each path in "paths" must be a non-empty string.');
     }
   }
-  return { paths: a.paths as string[] };
+  return { paths: a.paths as string[], max_tokens: optionalNumber(a.max_tokens, 'max_tokens') };
 }
 
 function optionalString(val: unknown, name: string): string | undefined {

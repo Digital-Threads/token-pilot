@@ -22,6 +22,7 @@ export interface SmartReadArgs {
   show_references?: boolean;
   depth?: number;
   scope?: 'full' | 'nav' | 'exports';
+  max_tokens?: number;
 }
 
 export async function handleSmartRead(
@@ -53,33 +54,38 @@ export async function handleSmartRead(
   if (lines.length <= config.smartRead.smallFileThreshold) {
     const hash = createHash('sha256').update(content).digest('hex');
     const tokens = estimateTokens(content);
-    contextRegistry.trackLoad(absPath, {
-      type: 'full',
-      startLine: 1,
-      endLine: lines.length,
-      tokens,
-    });
-    contextRegistry.setContentHash(absPath, hash);
 
-    // Cache for read_diff baseline (so read_diff works after external edits)
-    if (!fileCache.get(absPath)) {
-      const fileStat = await stat(absPath);
-      fileCache.set(absPath, {
-        structure: {
-          path: absPath, language: 'unknown',
-          meta: { lines: lines.length, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
-          imports: [], exports: [], symbols: [],
-        },
-        content, lines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
+    // Budget check: if full content exceeds max_tokens, skip pass-through and use outline path
+    if (!args.max_tokens || tokens <= args.max_tokens) {
+      contextRegistry.trackLoad(absPath, {
+        type: 'full',
+        startLine: 1,
+        endLine: lines.length,
+        tokens,
       });
-    }
+      contextRegistry.setContentHash(absPath, hash);
 
-    return {
-      content: [{
-        type: 'text',
-        text: `FILE: ${args.path} (${lines.length} lines — returned in full, below threshold)\n\n${content}`,
-      }],
-    };
+      // Cache for read_diff baseline (so read_diff works after external edits)
+      if (!fileCache.get(absPath)) {
+        const fileStat = await stat(absPath);
+        fileCache.set(absPath, {
+          structure: {
+            path: absPath, language: 'unknown',
+            meta: { lines: lines.length, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
+            imports: [], exports: [], symbols: [],
+          },
+          content, lines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
+        });
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `FILE: ${args.path} (${lines.length} lines — returned in full, below threshold)\n\n${content}`,
+        }],
+      };
+    }
+    // else: fall through to outline path even for small files
   }
 
   // 3. Check cache
@@ -220,7 +226,7 @@ export async function handleSmartRead(
   const structureTokens = estimateTokens(output);
   const fullTokens = estimateTokens(content);
 
-  if (structureTokens >= fullTokens * 0.7) {
+  if (structureTokens >= fullTokens * 0.7 && (!args.max_tokens || fullTokens <= args.max_tokens)) {
     contextRegistry.trackLoad(absPath, {
       type: 'full',
       startLine: 1,
@@ -240,12 +246,34 @@ export async function handleSmartRead(
     };
   }
 
-  // 7. Add token savings
+  // 7. Budget enforcement: if outline exceeds max_tokens, return compact version
+  if (args.max_tokens && structureTokens > args.max_tokens) {
+    const symbols = cached.structure.symbols;
+    const compactLines = [
+      `FILE: ${args.path} (${lines.length} lines — compact, budget: ${args.max_tokens} tokens)`,
+      `Imports: ${cached.structure.imports?.length ?? 0} | Exports: ${cached.structure.exports?.length ?? 0} | Symbols: ${symbols.length}`,
+      '',
+    ];
+    for (const sym of symbols) {
+      compactLines.push(`  ${sym.kind} ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`);
+    }
+    compactLines.push('', `Use read_symbol("${args.path}", "<name>") to drill into any symbol.`);
+
+    const compactText = compactLines.join('\n');
+    const compactTokens = estimateTokens(compactText);
+    contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: cached.structure.meta.lines, tokens: compactTokens });
+    contextRegistry.setContentHash(absPath, cached.hash);
+    contextRegistry.trackStructureSymbols(absPath, symbols.map(s => s.name));
+
+    return { content: [{ type: 'text', text: compactText }] };
+  }
+
+  // 8. Add token savings
   const savings = config.display.showTokenSavings
     ? '\n' + formatSavings(structureTokens, fullTokens)
     : '';
 
-  // 8. Track
+  // 9. Track
   contextRegistry.trackLoad(absPath, {
     type: 'structure',
     startLine: 1,
@@ -255,7 +283,7 @@ export async function handleSmartRead(
   contextRegistry.setContentHash(absPath, cached.hash);
   contextRegistry.trackStructureSymbols(absPath, cached.structure.symbols.map(s => s.name));
 
-  // 9. Confidence metadata
+  // 10. Confidence metadata
   const confidenceMeta = assessConfidence({
     symbolResolved: (cached.structure.symbols?.length ?? 0) > 0,
     fullFile: false,
