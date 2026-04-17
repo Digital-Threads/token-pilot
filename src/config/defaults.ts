@@ -1,4 +1,4 @@
-import type { TokenPilotConfig } from '../types.js';
+import type { TokenPilotConfig } from "../types.js";
 
 export const DEFAULT_CONFIG: TokenPilotConfig = {
   astIndex: {
@@ -28,6 +28,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     interceptRead: true,
     autoInstall: true,
     denyThreshold: 300,
+    mode: "deny-enhanced",
   },
   context: {
     estimateTokens: true,
@@ -42,7 +43,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     actionableHints: true,
   },
   contextMode: {
-    enabled: 'auto' as const,
+    enabled: "auto" as const,
     adviseDelegation: true,
     largeNonCodeThreshold: 200,
   },
@@ -64,11 +65,5 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     compactionCallThreshold: 15,
     compactionTokenThreshold: 8000,
   },
-  ignore: [
-    'node_modules/**',
-    'dist/**',
-    '.git/**',
-    '*.min.js',
-    '*.map',
-  ],
+  ignore: ["node_modules/**", "dist/**", ".git/**", "*.min.js", "*.map"],
 };
