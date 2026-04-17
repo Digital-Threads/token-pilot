@@ -19,6 +19,7 @@ import type { HookMode } from "./types.js";
 import { runSummaryPipeline } from "./hooks/summary-pipeline.js";
 import { formatDenyMessage } from "./hooks/format-deny-message.js";
 import { isPathWithinProject } from "./hooks/path-safety.js";
+import { handleSessionStart } from "./hooks/session-start.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,6 +88,23 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "hook-edit":
       handleHookEdit();
       return;
+    case "hook-session-start": {
+      const cfg = await loadConfig(process.cwd());
+      if (cfg.hooks.mode === "off" || !cfg.sessionStart.enabled) {
+        process.exit(0);
+      }
+      const { homedir } = await import("node:os");
+      const result = await handleSessionStart({
+        projectRoot: process.cwd(),
+        homeDir: homedir(),
+        sessionStartConfig: cfg.sessionStart,
+      });
+      if (result) {
+        process.stdout.write(result);
+      }
+      process.exit(0);
+      return;
+    }
     case "install-hook":
       await handleInstallHook(cliArgs[1] || process.cwd());
       return;
