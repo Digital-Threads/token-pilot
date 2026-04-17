@@ -21,6 +21,9 @@ import { runSummaryPipeline } from "./hooks/summary-pipeline.js";
 import { formatDenyMessage } from "./hooks/format-deny-message.js";
 import { isPathWithinProject } from "./hooks/path-safety.js";
 import { handleSessionStart } from "./hooks/session-start.js";
+import { handleBlessAgents } from "./cli/bless-agents.js";
+import { unblessAgents } from "./cli/unbless-agents.js";
+import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -120,6 +123,22 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "doctor":
       await handleDoctor();
       return;
+    case "bless-agents":
+      await handleBlessAgents(cliArgs.slice(1));
+      return;
+    case "unbless-agents": {
+      const args = cliArgs.slice(1);
+      const all = args.includes("--all");
+      const names = args.filter((a) => !a.startsWith("--"));
+      if (!all && names.length === 0) {
+        process.stderr.write(
+          "Usage: token-pilot unbless-agents <name>... | --all\n",
+        );
+        process.exit(1);
+      }
+      await unblessAgents({ projectRoot: process.cwd(), names, all });
+      return;
+    }
     case "init":
       await handleInit(cliArgs[1] || process.cwd());
       return;
@@ -570,6 +589,16 @@ export async function handleDoctor() {
     console.log(`  setup:        npx token-pilot init`);
   }
   console.log("");
+
+  // ── blessed agents drift check ──
+  const drift = await detectDrift({ projectRoot: cwd, homeDir: homedir() });
+  if (drift.length > 0) {
+    console.log("── blessed-agents drift ──");
+    for (const finding of drift) {
+      console.log(`  ${formatDriftFinding(finding)}`);
+    }
+    console.log("");
+  }
 
   process.exit(0);
 }
