@@ -9,23 +9,11 @@
  * Used by the hook summary pipeline (Phase 1 subtask 1.6).
  */
 
-export type SignalKind = "import" | "export" | "declaration";
+import type { HookSummary, SignalKind, SignalLine } from "./summary-types.js";
 
-export interface SignalLine {
-  /** 1-based line number in the original source. */
-  line: number;
-  kind: SignalKind;
-  /** Trimmed source line, truncated to 140 chars. */
-  text: string;
-}
-
-export interface HookSummary {
-  signals: SignalLine[];
-  totalLines: number;
-  estimatedTokens: number;
-  /** Lower-case extension without the dot, or empty string if none. */
-  language: string;
-}
+// Re-exported for callers that imported these from summary-regex historically.
+// Canonical home is summary-types.ts.
+export type { HookSummary, SignalKind, SignalLine };
 
 const MAX_TEXT_LEN = 140;
 
