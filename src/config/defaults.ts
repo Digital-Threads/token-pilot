@@ -65,5 +65,10 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     compactionCallThreshold: 15,
     compactionTokenThreshold: 8000,
   },
+  sessionStart: {
+    enabled: true,
+    showStats: false,
+    maxReminderTokens: 250,
+  },
   ignore: ["node_modules/**", "dist/**", ".git/**", "*.min.js", "*.map"],
 };

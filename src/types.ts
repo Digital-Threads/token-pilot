@@ -172,5 +172,10 @@ export interface TokenPilotConfig {
     compactionCallThreshold: number;
     compactionTokenThreshold: number;
   };
+  sessionStart: {
+    enabled: boolean;
+    showStats: boolean;
+    maxReminderTokens: number;
+  };
   ignore: string[];
 }
