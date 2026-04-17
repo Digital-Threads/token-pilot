@@ -149,14 +149,18 @@ export function buildReminderMessage(
     return full;
   }
 
-  // Trim agent list until we fit
+  // Trim agent list until we fit. Distinguish "all agents trimmed due to
+  // budget" (count remained >0 in the original list) from "no agents at
+  // all" — they look the same to `trimmedAgents.length === 0` but mean
+  // very different things to the caller (one requires install-agents; the
+  // other just reports "N more hidden").
   let trimmedAgents = [...agents];
   while (trimmedAgents.length > 0) {
     trimmedAgents = trimmedAgents.slice(0, trimmedAgents.length - 1);
     const dropped = agents.length - trimmedAgents.length;
     const trimmedLines =
       trimmedAgents.length === 0
-        ? "  none installed — run: npx token-pilot install-agents"
+        ? `  … and ${dropped} more (reminder budget exhausted)`
         : trimmedAgents
             .map((a) => `  ${a.name}  — ${a.description}`)
             .join("\n") + `\n  … and ${dropped} more`;

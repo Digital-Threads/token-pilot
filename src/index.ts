@@ -2,6 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync, realpathSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -90,10 +91,12 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       return;
     case "hook-session-start": {
       const cfg = await loadConfig(process.cwd());
-      if (cfg.hooks.mode === "off" || !cfg.sessionStart.enabled) {
+      // `sessionStart.enabled` is independent of `hooks.mode` by design —
+      // a user may want the Read-blocking hook off (mode:"off") while still
+      // getting the tool-rules reminder at session start, or vice versa.
+      if (!cfg.sessionStart.enabled) {
         process.exit(0);
       }
-      const { homedir } = await import("node:os");
       const result = await handleSessionStart({
         projectRoot: process.cwd(),
         homeDir: homedir(),

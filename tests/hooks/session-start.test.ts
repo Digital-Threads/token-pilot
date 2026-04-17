@@ -161,6 +161,29 @@ describe("buildReminderMessage", () => {
     const tokens = Math.ceil(msg.length / 4);
     expect(tokens).toBeLessThanOrEqual(250);
   });
+
+  it("does NOT claim 'none installed' when all agents are trimmed due to budget (regression: show-stopper #1)", () => {
+    // One agent with an absurdly long description that alone overflows any
+    // reasonable budget. After trimming the only entry, the code must NOT
+    // emit the install hint (that would falsely tell the agent there are
+    // no subagents). It should report "… and N more" instead.
+    const agents = [
+      {
+        name: "tp-fat",
+        description:
+          "This description is deliberately enormous: " +
+          "lorem ipsum dolor sit amet ".repeat(80),
+      },
+    ];
+    const msg = buildReminderMessage(agents, 250);
+    expect(msg).not.toMatch(/none installed/);
+    expect(msg).toMatch(/… and 1 more/);
+  });
+
+  it("still emits the install hint when the agent list is genuinely empty", () => {
+    const msg = buildReminderMessage([], 250);
+    expect(msg).toMatch(/none installed/);
+  });
 });
 
 // ─── handleSessionStart handler ──────────────────────────────────────────────
