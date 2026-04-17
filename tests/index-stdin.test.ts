@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -173,27 +173,41 @@ describe("index stdin hooks", () => {
   });
 
   it("denies large unbounded code reads parsed from stdin", async () => {
+    // Real on-disk file so the hook's path-safety check can resolve it.
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "tp-stdin-"));
+    const filePath = join(fixtureRoot, "huge.ts");
+    await writeFile(
+      filePath,
+      Array.from({ length: 700 }, (_, i) => `line ${i}`).join("\n"),
+    );
+
     const stdinAndFile = vi.fn((path: string | number) => {
       if (path === 0) {
         return JSON.stringify({
           tool_input: {
-            file_path: "/repo/huge.ts",
+            file_path: filePath,
           },
         });
       }
-      if (path === "/repo/huge.ts") {
+      if (path === filePath) {
         return Array.from({ length: 700 }, (_, i) => `line ${i}`).join("\n");
       }
       return "";
     });
 
     const mod = await loadIndexWithReadFile(stdinAndFile);
-    await expect(mod.handleHookRead()).rejects.toThrow("EXIT:0");
-    expect(writeSpy).toHaveBeenCalledTimes(1);
-    expect(String(writeSpy.mock.calls[0][0])).toContain(
-      '"permissionDecision":"deny"',
+    // projectRoot passed explicitly so path-safety accepts the tmp fixture.
+    const result = await mod.runHookReadDispatch(
+      undefined,
+      "deny-enhanced",
+      300,
+      fixtureRoot,
     );
-    expect(String(writeSpy.mock.calls[0][0])).toContain("read_for_edit");
+    expect(result).not.toBeNull();
+    expect(String(result)).toContain('"permissionDecision":"deny"');
+    expect(String(result)).toContain("read_for_edit");
+
+    await rm(fixtureRoot, { recursive: true, force: true });
   });
 
   it("adds edit guidance for code files and skips non-code or malformed input", async () => {

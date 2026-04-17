@@ -18,6 +18,7 @@ import { isDangerousRoot } from "./core/validation.js";
 import type { HookMode } from "./types.js";
 import { runSummaryPipeline } from "./hooks/summary-pipeline.js";
 import { formatDenyMessage } from "./hooks/format-deny-message.js";
+import { isPathWithinProject } from "./hooks/path-safety.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -229,6 +230,7 @@ export async function handleHookRead(
   filePathArg?: string,
   mode: HookMode = "deny-enhanced",
   denyThreshold = 300,
+  projectRoot: string = process.cwd(),
 ): Promise<void> {
   // Mode 'off' — hook is inert regardless of input.
   if (mode === "off") {
@@ -239,6 +241,7 @@ export async function handleHookRead(
     filePathArg,
     mode,
     denyThreshold,
+    projectRoot,
   );
   if (dispatchResult) {
     process.stdout.write(dispatchResult);
@@ -255,7 +258,19 @@ export async function handleHookRead(
 export async function runHookReadDispatch(
   filePathArg: string | undefined,
   mode: HookMode,
+  denyThresholdArg?: number,
+  projectRootArg?: string,
+): Promise<string | null> {
+  const denyThreshold = denyThresholdArg ?? 300;
+  const projectRoot = projectRootArg ?? process.cwd();
+  return runHookReadDispatchImpl(filePathArg, mode, denyThreshold, projectRoot);
+}
+
+async function runHookReadDispatchImpl(
+  filePathArg: string | undefined,
+  mode: HookMode,
   denyThreshold: number,
+  projectRoot: string,
 ): Promise<string | null> {
   if (mode === "off") return null;
 
@@ -283,6 +298,20 @@ export async function runHookReadDispatch(
 
   // Bounded Reads are always passed through — the agent already narrowed scope.
   if (hasOffset || hasLimit) return null;
+
+  // Path safety: refuse to summarise any file outside the project root
+  // (traversal, symlinks pointing outside). Pass-through on failure so the
+  // agent is never blocked by a safety reject.
+  if (!isPathWithinProject(filePath, projectRoot)) {
+    try {
+      process.stderr.write(
+        `[token-pilot] refusing to summarise "${filePath}" — outside project root. Hook passing through.\n`,
+      );
+    } catch {
+      /* silent — hook must not break */
+    }
+    return null;
+  }
 
   // Read file content + line count.
   let fileContent = "";

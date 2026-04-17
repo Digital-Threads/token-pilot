@@ -162,17 +162,19 @@ describe("index CLI helpers", () => {
     await writeFile(smallFile, "const x = 1;\n");
     await writeFile(mdFile, "# docs\n");
 
-    await expect(indexModule.handleHookRead(mdFile)).rejects.toThrow("EXIT:0");
+    await expect(
+      indexModule.handleHookRead(mdFile, "deny-enhanced", 300, tempDir),
+    ).rejects.toThrow("EXIT:0");
     expect(writeSpy).not.toHaveBeenCalled();
 
-    await expect(indexModule.handleHookRead(smallFile)).rejects.toThrow(
-      "EXIT:0",
-    );
+    await expect(
+      indexModule.handleHookRead(smallFile, "deny-enhanced", 300, tempDir),
+    ).rejects.toThrow("EXIT:0");
     expect(writeSpy).not.toHaveBeenCalled();
 
-    await expect(indexModule.handleHookRead(largeFile)).rejects.toThrow(
-      "EXIT:0",
-    );
+    await expect(
+      indexModule.handleHookRead(largeFile, "deny-enhanced", 300, tempDir),
+    ).rejects.toThrow("EXIT:0");
     expect(writeSpy).toHaveBeenCalledTimes(1);
     expect(String(writeSpy.mock.calls[0][0])).toContain(
       '"permissionDecision":"deny"',
@@ -189,7 +191,7 @@ describe("index CLI helpers", () => {
 
     // Default threshold (300) — 350 lines should be denied in deny-enhanced mode.
     await expect(
-      indexModule.handleHookRead(borderFile, "deny-enhanced"),
+      indexModule.handleHookRead(borderFile, "deny-enhanced", 300, tempDir),
     ).rejects.toThrow("EXIT:0");
     expect(writeSpy).toHaveBeenCalledTimes(1);
     expect(String(writeSpy.mock.calls[0][0])).toContain(
@@ -200,7 +202,7 @@ describe("index CLI helpers", () => {
 
     // High threshold (500) — 350 lines now passes through.
     await expect(
-      indexModule.handleHookRead(borderFile, "deny-enhanced", 500),
+      indexModule.handleHookRead(borderFile, "deny-enhanced", 500, tempDir),
     ).rejects.toThrow("EXIT:0");
     expect(writeSpy).not.toHaveBeenCalled();
   });
