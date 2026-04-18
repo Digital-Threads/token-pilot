@@ -5,6 +5,33 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-04-18
+
+### Added — three more specialist agents (TP-02l follow-up)
+
+Closes the gap between the shipped TP-02l set and the originally-scoped one. Total roster now: **14 agents** (6 Tier 1 + 8 Tier 2).
+
+- **`tp-history-explorer`** — answers "why is this like this?" by tracing git for a symbol. Returns the minimum commit chain that explains current state, not the full log. Refuses to theorise beyond what commit messages say (no "author likely wanted X" hallucinations).
+- **`tp-audit-scanner`** — read-only security + quality scan. Grep patterns for hardcoded secrets, injection shapes, unsafe casts; cross-checked by reading the enclosing symbol before classifying. Outputs Critical / Important / Minor; never edits; never quotes secrets in findings.
+- **`tp-session-restorer`** — rehydrates state after `/clear` / compaction. Reads `.token-pilot/snapshots/latest.md`, git status, saved docs list; returns a ≤200-token briefing in a fixed shape. Refuses to infer next steps the snapshot didn't record.
+
+### Added — subagent budget enforcement (TP-q33 part a)
+
+Every `tp-*` agent declares `Response budget: ~N tokens` in its preamble. Until now, nothing enforced it.
+
+- **`PostToolUse:Task` hook** — after a subagent returns, reads its frontmatter budget, counts tokens in the response (chars/4 heuristic), logs any over-run beyond 10 % tolerance to `.token-pilot/over-budget.log` as JSONL. Silent on every failure; telemetry must never break the agent loop.
+- **Log schema:** `{ ts, agent, budget, actualTokens, overByRatio }`.
+- **Scope:** only `tp-*` subagents — third-party `acc-*`, `feature-dev:*`, etc. are ignored (we only enforce contracts we own).
+- **Zero API cost** — pure post-response analysis. Live-test-harness half (TP-q33 part b) still deferred; requires `ANTHROPIC_API_KEY`.
+
+### Changed
+
+- `.claude-plugin/hooks/hooks.json` and the installer now register a `PostToolUse:Task` matcher alongside the existing `Bash` matcher. Idempotent install; uninstall removes both.
+- `typo-guard` KNOWN_COMMANDS expanded to include `hook-post-task`.
+
+### Numbers
+- 904 tests green (+14 post-task budget tests), `tsc --noEmit` clean.
+
 ## [0.22.3] - 2026-04-18
 
 ### Fixed

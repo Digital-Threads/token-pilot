@@ -39,6 +39,15 @@
             "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash"
           }
         ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task"
+          }
+        ]
       }
     ]
   }

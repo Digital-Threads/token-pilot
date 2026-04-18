@@ -121,6 +121,11 @@ Claude Code subagents guarantee MCP-first behaviour with tight response budgets 
 | `tp-test-writer` | Write tests for ONE symbol, mirrors project style, runs tests | 900 |
 | `tp-dead-code-finder` | Cross-checked dead-code detection, output-only (never deletes) | 600 |
 | `tp-commit-writer` | Draft Conventional-Commit from staged diff; refuses failing tests | 400 |
+| `tp-history-explorer` | "Why is this like this?" — minimum commit chain explaining current state | 600 |
+| `tp-audit-scanner` | Read-only security / quality audit; Critical / Important / Minor findings | 800 |
+| `tp-session-restorer` | Rehydrate state after /clear or compaction from latest snapshot | 400 |
+
+Every agent's budget is enforced post-response — overshoots beyond 10 % land in `.token-pilot/over-budget.log`.
 
 `init` offers to install these; to do it later or add them to another project, run `npx token-pilot install-agents`. Remove with `npx token-pilot uninstall-agents --scope=user|project`.
 

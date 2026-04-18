@@ -51,15 +51,18 @@ describe("composed agent snapshots (regression guard)", () => {
     const names = results.map((r) => r.name).sort();
     expect(names).toMatchInlineSnapshot(`
       [
+        "tp-audit-scanner",
         "tp-commit-writer",
         "tp-dead-code-finder",
         "tp-debugger",
+        "tp-history-explorer",
         "tp-impact-analyzer",
         "tp-migration-scout",
         "tp-onboard",
         "tp-pr-reviewer",
         "tp-refactor-planner",
         "tp-run",
+        "tp-session-restorer",
         "tp-test-triage",
         "tp-test-writer",
       ]
