@@ -1,12 +1,12 @@
 # Token Pilot
 
-**Enforcement layer for token-efficient AI coding.** MCP server + PreToolUse hook + six subagents. Cuts token consumption in AI coding assistants by up to **80%** without changing the way you work.
+**Token-efficient AI coding, enforced.** Cuts context consumption in AI coding assistants by up to **90%** without changing the way you work.
 
-Three moving parts make it effective on every agent — including those without MCP access:
+Three layers, each useful on its own, stronger together:
 
-1. **MCP tools** — structural reads (`smart_read`, `read_symbol`, `read_for_edit`, …). Ask for an outline, load one function by name, not the whole file.
-2. **PreToolUse hook** — intercepts large raw `Read` calls and returns a structural summary **inside the denial reason**. Works for any agent, even ones that only have `Read`.
-3. **`tp-*` subagents** — six MCP-first delegates (`tp-run`, `tp-onboard`, `tp-pr-reviewer`, `tp-impact-analyzer`, `tp-refactor-planner`, `tp-test-triage`) with tight response budgets.
+1. **MCP tools** — structural reads (`smart_read`, `read_symbol`, `read_for_edit`, …). Ask for an outline or load one function by name instead of the whole file.
+2. **Read hook** — intercepts large raw `Read` calls and answers with a structural summary in the denial reason itself. Works for every agent, including ones that only have basic tools.
+3. **`tp-*` subagents** — six Claude Code delegates (`tp-run`, `tp-onboard`, `tp-pr-reviewer`, `tp-impact-analyzer`, `tp-refactor-planner`, `tp-test-triage`) with MCP-first behaviour and tight response budgets.
 
 ## How It Works
 
@@ -39,13 +39,12 @@ Measured on public open-source repos. Files ≥50 lines only:
 npx -y token-pilot init
 ```
 
-This does three things in order:
+This does two things:
 
 1. Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode).
-2. If you're on a TTY, asks: *"Install 6 tp-\* subagents now?"* — say yes, pick user or project scope, done.
-3. Prints the hook-install hint for Claude Code users.
+2. If you're on a TTY, asks whether to install the six `tp-*` subagents now — pick `user` (available in every project) or `project` scope.
 
-Restart your AI assistant to activate. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
+Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
 
 <details>
 <summary>Manual install (other MCP clients, from source, scripted CI)</summary>
@@ -84,7 +83,7 @@ npx token-pilot install-agents --scope=user|project [--force]
 
 ## Modes
 
-The PreToolUse hook has three modes. Set in `.token-pilot.json`:
+The Read hook has three modes. Set in `.token-pilot.json`:
 
 | Mode | Behaviour |
 |------|-----------|
@@ -111,9 +110,9 @@ Six Claude Code subagents guarantee MCP-first behaviour with tight response budg
 | `tp-refactor-planner` | Plan a refactor with exact edit context per step | 500 |
 | `tp-test-triage` | Investigate test failures → root cause → minimal fix | 500 |
 
-Install: `npx token-pilot install-agents`. Remove: `npx token-pilot uninstall-agents --scope=user|project`.
+`init` offers to install these; to do it later or add them to another project, run `npx token-pilot install-agents`. Remove with `npx token-pilot uninstall-agents --scope=user|project`.
 
-For third-party agents (e.g. `acc-*` plugins) that lack MCP access, `npx token-pilot bless-agents` creates project-level overrides that extend their tool allowlist. `doctor` flags any drifted upstreams; `unbless-agents` reverses.
+For third-party agents (e.g. `acc-*` plugins) whose tool allowlist excludes token-pilot MCP, `npx token-pilot bless-agents` creates project-level overrides that add the missing tools. `doctor` warns when the original agent has changed since blessing; `unbless-agents` reverses.
 
 ## MCP Tools (21)
 
@@ -126,6 +125,7 @@ For third-party agents (e.g. `acc-*` plugins) that lack MCP access, `npx token-p
 | `read_symbols` | N × `read_symbol` | Batch up to 10 symbols from one file |
 | `read_for_edit` | `Read` before `Edit` | Minimal raw code around a symbol — copy directly as `old_string` |
 | `read_range` | `Read` offset | Specific line range |
+| `read_section` | `Read` | Section by heading (Markdown) or key (YAML/JSON/CSV) |
 | `read_diff` | re-`Read` | Changed hunks since last `smart_read` |
 | `smart_read_many` | multiple `Read` | Batch smart_read for up to 20 files |
 
