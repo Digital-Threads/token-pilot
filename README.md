@@ -308,10 +308,23 @@ token-pilot --help               # Show help
 
 ## Configuration
 
-Create `.token-pilot.json` in your project root to customize behavior:
+Create `.token-pilot.json` in your project root to customize behaviour. All fields are optional; sensible defaults are used for anything not specified.
 
 ```json
 {
+  "hooks": {
+    "mode": "deny-enhanced",
+    "denyThreshold": 300
+  },
+  "sessionStart": {
+    "enabled": true,
+    "showStats": false,
+    "maxReminderTokens": 250
+  },
+  "agents": {
+    "scope": null,
+    "reminder": true
+  },
   "smartRead": {
     "smallFileThreshold": 200,
     "advisoryReminders": true
@@ -320,15 +333,6 @@ Create `.token-pilot.json` in your project root to customize behavior:
     "maxSizeMB": 100,
     "watchFiles": true
   },
-  "git": {
-    "watchHead": true,
-    "selectiveInvalidation": true
-  },
-  "contextMode": {
-    "enabled": "auto",
-    "adviseDelegation": true,
-    "largeNonCodeThreshold": 200
-  },
   "policies": {
     "preferCheapReads": true,
     "maxFullFileReads": 10,
@@ -336,35 +340,24 @@ Create `.token-pilot.json` in your project root to customize behavior:
     "largeReadThreshold": 2000,
     "requireReadForEditBeforeEdit": true
   },
-  "display": {
-    "showImports": true,
-    "showDocs": true,
-    "maxDepth": 2,
-    "showTokenSavings": true
-  },
-  "ignore": [
-    "node_modules/**",
-    "dist/**",
-    ".git/**"
-  ]
+  "ignore": ["node_modules/**", "dist/**", ".git/**"]
 }
 ```
-
-All fields are optional — sensible defaults are used for anything not specified.
 
 ### Key Config Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `hooks.mode` | `"deny-enhanced"` | `off` / `advisory` / `deny-enhanced`. See [Hook modes](#hook-modes). |
+| `hooks.denyThreshold` | `300` | Line count at which the hook starts denying unbounded Read. |
+| `sessionStart.enabled` | `true` | Emit the MCP-rules reminder at every session / `/clear` / `/compact`. |
+| `sessionStart.maxReminderTokens` | `250` | Budget for the reminder block. |
+| `agents.scope` | `null` | Persisted scope of last `install-agents` run. Reused silently on re-run. |
+| `agents.reminder` | `true` | Show the "tp-* not installed" stderr nudge at MCP startup. |
 | `smartRead.smallFileThreshold` | `200` | Files with fewer lines are returned in full (no AST overhead). |
 | `cache.maxSizeMB` | `100` | Max memory for file cache. LRU eviction when exceeded. |
-| `cache.watchFiles` | `true` | Auto-invalidate cache on file changes (chokidar). |
-| `git.watchHead` | `true` | Watch `.git/HEAD` for branch switches, invalidate changed files. |
-| `contextMode.enabled` | `"auto"` | Detect context-mode plugin. `true`/`false` to force. |
-| `contextMode.adviseDelegation` | `true` | Suggest context-mode for large non-code files. |
-| `policies.preferCheapReads` | `true` | Advisory hints when expensive tool used where cheaper exists. |
+| `cache.watchFiles` | `true` | Auto-invalidate cache on file changes. |
 | `policies.maxFullFileReads` | `10` | Warn after N full-file reads in session. |
-| `policies.warnOnLargeReads` | `true` | Warn when single response exceeds threshold. |
 | `policies.largeReadThreshold` | `2000` | Token threshold for large read warning. |
 
 ## Integration with context-mode
@@ -437,61 +430,44 @@ npm run dev          # TypeScript watch mode
 
 ```
 src/
-  index.ts              — CLI entry point and server bootstrap
-  server.ts             — MCP server setup, tool definitions, instructions
-  types.ts              — Core domain types
-  ast-index/
-    client.ts           — ast-index CLI wrapper (22+ methods)
-    binary-manager.ts   — Auto-download & manage ast-index binary
-    tar-extract.ts      — Minimal tar extractor (zero deps)
-    types.ts            — ast-index response types (20+ interfaces)
+  index.ts              — CLI entry + MCP server bootstrap (startServer, handleHookRead, …)
+  server.ts             — MCP server setup, 21 tool definitions, instructions
+  types.ts              — Core domain types + TokenPilotConfig shape
+  ast-index/            — ast-index binary client + auto-install + tar-extract (zero deps)
   core/
+    event-log.ts        — hook-events.jsonl schema + rotation (10MB) + retention (30d / 100MB)
     file-cache.ts       — LRU file cache with staleness detection
-    context-registry.ts — Advisory context tracking + compact reminders
-    symbol-resolver.ts  — Qualified symbol resolution
-    token-estimator.ts  — Token count estimation
-    session-analytics.ts — Token savings tracking with intent + decision trace
-    validation.ts       — Input validators for all tools
-    format-duration.ts  — Shared duration formatter
-    project-detector.ts — Config-based project detection (frameworks, CI, quality tools)
-    confidence.ts       — Confidence metadata for response completeness
-    intent-classifier.ts — Tool → intent mapping (edit/debug/explore/review/analyze/search/read)
-    budget-planner.ts   — Advisory: suggests cheaper tool alternatives
-    decision-trace.ts   — Per-call instrumentation (cost, context state, alternatives)
-    session-cache.ts    — Tool-result-level caching with invalidation
-    architecture-fingerprint.ts — Cross-session architecture caching
-    policy-engine.ts    — Configurable team policies for consistent savings
-  config/
-    loader.ts           — Config loading + deep merge
-    defaults.ts         — Default config values
-  formatters/
-    structure.ts        — AST outline → text formatter
-  handlers/
-    smart-read.ts       — smart_read handler
-    read-symbol.ts      — read_symbol handler
-    read-range.ts       — read_range handler
-    read-diff.ts        — read_diff handler (O(n) diff)
-    smart-read-many.ts  — Batch smart_read
-    find-usages.ts      — find_usages handler (scope/kind/lang/limit filters)
-    read-for-edit.ts    — read_for_edit handler (minimal edit context)
-    related-files.ts    — related_files handler (import graph)
-    outline.ts          — outline handler (recursive directory overview)
-    find-unused.ts      — find_unused handler
-    code-audit.ts       — code_audit handler (TODOs, deprecated, patterns)
-    project-overview.ts — project_overview (dual-detection + confidence)
-    module-info.ts      — module_info handler (deps, dependents, API, unused)
-    smart-diff.ts       — smart_diff handler (structural git diff + symbol mapping)
-    explore-area.ts     — explore_area handler (outline + imports + tests + changes)
-    smart-log.ts        — smart_log handler (structured git log + category detection)
-    test-summary.ts     — test_summary handler (run tests + parse output)
-    non-code.ts         — JSON/YAML/MD/TOML structural summaries
-  git/
-    watcher.ts          — Git HEAD watcher (branch switch detection)
-    file-watcher.ts     — File system watcher (cache invalidation)
+    session-analytics.ts, session-cache.ts — session + tool-result analytics
+    intent-classifier.ts, budget-planner.ts, decision-trace.ts, policy-engine.ts
+    hook-tracker.ts     — Legacy hook-denied.jsonl (kept for backwards-compat readers)
   hooks/
     installer.ts        — Hook install/uninstall for Claude Code
-  integration/
-    context-mode-detector.ts — context-mode presence detection
+    session-start.ts    — SessionStart reminder handler (MCP rules + installed tp-*)
+    summary-pipeline.ts — Fallback chain (ast-index → regex → head+tail → pass-through)
+    summary-regex.ts, summary-head-tail.ts, summary-ast-index.ts
+    format-deny-message.ts, path-safety.ts
+  cli/
+    agent-frontmatter.ts — YAML frontmatter parse/write (tools-field kinds A/B/C)
+    scan-agents.ts       — Agent discovery + category classifier
+    bless-agents.ts, unbless-agents.ts, doctor-drift.ts
+    install-agents.ts    — Scope resolution, idempotence matrix, startup-reminder
+    uninstall-agents.ts  — Marker-gated removal, required --scope
+    stats.ts             — `stats` / `--session` / `--by-agent`
+  templates/
+    agent-builder.ts     — Compose shared-preamble + role block + response-contract
+  config/
+    loader.ts           — Config loading + deep merge + legacy migrations
+    defaults.ts         — Default config values
+  formatters/structure.ts — AST outline → text formatter
+  handlers/             — 21 MCP tool handlers (smart_read, read_symbol, …, test_summary)
+  git/                  — Git HEAD + file watchers (cache invalidation)
+  integration/          — context-mode detection
+
+scripts/
+  build-agents.mjs      — Render templates/agents/*.md → dist/agents/*.md at build time
+  bench-hook.mjs        — Hook latency bench (p50/p95/p99 vs fake 1000-line file)
+
+templates/agents/       — Source for tp-* family (6 agents + shared preamble + contract)
 ```
 
 ## Credits
