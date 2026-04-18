@@ -68,6 +68,18 @@ This generates:
 
 **That's it.** Restart your AI assistant. Both packages are downloaded automatically, ast-index binary is fetched on first run. No Rust, no Cargo, no manual setup.
 
+#### Step 2 (Claude Code users, recommended): install `tp-*` subagents
+
+Token Pilot ships six MCP-first subagents that guarantee token-efficient delegation. Install after the MCP setup above:
+
+```bash
+npx -y token-pilot install-agents            # prompts: user or project scope
+npx -y token-pilot install-agents --scope=user     # ~/.claude/agents
+npx -y token-pilot install-agents --scope=project  # ./.claude/agents
+```
+
+See the [Subagent Family](#subagent-family-tp-) section below for the list and when to invoke each.
+
 ### Manual Setup
 
 Add to your `.mcp.json` (project-level or `~/.mcp.json` for global):
@@ -141,17 +153,56 @@ npx token-pilot install-ast-index
 
 ### PreToolUse Hook (Claude Code only)
 
-Optional Claude Code hook support:
+The hook intercepts unbounded `Read` on large code files and returns a structural summary **inside the denial reason** — no separate tool call required. **Works for every agent, including subagents that lack MCP access** — which is what makes Token Pilot deliver savings in long sessions with specialised delegates, not only when the main agent reads code.
 
-- blocks unbounded `Read` on large code files (>500 lines) and points the agent to `smart_read`
+Additionally:
+
 - adds `read_for_edit` guidance before `Edit`
+- accumulates context with sibling plugins' PreToolUse hooks (context-mode etc.) so users don't pick between token-savers
 
 ```bash
 npx token-pilot install-hook            # Install
 npx token-pilot uninstall-hook          # Remove
 ```
 
-> **Note:** With v0.7.4+ MCP instructions, the hook is less critical — AI agents already know to prefer Token Pilot tools.
+#### Hook modes
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` | Hook is inert. Use for debugging or opt-out. |
+| `advisory` | Denies the Read with a short tip pointing at `smart_read` / `read_for_edit`. Minimal intervention. |
+| `deny-enhanced` *(default)* | Denies the Read and embeds a full structural summary (imports, exports, declarations) directly in the denial reason. Works for every agent, including subagents without MCP access. |
+
+Set via `.token-pilot.json`:
+
+```json
+{ "hooks": { "mode": "deny-enhanced", "denyThreshold": 300 } }
+```
+
+Or via env var: `TOKEN_PILOT_MODE=off` / `TOKEN_PILOT_DENY_THRESHOLD=500`.
+
+**Upgrading from v0.19:** if your config has `hooks.mode: "deny"` (removed in v0.20), it is auto-migrated to `"advisory"` on next load with a one-time stderr notice. No action required.
+
+### Subagent Family (tp-*)
+
+Token Pilot ships six Claude Code subagents (`tp-run`, `tp-onboard`, `tp-pr-reviewer`, `tp-impact-analyzer`, `tp-refactor-planner`, `tp-test-triage`) that guarantee MCP-first behaviour for their respective workflows. Each has a tight response budget and a verdict-first output contract.
+
+| Agent | When to invoke | Response budget |
+|-------|---------------|-----------------|
+| `tp-run` | General MCP-first workhorse; use proactively when no specialised agent fits | 800 tokens |
+| `tp-onboard` | Orienting to an unfamiliar repo (layout, entry points, modules) | 600 |
+| `tp-pr-reviewer` | Reviewing a diff / PR / changeset; verdict-first, Critical/Important tiers | 600 |
+| `tp-impact-analyzer` | Tracing blast-radius of a change (callers, transitive deps) | 400 |
+| `tp-refactor-planner` | Planning a refactor with exact edit context per step | 500 |
+| `tp-test-triage` | Investigating test failures → root cause → minimal fix | 500 |
+
+Install with `npx token-pilot install-agents` (prompts for user/project scope). Remove with `npx token-pilot uninstall-agents --scope=user|project`.
+
+For existing third-party agents (e.g. `acc-*` from other plugins) that lack access to the Token Pilot MCP, `npx token-pilot bless-agents` creates project-level overrides extending their tool allowlist. Remove with `npx token-pilot unbless-agents <name>... | --all`. `npx token-pilot doctor` flags blessed agents whose upstream has drifted since bless.
+
+### Marketplace installation *(planned)*
+
+A future release will register Token Pilot as a Claude Code marketplace plugin, allowing one-command install via `/plugin install token-pilot`. The plugin bundle will ship the same `tp-*` agents, the MCP server, and the PreToolUse hook — no `install-agents` step needed. Until then, the npm + CLI path above is the supported route.
 
 ## How AI Agents Know to Use Token Pilot
 

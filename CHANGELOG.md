@@ -5,6 +5,32 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-04-18
+
+### Added
+- **Enforcement layer (TP-816)** — four-component architecture that makes token-pilot actually used, not just advertised.
+  - **`deny-enhanced` hook mode** (new default) — `PreToolUse:Read` on qualifying large code files returns a structural summary (imports, exports, declarations, head/tail fallback) **inside the denial reason**. Works for every agent, including subagents that lack MCP access. `advisory` and `off` modes remain available.
+  - **SessionStart hook** — emits a one-shot reminder after every `/clear` / `/compact` / new session, listing the mandatory MCP tools and the installed `tp-*` subagents. Respects `sessionStart.enabled` independently of `hooks.mode`.
+  - **`bless-agents` CLI** — scans installed agents, classifies by tool-allowlist shape (wildcard / exclusion / explicit), and writes project-level overrides adding `mcp__token-pilot__*` to category-C agents. `unbless-agents` + `doctor` upstream-drift detection close the loop.
+  - **Subagent family (`tp-*`)** — six Tier-1 agents with tight response budgets and verdict-first output contract: `tp-run` (800), `tp-onboard` (600), `tp-pr-reviewer` (600), `tp-impact-analyzer` (400), `tp-refactor-planner` (500), `tp-test-triage` (500). Installed via `npx token-pilot install-agents` (user or project scope, idempotent with body-hash).
+- **`install-agents` / `uninstall-agents` CLI** — scope resolution (flag > persisted > prompt > error), idempotence matrix (unchanged / template-upgraded / user-edited / no-hash), `--force` to overwrite user-edited (never touches files without our marker).
+- **MCP startup reminder** — one-time stderr nudge when no `tp-*` agents are installed; silenced by `agents.reminder: false` or `TOKEN_PILOT_NO_AGENT_REMINDER=1`; suppressed inside subagents via `TOKEN_PILOT_SUBAGENT=1`.
+- **`hook-events.jsonl` telemetry** — new schema `{ts, session_id, agent_type, agent_id, event, file, lines, estTokens, summaryTokens, savedTokens}`; rotates at 10 MB, retains 30 days / 100 MB.
+- **`stats` CLI** — `token-pilot stats` (default totals + top files), `--session[=<id>]` (filter to one session, most recent by default), `--by-agent` (group by `agent_type`, null rendered as "main").
+- **`bench:hook` script** — `npm run bench:hook` reports p50/p95/p99 hook latency against a 1000-line fake file; thresholds from TP-816 §11 available as opt-in `--check=true` gate.
+
+### Changed
+- **Config** — new fields: `hooks.mode` (`off` | `advisory` | `deny-enhanced`, replaces legacy boolean `hooks.enabled`), `sessionStart.*`, `agents.scope`, `agents.reminder`, `hooks.migratedFrom`.
+- **Legacy migration** — `hooks.mode: "deny"` (v0.19) is rewritten to `"advisory"` on next load with a one-time stderr notice and `hooks.migratedFrom: "deny"` marker. Old `hooks.enabled: false` is migrated to `mode: "off"`. Both are idempotent.
+- **Env vars** — `TOKEN_PILOT_DENY_THRESHOLD=<n>` overrides `hooks.denyThreshold`. Documented alongside `TOKEN_PILOT_MODE`, `TOKEN_PILOT_BYPASS`, `TOKEN_PILOT_DEBUG`, `TOKEN_PILOT_NO_AGENT_REMINDER`, `TOKEN_PILOT_SUBAGENT`.
+
+### Deferred
+- **Live-LLM behavioural assertions** — the agent-behaviour acceptance ("uses MCP before raw Read; response within budget; no narration") requires a live Anthropic or Claude Code runner. Deterministic coverage (structure, budget ceiling, fixture compat) is in place; live dispatch moves to a v0.20.x follow-up.
+- **Claude Code marketplace plugin** — planned for a future release; `install-agents` remains the supported path.
+
+### Numbers
+- 806 tests green, `tsc --noEmit` clean.
+
 ## [0.19.2] - 2026-04-15
 
 ### Added
