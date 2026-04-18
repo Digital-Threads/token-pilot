@@ -1,4 +1,20 @@
 #!/usr/bin/env node
+
+// v0.26.6 — handle EPIPE silently. Piping `token-pilot doctor | head -5`
+// causes EPIPE once head closes stdin. Classic Node.js CLI wart. Default
+// behaviour is a red "throw er; // Unhandled 'error' event" stacktrace,
+// which scares users who just wanted a quick look. Standard fix: swallow
+// EPIPE on stdout/stderr and exit 0 — any CLI piped to head|less|grep
+// behaves this way.
+process.stdout.on("error", (err) => {
+  if ((err as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
+  throw err;
+});
+process.stderr.on("error", (err) => {
+  if ((err as NodeJS.ErrnoException).code === "EPIPE") process.exit(0);
+  throw err;
+});
+
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync, realpathSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
