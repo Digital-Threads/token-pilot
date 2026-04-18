@@ -119,16 +119,32 @@ describe("buildReminderMessage", () => {
     expect(msg).toContain("install-agents");
   });
 
-  it("lists agents when provided", () => {
+  it("surfaces installed known agents via the decision guide", () => {
     const agents = [
       { name: "tp-run", description: "General workhorse" },
       { name: "tp-onboard", description: "Explore unfamiliar repo" },
     ];
-    const msg = buildReminderMessage(agents, 250);
+    const msg = buildReminderMessage(agents, 400);
     expect(msg).toContain("tp-run");
-    expect(msg).toContain("General workhorse");
     expect(msg).toContain("tp-onboard");
-    expect(msg).toContain("Explore unfamiliar repo");
+    // Known agents appear as task→name mappings, not descriptions
+    expect(msg).toMatch(/→\s+tp-run/);
+    expect(msg).toMatch(/→\s+tp-onboard/);
+  });
+
+  it("falls back to description for custom / non-core tp-* agents", () => {
+    const agents = [
+      { name: "tp-custom-widget", description: "Widget inspector" },
+    ];
+    const msg = buildReminderMessage(agents, 400);
+    expect(msg).toContain("tp-custom-widget");
+    expect(msg).toContain("Widget inspector");
+  });
+
+  it("hides decision-guide lines for agents that aren't installed", () => {
+    // No agents installed → "none installed" + no decision-guide body
+    const msg = buildReminderMessage([], 400);
+    expect(msg).not.toMatch(/→\s+tp-/);
   });
 
   it('trims agent list with "… and N more" when over budget', () => {
@@ -249,10 +265,10 @@ describe("handleSessionStart", () => {
       },
     });
     const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.additionalContext).toContain("tp-run");
-    expect(parsed.hookSpecificOutput.additionalContext).toContain(
-      "General workhorse",
-    );
+    const ctx = parsed.hookSpecificOutput.additionalContext;
+    expect(ctx).toContain("tp-run");
+    // Known agents are surfaced as decision-guide task mappings
+    expect(ctx).toMatch(/→\s+tp-run/);
   });
 
   it("shows install hint when no tp-* agents are present", async () => {

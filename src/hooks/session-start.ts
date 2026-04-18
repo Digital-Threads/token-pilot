@@ -128,7 +128,25 @@ MANDATORY — for code files, use these before raw Read:
   mcp__token-pilot__read_symbol(path, sym)  — one function / class
   mcp__token-pilot__read_for_edit(path, sym)— exact text for editing
   mcp__token-pilot__outline(path)           — symbol list
+Batch variants (prefer over loops): read_symbols, smart_read_many, read_section.
 Raw Read allowed only with offset/limit or TOKEN_PILOT_BYPASS=1.`;
+
+const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, use the Task tool:
+  bug / stack trace      → tp-debugger
+  PR / diff review       → tp-pr-reviewer
+  impact before change   → tp-impact-analyzer
+  plan refactor          → tp-refactor-planner
+  failing tests          → tp-test-triage
+  write new tests        → tp-test-writer
+  migrate API / version  → tp-migration-scout
+  "why is this like this?"→ tp-history-explorer
+  security / quality audit→ tp-audit-scanner
+  resume after /clear    → tp-session-restorer
+  dead code cleanup      → tp-dead-code-finder
+  commit message         → tp-commit-writer
+  repo onboarding        → tp-onboard
+  general workhorse      → tp-run
+Delegating keeps main-context lean; each specialist has a narrow toolset + budget.`;
 
 function estimateTokens(text: string): number {
   // Fast approximation: chars / 4, adjusted for whitespace
@@ -145,34 +163,57 @@ export function buildReminderMessage(
   agents: AgentEntry[],
   maxReminderTokens: number,
 ): string {
-  const agentLines =
-    agents.length === 0
-      ? "  none installed — run: npx token-pilot install-agents"
-      : agents.map((a) => `  ${a.name}  — ${a.description}`).join("\n");
+  // If no agents installed, give the user a clear nudge; skip the
+  // delegation guide since there's nothing to delegate to.
+  if (agents.length === 0) {
+    return `${MANDATORY_BLOCK}\n\nWHEN DELEGATING — none installed; run: npx token-pilot install-agents`;
+  }
 
-  const delegatingSection = `WHEN DELEGATING — use the right token-pilot-native subagent:\n${agentLines}`;
+  // Filter the decision guide to the agents this user actually has
+  // installed. Dropping lines for missing agents keeps the reminder
+  // honest when the template ships an agent the user hasn't installed.
+  const installedNames = new Set(agents.map((a) => a.name));
+  const guideKnownNames = new Set<string>();
+  const decisionGuideLines = DECISION_GUIDE.split("\n").filter((line) => {
+    const m = line.match(/→\s+(tp-[a-z-]+)/);
+    if (!m) return true; // header / footer
+    guideKnownNames.add(m[1]);
+    return installedNames.has(m[1]);
+  });
 
-  const full = `${MANDATORY_BLOCK}\n\n${delegatingSection}`;
+  // Fallback: custom / third-party tp-* agents we don't hard-code in the
+  // guide still deserve a mention so the main agent can delegate to them.
+  const extras = agents.filter((a) => !guideKnownNames.has(a.name));
+  if (extras.length > 0) {
+    const extraLines = extras.map(
+      (a) => `  custom: ${a.name}  — ${a.description}`,
+    );
+    // Insert before the "Delegating keeps..." footer.
+    const footer = decisionGuideLines.pop() ?? "";
+    decisionGuideLines.push(...extraLines, footer);
+  }
+  const decisionGuide = decisionGuideLines.join("\n");
+
+  const full = `${MANDATORY_BLOCK}\n\n${decisionGuide}`;
   if (estimateTokens(full) <= maxReminderTokens) {
     return full;
   }
 
-  // Trim agent list until we fit. Distinguish "all agents trimmed due to
-  // budget" (count remained >0 in the original list) from "no agents at
-  // all" — they look the same to `trimmedAgents.length === 0` but mean
-  // very different things to the caller (one requires install-agents; the
-  // other just reports "N more hidden").
-  let trimmedAgents = [...agents];
-  while (trimmedAgents.length > 0) {
-    trimmedAgents = trimmedAgents.slice(0, trimmedAgents.length - 1);
-    const dropped = agents.length - trimmedAgents.length;
-    const trimmedLines =
-      trimmedAgents.length === 0
-        ? `  … and ${dropped} more (reminder budget exhausted)`
-        : trimmedAgents
-            .map((a) => `  ${a.name}  — ${a.description}`)
-            .join("\n") + `\n  … and ${dropped} more`;
-    const candidate = `${MANDATORY_BLOCK}\n\nWHEN DELEGATING — use the right token-pilot-native subagent:\n${trimmedLines}`;
+  // Budget overflow: trim decision-guide body lines from the end (keep
+  // header, footer, and as many mappings as fit). Preserves the first
+  // line so the agent still knows the section exists.
+  const header = decisionGuideLines[0];
+  const footer = decisionGuideLines[decisionGuideLines.length - 1];
+  const body = decisionGuideLines.slice(1, -1);
+  let kept = body.length;
+  while (kept > 0) {
+    kept--;
+    const dropped = body.length - kept;
+    const trimmedBody =
+      kept === 0
+        ? [`  … and ${dropped} more (reminder budget exhausted)`]
+        : body.slice(0, kept).concat(`  … and ${dropped} more`);
+    const candidate = `${MANDATORY_BLOCK}\n\n${[header, ...trimmedBody, footer].join("\n")}`;
     if (estimateTokens(candidate) <= maxReminderTokens) {
       return candidate;
     }

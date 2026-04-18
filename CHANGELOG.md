@@ -5,6 +5,37 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.2] - 2026-04-18
+
+### Changed — SessionStart reminder now carries a task→agent decision guide
+
+The reminder used to list the installed `tp-*` agents with their descriptions. Useful, but the main agent still had to decide **when** to delegate. Now the reminder carries a compact task→agent cheat-sheet inline:
+
+```
+WHEN DELEGATING — if the task fits a specialist, use the Task tool:
+  bug / stack trace       → tp-debugger
+  PR / diff review        → tp-pr-reviewer
+  impact before change    → tp-impact-analyzer
+  plan refactor           → tp-refactor-planner
+  failing tests           → tp-test-triage
+  write new tests         → tp-test-writer
+  migrate API / version   → tp-migration-scout
+  "why is this like this?" → tp-history-explorer
+  security / quality audit → tp-audit-scanner
+  resume after /clear     → tp-session-restorer
+  dead code cleanup       → tp-dead-code-finder
+  commit message          → tp-commit-writer
+  repo onboarding         → tp-onboard
+  general workhorse       → tp-run
+```
+
+Lines for agents the user hasn't installed are filtered out automatically. Custom / third-party `tp-*` agents not in the core map get a fallback line with their own description. Over-budget trimming still lands `… and N more` with a total count, so nothing silently disappears.
+
+Also added to the MANDATORY block: `Batch variants (prefer over loops): read_symbols, smart_read_many, read_section.` — the three batch tools that v0.23.1 wired into specialist agents but that the main agent also benefits from.
+
+### Numbers
+- 906 tests green (+6 new buildReminderMessage regression tests), `tsc --noEmit` clean.
+
 ## [0.23.1] - 2026-04-18
 
 ### Changed — agent toolset coverage
