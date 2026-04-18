@@ -1,6 +1,6 @@
 ---
 name: tp-session-restorer
-description: Rehydrates session state after /clear, compaction, or a fresh window. Reads the latest session_snapshot + saved docs + git status, returns a ≤200-token "where we were" briefing. Use at the start of a continuation session, not mid-task.
+description: PROACTIVELY use this as the FIRST step after /clear, compaction, or a fresh window when a recent session_snapshot exists on disk. Reads snapshot + git status + saved docs, returns a ≤200-token briefing. Do NOT use mid-task.
 tools:
   - mcp__token-pilot__smart_read
   - mcp__token-pilot__read_range

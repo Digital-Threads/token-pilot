@@ -70,7 +70,7 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
   sessionStart: {
     enabled: true,
     showStats: false,
-    maxReminderTokens: 250,
+    maxReminderTokens: 500,
   },
   agents: {
     scope: null,

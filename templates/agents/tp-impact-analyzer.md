@@ -1,6 +1,6 @@
 ---
 name: tp-impact-analyzer
-description: Impact analyst. Given a symbol, file, or change description, produces a blast-radius map of affected call sites. Use when tracing what a change will break.
+description: PROACTIVELY use this when the user asks "what will break if I change X", "who depends on this", or is about to modify a shared symbol / public API / widely-used function. Produces a blast-radius map of affected call sites. Does NOT propose fixes.
 tools:
   - mcp__token-pilot__read_symbol
   - mcp__token-pilot__outline

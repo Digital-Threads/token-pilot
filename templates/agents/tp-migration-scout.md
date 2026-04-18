@@ -1,6 +1,6 @@
 ---
 name: tp-migration-scout
-description: Pre-migration impact scout. Given a target (API, framework version, deprecated symbol), enumerates every touch-point in the repo as an actionable checklist. Use BEFORE starting a migration, not during.
+description: PROACTIVELY use this BEFORE the user starts any migration — replacing an API, upgrading a framework version, removing a deprecated symbol, switching libraries. Enumerates touch-points as an effort-classified checklist. Do NOT use during the migration itself (file-by-file edits).
 tools:
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__module_info

@@ -5,6 +5,27 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.3] - 2026-04-18
+
+### Changed — PROACTIVELY triggers in every agent description + wider MANDATORY block
+
+Live-testing on a real machine surfaced a concrete gap: Claude Code's main agent read the reminder, saw tool descriptions, but **systematically skipped tp-\* subagents** — no explicit `PROACTIVELY` trigger meant they sat unused even when the task fit. Also reported: "I see only 4 token-pilot tools in MANDATORY, not 14" — the agent didn't scan tool descriptions to discover the rest unless prompted.
+
+Both fixes:
+
+1. **Every `tp-*` description now carries `PROACTIVELY use this when …` or `Use this when …` plus concrete user-intent signals** ("when the user reports a bug", "when the user asks to review a diff"). Claude Code's auto-invocation heuristic looks for exactly these phrases. 14 agents rewritten.
+
+2. **MANDATORY block expanded from 4 tools → 9 core tools** (smart_read, read_symbol, read_for_edit, outline, find_usages, smart_diff, smart_log, test_summary, project_overview) with `INSTEAD of` hints against raw Read/Grep/git. Still lists batch variants (read_symbols, smart_read_many, read_section) and names the remaining 10 under "Also available:" so the main agent sees the full surface even if it doesn't crawl descriptions.
+
+3. **Default `sessionStart.maxReminderTokens` raised 250 → 500** to fit the expanded block without aggressive trimming. Token-wise: ~500 tokens is 0.3% of a 160K context window — the round-trip savings from one prevented raw Read pay it back ~5×.
+
+### Updated
+
+- `prompt-contract.test.ts` relaxed: descriptions may now be up to 350 chars and every agent is **required** to carry a trigger phrase (`PROACTIVELY …` or `Use this when …`). Old contract required "only tp-run uses PROACTIVELY" and ≤160 chars — removed.
+
+### Numbers
+- 906 tests green (+6 rewrites of contract + reminder tests; none removed), `tsc --noEmit` clean.
+
 ## [0.23.2] - 2026-04-18
 
 ### Changed — SessionStart reminder now carries a task→agent decision guide

@@ -1,6 +1,6 @@
 ---
 name: tp-test-writer
-description: Writes tests for a specific symbol — not for whole files, not for untested suites. Mirrors project's existing test style. Use when extending coverage, not when diagnosing a failing test (use tp-test-triage for that).
+description: PROACTIVELY use this when the user asks to write, add, or cover a SPECIFIC function / method / class with tests ("add test for X", "cover Y"). Mirrors project's existing test style; runs the tests before declaring done. Do NOT use for diagnosing failures (that's tp-test-triage).
 tools:
   - mcp__token-pilot__read_symbol
   - mcp__token-pilot__read_for_edit

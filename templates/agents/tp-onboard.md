@@ -1,6 +1,6 @@
 ---
 name: tp-onboard
-description: Repo onboarding guide. Orients a caller to an unfamiliar codebase structurally — layout, entry points, core modules. Use when first exploring a new repo.
+description: PROACTIVELY use this when the user is exploring an unfamiliar codebase — asks "how is this organised", "what does this project do", "where do I start reading", or starts any conversation in a repo the main agent doesn't know. Orientation map only (layout, entry points, modules); does NOT drill into implementation.
 tools:
   - mcp__token-pilot__project_overview
   - mcp__token-pilot__explore_area
