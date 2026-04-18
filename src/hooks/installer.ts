@@ -177,11 +177,25 @@ export async function installHook(
           Array.isArray(settings.hooks?.SessionStart) &&
           settings.hooks.SessionStart.some(isTokenPilotHook);
 
-        const hasPostBashHook =
-          Array.isArray(settings.hooks?.PostToolUse) &&
-          settings.hooks.PostToolUse.some(isTokenPilotHook);
+        // v0.25.0: check each PostToolUse matcher separately. Previously
+        // "any token-pilot hook in PostToolUse" counted the whole section
+        // as installed, so v0.21 users (Bash matcher only) missed the
+        // Task matcher added in v0.23 and their budget watchdog stayed
+        // silent. The required matchers are exactly what createHookConfig
+        // ships — derive from there so this stays in sync automatically.
+        const requiredPostMatchers = hookConfig.hooks.PostToolUse.map(
+          (h) => h.matcher,
+        );
+        const postMatchers = Array.isArray(settings.hooks?.PostToolUse)
+          ? settings.hooks.PostToolUse.filter(isTokenPilotHook).map(
+              (h: any) => h.matcher,
+            )
+          : [];
+        const hasAllPostMatchers = requiredPostMatchers.every((m) =>
+          postMatchers.includes(m),
+        );
 
-        if (hasRead && hasEdit && hasSessionStart && hasPostBashHook) {
+        if (hasRead && hasEdit && hasSessionStart && hasAllPostMatchers) {
           return {
             installed: false,
             fatal: false,
@@ -218,16 +232,23 @@ export async function installHook(
       settings.hooks.SessionStart.push(...hookConfig.hooks.SessionStart);
     }
 
-    // Install PostToolUse (Bash advisor) hook idempotently
-    const existingPost = settings.hooks?.PostToolUse;
-    const hasPostBash =
-      Array.isArray(existingPost) && existingPost.some(isTokenPilotHook);
-    if (!hasPostBash) {
-      if (!settings.hooks) settings.hooks = {};
-      if (!Array.isArray(settings.hooks.PostToolUse)) {
-        settings.hooks.PostToolUse = [];
+    // Install PostToolUse hooks idempotently — per-matcher check.
+    // v0.25.0: earlier code treated the whole section as one unit, which
+    // meant users installed in v0.21 (only Bash matcher) never received
+    // the Task matcher added in v0.23. That silently broke the budget
+    // watchdog for anyone upgrading from an older version. Now we check
+    // each matcher individually, same as PreToolUse.
+    if (!settings.hooks) settings.hooks = {};
+    if (!Array.isArray(settings.hooks.PostToolUse)) {
+      settings.hooks.PostToolUse = [];
+    }
+    for (const hookDef of hookConfig.hooks.PostToolUse) {
+      const exists = settings.hooks.PostToolUse.some(
+        (h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h),
+      );
+      if (!exists) {
+        settings.hooks.PostToolUse.push(hookDef);
       }
-      settings.hooks.PostToolUse.push(...hookConfig.hooks.PostToolUse);
     }
 
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n");

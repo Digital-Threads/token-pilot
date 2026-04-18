@@ -5,6 +5,29 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-04-18
+
+### Fixed — findings from Opus 4.7 19/19 verification
+
+A live verification of all 19 agents on a real Go monorepo surfaced three issues. Fixed together.
+
+**1. `install-agents` / installer: PostToolUse idempotence was broken for upgrades.** The check treated the whole PostToolUse section as one unit — *"any token-pilot hook present → skip"*. Users who installed when only the Bash matcher existed (v0.21.x) kept that, never received the Task matcher added in v0.23.0, and their budget watchdog was **silently disabled forever**. 6 out of 19 agents in the field test went over-budget without a single entry in `.token-pilot/over-budget.log` — because the hook wasn't registered at all. Now installer checks each PostToolUse matcher individually (same contract as PreToolUse). Regression test reproduces the v0.21-style settings file and asserts that re-install picks up the Task matcher.
+
+**2. `tp-api-surface-tracker` false REMOVED classification.** Field test: `smart_diff` labelled a symbol as REMOVED; `read_symbol` confirmed it was still there (context around it had changed). Agent body now **requires `read_symbol` verification before reporting REMOVED**. Symbols that still exist are reclassified PATCH (body-only change). Prevents false breaking-change alarms in the MAJOR/MINOR/PATCH verdict.
+
+**3. `tp-dep-health` over-scans monorepo orchestration roots.** When the root `package.json` has only dev-deps and real services live in gitignored sub-repos or under `services/`/`packages/`/`apps/`, the agent used to scan the whole repo for nothing. Agent now detects this shape and returns a one-line instruction to re-run against a specific sub-repo, instead of iterating find_usages on zero-dep input.
+
+### Deferred to v0.26
+
+From the same report, larger changes that need design:
+
+- **`tp-dead-code-finder` project-type detection.** 128 `find_usages` iterations in 145 s when `find_unused` is permission-denied in sandbox. Needs Go → `go vet` + `deadcode`, PHP → phpstan, etc. integration.
+- **Auto-invoke `session_snapshot` on Stop / Pre-Compact hook.** `tp-session-restorer` is dead without a paired writer — right now the snapshot file is only created on explicit user call. Needs a hook-type evaluation (Stop hook doesn't exist in Claude Code's current hook set; may need a Pre-Compact substitute).
+- **`find_usages` → Grep fallback for single-word symbols.** 0 % savings observed when symbols are short (structural overview is already longer than the hit list).
+
+### Numbers
+- 912 tests green (+1 regression for installer's per-matcher idempotence), `tsc --noEmit` clean.
+
 ## [0.24.2] - 2026-04-18
 
 ### Changed — README manual-install section restored and expanded
