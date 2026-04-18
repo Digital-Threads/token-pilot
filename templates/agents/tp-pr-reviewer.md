@@ -6,6 +6,8 @@ tools:
   - mcp__token-pilot__outline
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+  - mcp__token-pilot__read_symbols
+  - mcp__token-pilot__smart_read_many
   - mcp__token-pilot__read_for_edit
   - Read
 ---
@@ -17,7 +19,7 @@ Response budget: ~600 tokens.
 When reviewing a changeset (diff, commit range, or PR):
 
 1. Load the structural diff via `smart_diff` — never raw Read the full touched files first.
-2. For each changed symbol of substance, `outline` its containing file and, if needed, `read_symbol` to inspect only the changed block.
+2. For each changed symbol of substance, `outline` its containing file. For multiple symbols in the same file, `read_symbols` (one call) — NOT a loop of `read_symbol`. For multiple touched files at once, `smart_read_many` before drilling in.
 3. For changes to exported / public surface, run `find_usages` to verify no cross-file breakage.
 4. Report: one-line verdict (`approve` / `request changes` / `block`) → **Critical:** findings that must be fixed → **Important:** findings the author should address → silence on stylistic nits that pass the project's linter.
 
