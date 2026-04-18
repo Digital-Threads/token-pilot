@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2] - 2026-04-18
+
+### Fixed
+
+- **`session_snapshot` silently dropped `decisions[]`** — the tool schema exposed the field and the renderer consumed it, but the server dispatch's inline cast type omitted it, so every snapshot lost its Decisions section. Fix: added `decisions?: string[]` to the cast. Regression-guarded by new `tests/handlers/session-snapshot.test.ts` covering every schema field.
+- **Help text tool count out of date** — `token-pilot --help` said `MCP Tools (20)` but the server registers 22. Corrected count + listed all 22 (including `read_section` and `read_symbols`).
+- **README doc drift** — hard-coded `(21)` in the MCP Tools heading and "six subagents" throughout. Replaced with count-free phrasing; added Tier 1 / Tier 2 tables covering all 11 subagents; added `session_budget` to the Session tools row.
+
+### Changed
+
+- **Session-registry flush on signal termination** — `SessionRegistryManager.flushAll()` is now wired to `SIGINT` and `SIGTERM` in addition to `beforeExit` (the latter doesn't fire on signal-based termination).
+- Clarified the `shutdownFlush` comment about `process.exit()` limitations.
+- Added a one-line intro to the README subagents section explaining the Tier 1 vs Tier 2 split.
+
+### Numbers
+- 881 tests green (+2 regression tests for `session_snapshot`), `tsc --noEmit` clean.
+
 ## [0.22.1] - 2026-04-18
 
 ### Added — TP-02l Tier 2 subagents (5 new)

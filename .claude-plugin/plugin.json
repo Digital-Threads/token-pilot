@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.22.1",
+  "version": "0.22.2",
   "description": "Enforcement layer for token-efficient AI coding: MCP-first hook with structural denial summaries, SessionStart reminder, bless-agents CLI, and six tp-* subagents — works for every agent including those without MCP access.",
   "author": "token-pilot",
   "license": "MIT",
