@@ -816,6 +816,27 @@ export async function handleDoctor() {
     /* ignore */
   }
 
+  // ── profile recommendation ──
+  // v0.26.4 — data-driven. Reads cumulative tool-calls.jsonl and suggests
+  // the narrowest TOKEN_PILOT_PROFILE that wouldn't hide any tool the
+  // user actually invokes. Never auto-applies; doctor just prints the
+  // env snippet and why.
+  try {
+    const { loadAllToolCalls } = await import("./core/tool-call-log.js");
+    const { recommendProfile, formatRecommendation } =
+      await import("./server/profile-recommender.js");
+    const events = await loadAllToolCalls(cwd);
+    const rec = recommendProfile(events);
+    // Only print when there's actionable signal OR a clear "stay on full"
+    // with enough data — skip the noise when the log is empty.
+    if (rec.totalCalls > 0) {
+      console.log(formatRecommendation(rec));
+      console.log("");
+    }
+  } catch {
+    /* doctor must never crash over an optional check */
+  }
+
   // ── CLAUDE.md hygiene ──
   try {
     const r = await assessClaudeMd(cwd);

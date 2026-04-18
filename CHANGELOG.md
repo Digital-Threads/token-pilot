@@ -5,6 +5,33 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.4] - 2026-04-18
+
+### Added — automatic profile recommendation in `doctor`
+
+v0.26.3 shipped profiles, but the default stayed `full` — a breaking default change would silently hide tools from anyone who actually uses `code_audit` / `test_summary` / `find_unused`. The correct path: **data-driven advisory, not default flip**.
+
+`npx token-pilot doctor` now reads the cumulative `.token-pilot/tool-calls.jsonl` (introduced v0.26.2) and prints a profile recommendation:
+
+```
+── profile recommendation ──
+  data:         30 calls, 1 distinct tools
+  recommend:    TOKEN_PILOT_PROFILE=nav
+  why:          Every tool you've used (1 distinct) is part of the nav subset. You're a read-only explorer.
+  savings:      ~2200 tokens (−54%) on every tools/list response
+  apply:        add "env": { "TOKEN_PILOT_PROFILE": "nav" } to your token-pilot entry in .mcp.json
+```
+
+Decision matrix (pure, unit-tested):
+- Every call ∈ nav-set → recommend `nav`.
+- Uses edit-prep tools (read_for_edit, batch reads) but never full-only → recommend `edit`.
+- Touches any full-only tool (test_summary, code_audit, find_unused, session_*) → stay on `full`.
+- <20 calls total → insufficient data, say so honestly, tell user to re-run doctor after a few sessions.
+
+**Never auto-applies.** Recommendation is printed, not written. Users who haven't read the CHANGELOG learn the lever exists next time they run `doctor`. Gives the narrowest profile that *doesn't silently break their workflow*, because the recommendation is based on their actual usage — not ours.
+
+11 unit tests on the decision matrix + formatter (min-samples boundary, all branches of the matrix, empty-input safety, env-snippet rendering).
+
 ## [0.26.3] - 2026-04-18
 
 ### Added — tool profiles (lifted honestly from Token Savior's idea)
