@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] - 2026-04-18
+
+### Changed — README manual-install section restored and expanded
+
+In v0.20.2 I collapsed "Manual install" under a `<details>` to keep the README slim. That was overcorrection: users on Cursor / Codex / Cline / CI / team-shared configs had no quick "how do I add the MCP server?" answer visible.
+
+Restored the section as a proper `## Manual MCP install` heading with **per-client examples**:
+
+- **Claude Code** — both `claude mcp add` CLI and direct `.mcp.json` edit
+- **Cursor** — `.cursor/mcp.json` example
+- **Codex CLI** — `~/.codex/config.toml` TOML stanza
+- **Cline (VS Code)** — `cline_mcp_settings.json` example
+- **Any MCP-compatible client** — generic `command + args` pattern
+- **Subagents install** (Claude-Code-only) — scope flags + `--force`
+- **From source** — for contributors / vendored installs
+
+Also added an env-var table (`TOKEN_PILOT_DENY_THRESHOLD`, `TOKEN_PILOT_ADAPTIVE_THRESHOLD`, `TOKEN_PILOT_BYPASS`, `TOKEN_PILOT_SKIP_POSTINSTALL`) — these used to be scattered across the codebase with no single reference.
+
+Docs-only change. No code / test changes. 911 tests still green.
+
 ## [0.24.1] - 2026-04-18
 
 ### Fixed — two findings from v0.23.6 field verification

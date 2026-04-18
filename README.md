@@ -46,10 +46,35 @@ This does two things:
 
 Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
 
-<details>
-<summary>Manual install (other MCP clients, from source, scripted CI)</summary>
+## Manual MCP install (per-client examples)
 
-Add to your `.mcp.json`:
+If `init` isn't right for your setup — CI, non-TTY environments, editing a shared team config, or a client without an interactive installer — add Token Pilot as an MCP server directly. The server command is `npx -y token-pilot` on every client; only the config file shape differs.
+
+### Claude Code
+
+Two equivalent paths:
+
+```bash
+# Via CLI (recommended — handles scope + scoping)
+claude mcp add token-pilot -- npx -y token-pilot
+claude mcp add --scope user token-pilot -- npx -y token-pilot
+claude mcp add --scope project token-pilot -- npx -y token-pilot
+
+# Or edit .mcp.json directly (project-level) / ~/.mcp.json (user-level)
+```
+
+```json
+{
+  "mcpServers": {
+    "token-pilot": { "command": "npx", "args": ["-y", "token-pilot"] },
+    "context-mode": { "command": "npx", "args": ["-y", "claude-context-mode"] }
+  }
+}
+```
+
+### Cursor
+
+Cursor reads `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 
 ```json
 {
@@ -59,27 +84,64 @@ Add to your `.mcp.json`:
 }
 ```
 
-Claude Code shortcuts:
+### Codex CLI
 
-```bash
-claude mcp add token-pilot -- npx -y token-pilot
-claude mcp add --scope user token-pilot -- npx -y token-pilot
+Codex reads `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.token-pilot]
+command = "npx"
+args = ["-y", "token-pilot"]
 ```
 
-From source:
+### Cline (VS Code)
+
+Cline reads `cline_mcp_settings.json` (accessible via Cline panel → MCP Servers → Edit):
+
+```json
+{
+  "mcpServers": {
+    "token-pilot": { "command": "npx", "args": ["-y", "token-pilot"] }
+  }
+}
+```
+
+### Any MCP-compatible client
+
+Use the generic MCP protocol — the server is a plain stdio process:
+
+```
+command: npx
+args:    -y token-pilot
+```
+
+No env vars required. Optional overrides:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TOKEN_PILOT_DENY_THRESHOLD` | `300` | Line count above which the Read hook intervenes |
+| `TOKEN_PILOT_ADAPTIVE_THRESHOLD` | `false` | Enable the adaptive curve as the session burns |
+| `TOKEN_PILOT_BYPASS` | unset | Set to `1` to disable the Read hook for one session |
+| `TOKEN_PILOT_SKIP_POSTINSTALL` | unset | Skip the `ast-index` safety-net install at `npm install` time |
+
+### Subagents (Claude Code only)
+
+`tp-*` subagents are a Claude Code feature. Other clients use only the MCP tools + Read hook. To install on a target scope explicitly:
+
+```bash
+npx token-pilot install-agents --scope=user            # all projects
+npx token-pilot install-agents --scope=project         # this repo only
+npx token-pilot install-agents --scope=user --force    # re-apply after an update
+```
+
+### From source (contributors / vendored installs)
 
 ```bash
 git clone https://github.com/Digital-Threads/token-pilot.git
 cd token-pilot && npm install && npm run build
-# then point .mcp.json at dist/index.js
+# Point your client's config at dist/index.js:
+#   "command": "node", "args": ["/abs/path/to/token-pilot/dist/index.js"]
 ```
-
-Non-interactive subagent install (CI):
-
-```bash
-npx token-pilot install-agents --scope=user|project [--force]
-```
-</details>
 
 ## Modes
 
