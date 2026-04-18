@@ -1,13 +1,14 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export interface ContextModeStatus {
   detected: boolean;
-  source: 'mcp-json' | 'home-mcp-json' | 'config' | 'none';
+  source: "mcp-json" | "home-mcp-json" | "config" | "none";
   toolPrefix: string;
 }
 
-const TOOL_PREFIX = 'mcp__plugin_context-mode_context-mode__';
+const TOOL_PREFIX = "mcp__plugin_context-mode_context-mode__";
 
 /**
  * Detect if context-mode MCP plugin is configured alongside Token Pilot.
@@ -24,38 +25,77 @@ export async function detectContextMode(
 ): Promise<ContextModeStatus> {
   // Config override takes priority
   if (configOverride === true) {
-    return { detected: true, source: 'config', toolPrefix: TOOL_PREFIX };
+    return { detected: true, source: "config", toolPrefix: TOOL_PREFIX };
   }
   if (configOverride === false) {
-    return { detected: false, source: 'none', toolPrefix: TOOL_PREFIX };
+    return { detected: false, source: "none", toolPrefix: TOOL_PREFIX };
   }
 
   // Check project-level .mcp.json
-  if (await checkMcpJson(resolve(projectRoot, '.mcp.json'))) {
-    return { detected: true, source: 'mcp-json', toolPrefix: TOOL_PREFIX };
+  if (await checkMcpJson(resolve(projectRoot, ".mcp.json"))) {
+    return { detected: true, source: "mcp-json", toolPrefix: TOOL_PREFIX };
   }
 
   // Check user-level ~/.mcp.json
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  if (homeDir && await checkMcpJson(resolve(homeDir, '.mcp.json'))) {
-    return { detected: true, source: 'home-mcp-json', toolPrefix: TOOL_PREFIX };
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  if (homeDir && (await checkMcpJson(resolve(homeDir, ".mcp.json")))) {
+    return { detected: true, source: "home-mcp-json", toolPrefix: TOOL_PREFIX };
   }
 
-  return { detected: false, source: 'none', toolPrefix: TOOL_PREFIX };
+  return { detected: false, source: "none", toolPrefix: TOOL_PREFIX };
+}
+
+/**
+ * Sync-only detector used by the PostToolUse Bash hook, where we need a
+ * decision in the current process tick (no async plumbing). Silent on
+ * every failure — the hook must not break.
+ */
+export function isContextModeInstalledSync(projectRoot: string): boolean {
+  if (checkMcpJsonSync(resolve(projectRoot, ".mcp.json"))) return true;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  if (homeDir && checkMcpJsonSync(resolve(homeDir, ".mcp.json"))) return true;
+  return false;
+}
+
+function checkMcpJsonSync(path: string): boolean {
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const config = JSON.parse(raw);
+    const servers = config.mcpServers ?? config.servers ?? {};
+    for (const [name, server] of Object.entries(servers)) {
+      if (name.includes("context-mode")) return true;
+      const s = server as Record<string, any>;
+      if (typeof s.command === "string" && s.command.includes("context-mode"))
+        return true;
+      if (
+        Array.isArray(s.args) &&
+        s.args.some((a: string) => String(a).includes("context-mode"))
+      )
+        return true;
+    }
+  } catch {
+    /* missing / malformed */
+  }
+  return false;
 }
 
 async function checkMcpJson(path: string): Promise<boolean> {
   try {
-    const raw = await readFile(path, 'utf-8');
+    const raw = await readFile(path, "utf-8");
     const config = JSON.parse(raw);
     const servers = config.mcpServers ?? config.servers ?? {};
 
     // Look for any server entry containing "context-mode" in name or command
     for (const [name, server] of Object.entries(servers)) {
-      if (name.includes('context-mode')) return true;
+      if (name.includes("context-mode")) return true;
       const s = server as Record<string, any>;
-      if (typeof s.command === 'string' && s.command.includes('context-mode')) return true;
-      if (Array.isArray(s.args) && s.args.some((a: string) => String(a).includes('context-mode'))) return true;
+      if (typeof s.command === "string" && s.command.includes("context-mode"))
+        return true;
+      if (
+        Array.isArray(s.args) &&
+        s.args.some((a: string) => String(a).includes("context-mode"))
+      )
+        return true;
     }
   } catch {
     // File doesn't exist or is invalid

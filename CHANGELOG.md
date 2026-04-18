@@ -5,6 +5,16 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2] - 2026-04-18
+
+### Added
+- **`session_snapshot` auto-persist + SessionStart resume pointer (TP-340)** — calling `session_snapshot` now writes the rendered block to `.token-pilot/snapshots/<iso>.md` and `latest.md` (opt-out via `persist: false`). SessionStart hook surfaces a one-line pointer when the latest snapshot is fresh (<24h), so a new window after `/clear`, compaction, or a fresh process can pick up the thread without re-hydrating context by hand. Retention keeps the last 10 archived snapshots.
+- **`session_budget` MCP tool (TP-hsz batch A)** — new tool reports the live session's saved tokens, configured budget, burn fraction (clamped 0..1), base threshold, and the effective threshold the adaptive curve would apply right now. Small payload (~80 tokens) — the agent can poll cheaply before a big read to decide whether to tighten up.
+- **Context-mode auto-suggest in Bash advisor (TP-hsz batch A)** — when `.mcp.json` advertises context-mode, the large-Bash-output advisory now mentions `mcp__context-mode__execute` as an option (sandbox keeps stdout out of the window). Sync detector — no async plumbing added to the hook.
+
+### Numbers
+- 872 tests green, `tsc --noEmit` clean.
+
 ## [0.21.1] - 2026-04-18
 
 ### Added

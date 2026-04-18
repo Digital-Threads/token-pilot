@@ -51,24 +51,46 @@ function countLines(s: string): number {
  * Pure decision function. Given a PostToolUse hook input for the Bash
  * tool, return advice text (or null to stay silent).
  */
+export interface PostBashAdviceOptions {
+  thresholdChars?: number;
+  /**
+   * When true, the advice also mentions context-mode — runs the command
+   * in a sandbox so only stdout enters context. Caller detects whether
+   * context-mode is installed and passes the flag.
+   */
+  contextModeAvailable?: boolean;
+}
+
 export function decidePostBashAdvice(
   input: PostBashHookInput,
-  thresholdChars: number = LARGE_OUTPUT_THRESHOLD_CHARS,
+  thresholdCharsOrOpts:
+    | number
+    | PostBashAdviceOptions = LARGE_OUTPUT_THRESHOLD_CHARS,
 ): PostBashAdvice {
+  const opts: PostBashAdviceOptions =
+    typeof thresholdCharsOrOpts === "number"
+      ? { thresholdChars: thresholdCharsOrOpts }
+      : thresholdCharsOrOpts;
+  const threshold = opts.thresholdChars ?? LARGE_OUTPUT_THRESHOLD_CHARS;
+
   if (input.tool_name !== "Bash") {
     return { additionalContext: null, outputChars: 0 };
   }
   const stdout = extractStdout(input.tool_response);
   const chars = stdout.length;
-  if (chars < thresholdChars) {
+  if (chars < threshold) {
     return { additionalContext: null, outputChars: chars };
   }
   const lines = countLines(stdout);
   const roughTokens = Math.ceil(chars / 4);
+  const contextModeLine = opts.contextModeAvailable
+    ? " Or run via mcp__context-mode__execute — sandbox keeps stdout out of your window."
+    : "";
   const msg =
     `⚠ Bash output was large (~${lines} lines, ~${roughTokens} tokens). ` +
     `Consider mcp__token-pilot__test_summary for test runs, or bounded commands ` +
-    `(head/tail, --oneline, git log -n <N>, grep -m <N>) to keep context lean.`;
+    `(head/tail, --oneline, git log -n <N>, grep -m <N>) to keep context lean.` +
+    contextModeLine;
   return { additionalContext: msg, outputChars: chars };
 }
 

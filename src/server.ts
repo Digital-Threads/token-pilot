@@ -46,6 +46,7 @@ import { handleSmartLog } from "./handlers/smart-log.js";
 import { handleTestSummary } from "./handlers/test-summary.js";
 import { handleSessionSnapshot } from "./handlers/session-snapshot.js";
 import { persistSnapshot } from "./handlers/session-snapshot-persist.js";
+import { handleSessionBudget } from "./handlers/session-budget.js";
 import { handleReadSection } from "./handlers/read-section.js";
 import { detectContextMode } from "./integration/context-mode-detector.js";
 import type { ContextModeStatus } from "./integration/context-mode-detector.js";
@@ -1126,6 +1127,30 @@ export async function createServer(
             savingsCategory: "compression",
           });
           return { content: snapshotResult.content };
+        }
+
+        case "session_budget": {
+          const budgetArgs = args as { sessionId?: string };
+          const budgetResult = await handleSessionBudget(
+            { sessionId: budgetArgs.sessionId ?? "" },
+            projectRoot,
+            {
+              baseThreshold: config.hooks.denyThreshold,
+              adaptiveThreshold: config.hooks.adaptiveThreshold,
+              adaptiveBudgetTokens: config.hooks.adaptiveBudgetTokens,
+            },
+          );
+          const budgetTokens = estimateTokens(
+            budgetResult.content[0]?.text ?? "",
+          );
+          recordWithTrace({
+            tool: "session_budget",
+            tokensReturned: budgetTokens,
+            tokensWouldBe: budgetTokens,
+            timestamp: Date.now(),
+            savingsCategory: "compression",
+          });
+          return { content: budgetResult.content };
         }
 
         default:

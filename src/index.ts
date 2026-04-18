@@ -24,6 +24,7 @@ import { handleSessionStart } from "./hooks/session-start.js";
 import { computeEffectiveThreshold } from "./hooks/adaptive-threshold.js";
 import { loadSessionSavedTokens } from "./core/session-savings.js";
 import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
+import { isContextModeInstalledSync } from "./integration/context-mode-detector.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
@@ -130,7 +131,9 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       try {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
-        const advice = decidePostBashAdvice(input);
+        const advice = decidePostBashAdvice(input, {
+          contextModeAvailable: isContextModeInstalledSync(process.cwd()),
+        });
         const rendered = renderPostBashHookOutput(advice);
         if (rendered) process.stdout.write(rendered);
       } catch {
