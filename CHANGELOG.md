@@ -5,6 +5,135 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2] - 2026-04-18
+
+### Fixed
+
+- **`session_snapshot` silently dropped `decisions[]`** — the tool schema exposed the field and the renderer consumed it, but the server dispatch's inline cast type omitted it, so every snapshot lost its Decisions section. Fix: added `decisions?: string[]` to the cast. Regression-guarded by new `tests/handlers/session-snapshot.test.ts` covering every schema field.
+- **Help text tool count out of date** — `token-pilot --help` said `MCP Tools (20)` but the server registers 22. Corrected count + listed all 22 (including `read_section` and `read_symbols`).
+- **README doc drift** — hard-coded `(21)` in the MCP Tools heading and "six subagents" throughout. Replaced with count-free phrasing; added Tier 1 / Tier 2 tables covering all 11 subagents; added `session_budget` to the Session tools row.
+
+### Changed
+
+- **Session-registry flush on signal termination** — `SessionRegistryManager.flushAll()` is now wired to `SIGINT` and `SIGTERM` in addition to `beforeExit` (the latter doesn't fire on signal-based termination).
+- Clarified the `shutdownFlush` comment about `process.exit()` limitations.
+- Added a one-line intro to the README subagents section explaining the Tier 1 vs Tier 2 split.
+
+### Numbers
+- 881 tests green (+2 regression tests for `session_snapshot`), `tsc --noEmit` clean.
+
+## [0.22.1] - 2026-04-18
+
+### Added — TP-02l Tier 2 subagents (5 new)
+
+Five more `tp-*` specialists, installed alongside the existing six via `npx token-pilot install-agents`:
+
+- **`tp-debugger`** — bug diagnosis via call-tree traversal (`find_usages` + `read_symbol` + `smart_log`). Given a stack trace or error, finds the root-cause line without Reading whole files.
+- **`tp-migration-scout`** — pre-migration impact map. Given a target (API, symbol, dependency), emits a file-by-file checklist grouped by effort class (trivial / local / cross-file / needs-design).
+- **`tp-test-writer`** — writes tests for one specific symbol, mirroring the project's existing test style. Runs `test_summary` before declaring done — refuses to claim success on tests it didn't run.
+- **`tp-dead-code-finder`** — cross-checks `find_unused` with Grep, recent git history, and dynamic-lookup patterns before recommending deletion. Output only — never deletes.
+- **`tp-commit-writer`** — drafts a Conventional-Commit message from staged diff. Refuses to write when `test_summary` reports failures, when diff mixes types (asks to split), or when staged is empty.
+
+Total subagents now: **11** (6 Tier 1 + 5 Tier 2). Build pipeline auto-discovers `tp-*.md` files — no config changes required.
+
+### Numbers
+- 879 tests green, `tsc --noEmit` clean.
+
+## [0.22.0] - 2026-04-18
+
+### Added — TP-69m session-scoped dedup
+
+The `ContextRegistry` that remembers "this file / symbol / range is already in your context" used to live for the MCP server process lifetime — a restart or the way Claude Code spawns short-lived server instances threw the knowledge away. Now it is per-session and persisted to disk.
+
+Four mechanics shipped together:
+
+1. **`ContextRegistry` snapshot API** — new `toSnapshot()` / `loadSnapshot()` round-trip the state through plain JSON. Silent on malformed input (a broken snapshot file degrades to an empty registry, never crashes the server).
+2. **`SessionRegistryManager`** — owns a map of session_id → registry, LRU-caps the live set (default 8 sessions in memory), reads/writes `.token-pilot/context-registries/<id>.json`. Unsafe ids (empty, traversal, slashes) get an ephemeral in-memory registry that is never persisted.
+3. **Per-call `pickRegistry` in server.ts** — `smart_read`, `read_symbol`, `read_range`, `smart_read_many` now pick the right registry for each tool call based on args. No `session_id` → process-default (legacy behaviour). Flushes to disk after every successful dedup-aware call.
+4. **`force: true` escape hatch** — new optional arg on the four dedup tools. When compaction has evicted an earlier result from the agent's window, `force: true` returns the full content instead of a "you already loaded this" pointer. Critical: without it, a session-scoped dedup pointing to a compacted turn would be an impossible-to-escape pit.
+
+Schema additions on `smart_read` / `read_symbol` / `read_range` / `smart_read_many`: optional `session_id: string` and `force: boolean`. Backwards compatible — existing callers see no change.
+
+Shutdown: `SessionRegistryManager.flushAll()` is attached to `process.beforeExit` so any registries that missed their post-call flush still land on disk.
+
+### Numbers
+- 879 tests green, `tsc --noEmit` clean.
+
+## [0.21.2] - 2026-04-18
+
+### Added
+- **`session_snapshot` auto-persist + SessionStart resume pointer (TP-340)** — calling `session_snapshot` now writes the rendered block to `.token-pilot/snapshots/<iso>.md` and `latest.md` (opt-out via `persist: false`). SessionStart hook surfaces a one-line pointer when the latest snapshot is fresh (<24h), so a new window after `/clear`, compaction, or a fresh process can pick up the thread without re-hydrating context by hand. Retention keeps the last 10 archived snapshots.
+- **`session_budget` MCP tool (TP-hsz batch A)** — new tool reports the live session's saved tokens, configured budget, burn fraction (clamped 0..1), base threshold, and the effective threshold the adaptive curve would apply right now. Small payload (~80 tokens) — the agent can poll cheaply before a big read to decide whether to tighten up.
+- **Context-mode auto-suggest in Bash advisor (TP-hsz batch A)** — when `.mcp.json` advertises context-mode, the large-Bash-output advisory now mentions `mcp__context-mode__execute` as an option (sandbox keeps stdout out of the window). Sync detector — no async plumbing added to the hook.
+- **Time-to-compact projection in `session_budget` (TP-hsz batch B)** — payload now includes `eventCount`, `avgSavedPerEvent`, `eventsUntilExhaustion`, `firstEventMs`, `lastEventMs`. Agent can see how many more same-shape turns the adaptive budget will tolerate at the current burn rate.
+
+### Changed
+- **Snapshot resume pointer is tighter and more informative** — SessionStart "fresh snapshot" window narrowed from 24h to 2h (an unrelated next-day task shouldn't inherit yesterday's thread) and now surfaces the snapshot's `Goal:` extract inline so the agent can eyeball relevance before reading `latest.md`.
+- **Clarified adaptive-threshold / `session_budget` semantics** — `burnFraction` is Read-hook suppression pressure, NOT context-window occupancy. Token Pilot has no visibility into actual window state; the new docstrings and tool descriptions say so explicitly, and the `session_budget` payload carries a `semantics:` hint. No behaviour change; naming-only clarification before TP-69m builds on the same signal.
+
+### Numbers
+- 873 tests green, `tsc --noEmit` clean.
+
+## [0.21.1] - 2026-04-18
+
+### Added
+- **Adaptive Read-hook threshold (TP-bbo)** — opt-in `hooks.adaptiveThreshold` auto-lowers `denyThreshold` as the current session burns through `hooks.adaptiveBudgetTokens` (default 100k). Piecewise curve: unchanged below 30% burn, ×0.75 at 30–60%, ×0.5 at 60–80%, ×0.3 (floor 50 lines) beyond. Burn is read from `.token-pilot/hook-events.jsonl` `savedTokens` for the live `session_id`. Default off — zero behaviour change unless the user enables it. Env overrides: `TOKEN_PILOT_ADAPTIVE_THRESHOLD`, `TOKEN_PILOT_ADAPTIVE_BUDGET`.
+- **Save-doc CLI (TP-89n)** — `token-pilot save-doc <name>` persists any stdin text (curl, WebFetch, long research notes) to `.token-pilot/docs/<name>.md` so it survives compaction and can be re-read cheaply with `smart_read` / `read_range` instead of refetching the external source. `token-pilot list-docs` enumerates saved docs. Name validation refuses traversal / path separators; overwrite is explicit (`--overwrite`).
+
+### Numbers
+- 862 tests green, `tsc --noEmit` clean.
+
+## [0.21.0] - 2026-04-18
+
+### Added
+- **`doctor` Claude Code env-var advisor (TP-c08)** — surfaces the four knobs the community guide flags as giving 60-80% session savings with zero code change (`CLAUDE_CODE_SUBAGENT_MODEL=haiku`, `MAX_THINKING_TOKENS=10000`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`, `model=sonnet`). Pure advisory — never modifies user settings; reads both `process.env` and `~/.claude/settings.json` with fallback semantics.
+- **`.claudeignore` generator (TP-rtg)** — `token-pilot init` now offers to create a `.claudeignore` with sensible defaults (node_modules, dist, build, __pycache__, lockfiles, source maps, …). Non-destructive: carries a magic-comment marker so re-runs refresh our own file in place but never clobber user-owned `.claudeignore`. `doctor` reports current status.
+- **CLAUDE.md hygiene check in `doctor` (TP-rtg)** — warns when `CLAUDE.md` exceeds 60 non-empty lines (that file loads into every Claude Code message; long rules are per-turn tax). Read-only; counts ignore blank lines and markdown horizontal rules.
+- **Bash output advisor (TP-jzh)** — new `PostToolUse:Bash` hook. When Bash stdout exceeds ~8000 characters, the hook appends a single-line `additionalContext` tip pointing the agent at cheaper alternatives (`mcp__token-pilot__test_summary` for test runs, bounded commands, head/tail piping). Cannot truncate output in-flight — Claude Code's PostToolUse is observational for non-MCP tools — but steers the next turn.
+
+### Changed
+- `.claude-plugin/hooks/hooks.json` and the installer now register the new PostToolUse:Bash hook alongside Read/Edit/SessionStart. Idempotent install adds it without touching existing hooks; uninstall removes PostToolUse too.
+
+### Numbers
+- 843 tests green, `tsc --noEmit` clean.
+
+## [0.20.2] - 2026-04-18
+
+### Changed
+- **`token-pilot init` now offers to install tp-* subagents** — after writing `.mcp.json`, if a TTY is attached the command asks `Install 6 tp-* subagents now? [Y/n]`. If yes, delegates to the full `install-agents` flow (scope prompt, idempotence, persistence). In non-TTY the next-step hint is printed instead of asking. Closes the gap where first-time users left `init` thinking everything was ready and only learned about subagents from a later stderr reminder.
+- **Refreshed the init success message** — replaced the v0.13-era "AST-aware code reading (60-80% token savings)" line with a description of the v0.20 enforcement-layer scope.
+
+## [0.20.1] - 2026-04-18
+
+### Fixed
+- **hook-events.jsonl not written** — the writeEvent helper in the hook dispatcher was fire-and-forget (`void appendEvent(...)`). `process.exit(0)` raced with the async fs write, so every event was silently dropped. Now awaits the write before returning. `token-pilot stats` and `stats --by-agent` finally show real data.
+
+## [0.20.0] - 2026-04-18
+
+### Added
+- **Enforcement layer (TP-816)** — four-component architecture that makes token-pilot actually used, not just advertised.
+  - **`deny-enhanced` hook mode** (new default) — `PreToolUse:Read` on qualifying large code files returns a structural summary (imports, exports, declarations, head/tail fallback) **inside the denial reason**. Works for every agent, including subagents that lack MCP access. `advisory` and `off` modes remain available.
+  - **SessionStart hook** — emits a one-shot reminder after every `/clear` / `/compact` / new session, listing the mandatory MCP tools and the installed `tp-*` subagents. Respects `sessionStart.enabled` independently of `hooks.mode`.
+  - **`bless-agents` CLI** — scans installed agents, classifies by tool-allowlist shape (wildcard / exclusion / explicit), and writes project-level overrides adding `mcp__token-pilot__*` to category-C agents. `unbless-agents` + `doctor` upstream-drift detection close the loop.
+  - **Subagent family (`tp-*`)** — six Tier-1 agents with tight response budgets and verdict-first output contract: `tp-run` (800), `tp-onboard` (600), `tp-pr-reviewer` (600), `tp-impact-analyzer` (400), `tp-refactor-planner` (500), `tp-test-triage` (500). Installed via `npx token-pilot install-agents` (user or project scope, idempotent with body-hash).
+- **`install-agents` / `uninstall-agents` CLI** — scope resolution (flag > persisted > prompt > error), idempotence matrix (unchanged / template-upgraded / user-edited / no-hash), `--force` to overwrite user-edited (never touches files without our marker).
+- **MCP startup reminder** — one-time stderr nudge when no `tp-*` agents are installed; silenced by `agents.reminder: false` or `TOKEN_PILOT_NO_AGENT_REMINDER=1`; suppressed inside subagents via `TOKEN_PILOT_SUBAGENT=1`.
+- **`hook-events.jsonl` telemetry** — new schema `{ts, session_id, agent_type, agent_id, event, file, lines, estTokens, summaryTokens, savedTokens}`; rotates at 10 MB, retains 30 days / 100 MB.
+- **`stats` CLI** — `token-pilot stats` (default totals + top files), `--session[=<id>]` (filter to one session, most recent by default), `--by-agent` (group by `agent_type`, null rendered as "main").
+- **`bench:hook` script** — `npm run bench:hook` reports p50/p95/p99 hook latency against a 1000-line fake file; thresholds from TP-816 §11 available as opt-in `--check=true` gate.
+
+### Changed
+- **Config** — new fields: `hooks.mode` (`off` | `advisory` | `deny-enhanced`, replaces legacy boolean `hooks.enabled`), `sessionStart.*`, `agents.scope`, `agents.reminder`, `hooks.migratedFrom`.
+- **Legacy migration** — `hooks.mode: "deny"` (v0.19) is rewritten to `"advisory"` on next load with a one-time stderr notice and `hooks.migratedFrom: "deny"` marker. Old `hooks.enabled: false` is migrated to `mode: "off"`. Both are idempotent.
+- **Env vars** — `TOKEN_PILOT_DENY_THRESHOLD=<n>` overrides `hooks.denyThreshold`. Documented alongside `TOKEN_PILOT_MODE`, `TOKEN_PILOT_BYPASS`, `TOKEN_PILOT_DEBUG`, `TOKEN_PILOT_NO_AGENT_REMINDER`, `TOKEN_PILOT_SUBAGENT`.
+
+### Deferred
+- **Live-LLM behavioural assertions** — the agent-behaviour acceptance ("uses MCP before raw Read; response within budget; no narration") requires a live Anthropic or Claude Code runner. Deterministic coverage (structure, budget ceiling, fixture compat) is in place; live dispatch moves to a v0.20.x follow-up.
+- **Claude Code marketplace plugin** — planned for a future release; `install-agents` remains the supported path.
+
+### Numbers
+- 806 tests green, `tsc --noEmit` clean.
+
 ## [0.19.2] - 2026-04-15
 
 ### Added

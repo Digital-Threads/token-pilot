@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.19.2",
+  "version": "0.22.2",
   "description": "Save up to 80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
@@ -10,6 +10,7 @@
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",
+    "dist/agents/*.md",
     "start.sh",
     ".claude-plugin/",
     ".mcp.json",
@@ -19,12 +20,13 @@
   ],
   "scripts": {
     "prebuild": "node --input-type=module -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true });\"",
-    "build": "tsc",
+    "build": "tsc && node scripts/build-agents.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
+    "bench:hook": "node scripts/bench-hook.mjs",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && node --input-type=module -e \"import { chmod } from 'node:fs/promises'; await chmod('dist/index.js', 0o755);\""
   },

@@ -1,7 +1,7 @@
 {
   "name": "token-pilot",
-  "version": "0.13.0",
-  "description": "Reduces token consumption by 60-80% via AST-aware lazy file reading. Returns structural overviews instead of full files.",
+  "version": "0.22.2",
+  "description": "Enforcement layer for token-efficient AI coding: MCP-first hook with structural denial summaries, SessionStart reminder, bless-agents CLI, and six tp-* subagents — works for every agent including those without MCP access.",
   "author": "token-pilot",
   "license": "MIT",
   "skills": "../skills",

@@ -2,11 +2,29 @@
  * Core domain types for Token Pilot.
  */
 
-export type SymbolKind =
-  | 'function' | 'class' | 'method' | 'property' | 'variable'
-  | 'type' | 'interface' | 'enum' | 'constant' | 'namespace';
+/**
+ * Hook enforcement mode.
+ * - 'off': PreToolUse hook is inert (no advisory, no deny).
+ * - 'advisory': hook emits a short tip but does not block Read.
+ * - 'deny-enhanced': hook denies oversized code Reads and returns a structural
+ *   summary inside permissionDecisionReason. Default from v0.20; preserves
+ *   v0.19 deny-behaviour while upgrading the message quality.
+ */
+export type HookMode = "off" | "advisory" | "deny-enhanced";
 
-export type Visibility = 'public' | 'private' | 'protected' | 'default';
+export type SymbolKind =
+  | "function"
+  | "class"
+  | "method"
+  | "property"
+  | "variable"
+  | "type"
+  | "interface"
+  | "enum"
+  | "constant"
+  | "namespace";
+
+export type Visibility = "public" | "private" | "protected" | "default";
 
 export interface FileStructure {
   path: string;
@@ -73,7 +91,7 @@ export interface ContextEntry {
 }
 
 export interface LoadedRegion {
-  type: 'structure' | 'symbol' | 'range' | 'full';
+  type: "structure" | "symbol" | "range" | "full";
   symbolName?: string;
   startLine: number;
   endLine: number;
@@ -117,6 +135,17 @@ export interface TokenPilotConfig {
     interceptRead: boolean;
     autoInstall: boolean;
     denyThreshold: number;
+    mode: HookMode;
+    /**
+     * When true, hook auto-lowers denyThreshold as session burns through
+     * adaptiveBudgetTokens. Opt-in — default false keeps v0.20 behaviour.
+     */
+    adaptiveThreshold: boolean;
+    /**
+     * Reference budget (in saved-token units from hook-events.jsonl) used
+     * to compute burn fraction. Defaults to a rough 100k proxy.
+     */
+    adaptiveBudgetTokens: number;
   };
   context: {
     estimateTokens: boolean;
@@ -131,7 +160,7 @@ export interface TokenPilotConfig {
     actionableHints: boolean;
   };
   contextMode: {
-    enabled: boolean | 'auto';
+    enabled: boolean | "auto";
     adviseDelegation: boolean;
     largeNonCodeThreshold: number;
   };
@@ -152,6 +181,20 @@ export interface TokenPilotConfig {
     largeReadThreshold: number;
     compactionCallThreshold: number;
     compactionTokenThreshold: number;
+  };
+  sessionStart: {
+    enabled: boolean;
+    showStats: boolean;
+    maxReminderTokens: number;
+  };
+  agents: {
+    /** Scope of last `install-agents` run, null until first install. */
+    scope: "user" | "project" | null;
+    /**
+     * Emit a one-time stderr reminder at MCP startup if no tp-* agents
+     * are installed. Can also be suppressed by env TOKEN_PILOT_NO_AGENT_REMINDER=1.
+     */
+    reminder: boolean;
   };
   ignore: string[];
 }

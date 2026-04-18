@@ -1,0 +1,16 @@
+Test Suites: 1 failed, 3 passed, 4 total
+Tests:       2 failed, 11 passed, 13 total
+Time:        3.214 s
+
+FAIL  tests/user.test.ts
+  UserService
+    × rename() rejects self-rename when actor matches id
+      Expected error "cannot self-rename", but function returned normally.
+      at src/user.ts:24:5
+    × rename() preserves email on rename
+      Expected email "a@example.com", got undefined.
+      at src/user.ts:25:17
+
+PASS  tests/db.test.ts
+PASS  tests/api.test.ts
+PASS  tests/helpers.test.py
