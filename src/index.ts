@@ -21,6 +21,8 @@ import { runSummaryPipeline } from "./hooks/summary-pipeline.js";
 import { formatDenyMessage } from "./hooks/format-deny-message.js";
 import { isPathWithinProject } from "./hooks/path-safety.js";
 import { handleSessionStart } from "./hooks/session-start.js";
+import { computeEffectiveThreshold } from "./hooks/adaptive-threshold.js";
+import { loadSessionSavedTokens } from "./core/session-savings.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
@@ -108,7 +110,16 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
   switch (cliArgs[0]) {
     case "hook-read": {
       const cfg = await loadConfig(process.cwd());
-      await handleHookRead(cliArgs[1], cfg.hooks.mode, cfg.hooks.denyThreshold);
+      await handleHookRead(
+        cliArgs[1],
+        cfg.hooks.mode,
+        cfg.hooks.denyThreshold,
+        process.cwd(),
+        {
+          adaptiveThreshold: cfg.hooks.adaptiveThreshold,
+          adaptiveBudgetTokens: cfg.hooks.adaptiveBudgetTokens,
+        },
+      );
       return;
     }
     case "hook-edit":
@@ -332,11 +343,17 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   });
 }
 
+export interface HookReadAdaptiveOptions {
+  adaptiveThreshold?: boolean;
+  adaptiveBudgetTokens?: number;
+}
+
 export async function handleHookRead(
   filePathArg?: string,
   mode: HookMode = "deny-enhanced",
   denyThreshold = 300,
   projectRoot: string = process.cwd(),
+  adaptive: HookReadAdaptiveOptions = {},
 ): Promise<void> {
   // Mode 'off' — hook is inert regardless of input.
   if (mode === "off") {
@@ -348,6 +365,7 @@ export async function handleHookRead(
     mode,
     denyThreshold,
     projectRoot,
+    adaptive,
   );
   if (dispatchResult) {
     process.stdout.write(dispatchResult);
@@ -366,10 +384,17 @@ export async function runHookReadDispatch(
   mode: HookMode,
   denyThresholdArg?: number,
   projectRootArg?: string,
+  adaptive: HookReadAdaptiveOptions = {},
 ): Promise<string | null> {
   const denyThreshold = denyThresholdArg ?? 300;
   const projectRoot = projectRootArg ?? process.cwd();
-  return runHookReadDispatchImpl(filePathArg, mode, denyThreshold, projectRoot);
+  return runHookReadDispatchImpl(
+    filePathArg,
+    mode,
+    denyThreshold,
+    projectRoot,
+    adaptive,
+  );
 }
 
 async function runHookReadDispatchImpl(
@@ -377,6 +402,7 @@ async function runHookReadDispatchImpl(
   mode: HookMode,
   denyThreshold: number,
   projectRoot: string,
+  adaptive: HookReadAdaptiveOptions = {},
 ): Promise<string | null> {
   if (mode === "off") return null;
 
@@ -427,13 +453,23 @@ async function runHookReadDispatchImpl(
     return null;
   }
 
+  // Resolve effective threshold once (cheap if adaptive is off).
+  const effectiveThreshold = adaptive.adaptiveThreshold
+    ? computeEffectiveThreshold({
+        baseThreshold: denyThreshold,
+        sessionSavedTokens: loadSessionSavedTokens(projectRoot, sessionId),
+        sessionBudgetTokens: adaptive.adaptiveBudgetTokens ?? 100_000,
+        enabled: true,
+      })
+    : denyThreshold;
+
   // Read file content + line count.
   let fileContent = "";
   let lineCount = 0;
   try {
     fileContent = readFileSync(filePath, "utf-8");
     lineCount = fileContent.split("\n").length;
-    if (lineCount <= denyThreshold) return null;
+    if (lineCount <= effectiveThreshold) return null;
   } catch {
     return null;
   }

@@ -56,6 +56,17 @@ function applyEnvOverrides(merged: TokenPilotConfig): void {
       merged.hooks.denyThreshold = n;
     }
   }
+  const adaptive = process.env.TOKEN_PILOT_ADAPTIVE_THRESHOLD;
+  if (adaptive !== undefined) {
+    merged.hooks.adaptiveThreshold = /^(1|true|yes|on)$/i.test(adaptive.trim());
+  }
+  const budget = process.env.TOKEN_PILOT_ADAPTIVE_BUDGET;
+  if (budget !== undefined) {
+    const n = Number.parseInt(budget, 10);
+    if (Number.isFinite(n) && n > 0) {
+      merged.hooks.adaptiveBudgetTokens = n;
+    }
+  }
 }
 
 /**

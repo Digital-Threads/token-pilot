@@ -136,6 +136,16 @@ export interface TokenPilotConfig {
     autoInstall: boolean;
     denyThreshold: number;
     mode: HookMode;
+    /**
+     * When true, hook auto-lowers denyThreshold as session burns through
+     * adaptiveBudgetTokens. Opt-in — default false keeps v0.20 behaviour.
+     */
+    adaptiveThreshold: boolean;
+    /**
+     * Reference budget (in saved-token units from hook-events.jsonl) used
+     * to compute burn fraction. Defaults to a rough 100k proxy.
+     */
+    adaptiveBudgetTokens: number;
   };
   context: {
     estimateTokens: boolean;

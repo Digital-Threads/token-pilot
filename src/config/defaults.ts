@@ -29,6 +29,8 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     autoInstall: true,
     denyThreshold: 300,
     mode: "deny-enhanced",
+    adaptiveThreshold: false,
+    adaptiveBudgetTokens: 100_000,
   },
   context: {
     estimateTokens: true,
