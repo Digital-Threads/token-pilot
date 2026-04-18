@@ -1,0 +1,16 @@
+diff --git a/src/user.ts b/src/user.ts
+index 1111111..2222222 100644
+--- a/src/user.ts
++++ b/src/user.ts
+@@ -18,9 +18,10 @@ export class UserService {
+     return this.byId.get(id);
+   }
+
+-  rename(id: string, name: string): User {
++  rename(id: string, name: string, actor?: string): User {
+     const u = this.byId.get(id);
+     if (!u) throw new Error(`unknown user ${id}`);
++    if (actor && actor === id) throw new Error("cannot self-rename");
+     const next = { ...u, name };
+     this.byId.set(id, next);
+     return next;

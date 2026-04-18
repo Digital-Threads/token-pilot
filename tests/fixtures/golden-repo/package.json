@@ -1,0 +1,10 @@
+{
+  "name": "golden-repo",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Fixture project for tp-* agent tests.",
+  "main": "src/api.ts",
+  "scripts": {
+    "test": "echo 'see test-summary.txt'"
+  }
+}
