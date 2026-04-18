@@ -104,6 +104,16 @@ export async function handleReadSymbols(
   let anyResolved = false;
   let totalTokens = 0;
 
+  // v0.26.1 — overlap dedupe. The ast-index parser occasionally resolves
+  // two requested symbols to the exact same line range (arrow-function
+  // exports, Vue SFCs, type-vs-function ambiguity). Before this fix the
+  // handler emitted the same body N× — a 4× blow-up on Opus 4.7's field
+  // report, directly negating batch savings. We key by "startLine:endLine"
+  // and emit a short dedupe note instead of repeating the source. Caller
+  // still sees *which* names they asked for; token budget stays sane.
+  const seenRanges = new Map<string, string>(); // "start:end" -> first name
+  let dedupedCount = 0;
+
   for (let i = 0; i < N; i++) {
     const symbolName = args.symbols[i];
     const idx = i + 1;
@@ -120,6 +130,20 @@ export async function handleReadSymbols(
     }
 
     anyResolved = true;
+
+    const rangeKey = `${resolved.startLine}:${resolved.endLine}`;
+    const firstName = seenRanges.get(rangeKey);
+    if (firstName) {
+      dedupedCount++;
+      sections.push(
+        `SYMBOL ${idx}/${N}: ${symbolName} — DEDUPED\n` +
+          `Same [L${resolved.startLine}-${resolved.endLine}] range as "${firstName}" ` +
+          `(ast-index parser overlap). See that section above for the source.`,
+      );
+      continue;
+    }
+    seenRanges.set(rangeKey, symbolName);
+
     const source = symbolResolver.extractSource(resolved, lines, {
       contextBefore: args.context_before ?? 2,
       contextAfter: args.context_after ?? 0,
@@ -215,7 +239,11 @@ export async function handleReadSymbols(
     contextRegistry.setContentHash(absPath, cached.hash);
   }
 
-  const header = `FILE: ${args.path} | SYMBOLS: ${N} requested`;
+  const header =
+    `FILE: ${args.path} | SYMBOLS: ${N} requested` +
+    (dedupedCount > 0
+      ? ` | DEDUPED: ${dedupedCount} (parser overlap — saved ~${dedupedCount}× body tokens)`
+      : "");
   const body = sections.join("\n\n---\n\n");
   const footer = "CONTEXT TRACKED: These symbols are now in your context.";
 

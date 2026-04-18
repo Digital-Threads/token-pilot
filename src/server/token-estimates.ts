@@ -3,11 +3,35 @@
  * Used to calculate "tokens would be" for honest savings reporting.
  */
 
-import type { FileCache } from '../core/file-cache.js';
-import type { SavingsCategory } from '../core/session-analytics.js';
-import { estimateTokens } from '../core/token-estimator.js';
-import { resolveSafePath } from '../core/validation.js';
-import { CODE_EXTENSIONS } from '../handlers/outline.js';
+import type { FileCache } from "../core/file-cache.js";
+import type { SavingsCategory } from "../core/session-analytics.js";
+import { estimateTokens } from "../core/token-estimator.js";
+import { resolveSafePath } from "../core/validation.js";
+import { CODE_EXTENSIONS } from "../handlers/outline.js";
+
+/**
+ * Honest savings classification for a tool's text output.
+ *
+ * Standalone (pure) so it can be unit-tested without spinning up the
+ * full token-estimates closure. Kept here because it's semantically
+ * tied to how this module reports wouldBe/returned pairs.
+ *
+ * v0.26.1 adds the 'none' branch: smart_read's small-file pass-through
+ * returns the file verbatim with a tiny header. Claiming wouldBe =
+ * fullFile for those calls was the root cause of the -2% "negative
+ * savings" line Opus 4.7 reported. With 'none', the recorder sets
+ * wouldBe = returned → 0% savings, no ghost overhead.
+ */
+export function detectSavingsCategoryPure(text: string): SavingsCategory {
+  if (text.startsWith("REMINDER:") || text.startsWith("DEDUP:")) return "dedup";
+  if (
+    text.includes("returned in full, below threshold") ||
+    text.includes("returned in full, outline not smaller")
+  ) {
+    return "none";
+  }
+  return "compression";
+}
 
 /**
  * Creates token estimation functions bound to a project context.
@@ -22,8 +46,8 @@ export function createTokenEstimates(
       const absPath = resolveSafePath(getProjectRoot(), relativePath);
       const cached = fileCache.get(absPath);
       if (cached) return estimateTokens(cached.content);
-      const { readFile: readFileAsync } = await import('node:fs/promises');
-      const content = await readFileAsync(absPath, 'utf-8');
+      const { readFile: readFileAsync } = await import("node:fs/promises");
+      const content = await readFileAsync(absPath, "utf-8");
       return estimateTokens(content);
     } catch {
       return 0;
@@ -31,37 +55,52 @@ export function createTokenEstimates(
   }
 
   async function estimateProjectOverviewWorkflowTokens(
-    includeSections: Array<'stack' | 'ci' | 'quality' | 'architecture'>,
+    includeSections: Array<"stack" | "ci" | "quality" | "architecture">,
   ): Promise<number> {
-    const sectionFiles: Record<'stack' | 'ci' | 'quality' | 'architecture', string[]> = {
-      stack: ['package.json', 'composer.json', 'Cargo.toml', 'pyproject.toml', 'go.mod'],
-      ci: ['.gitlab-ci.yml', 'Jenkinsfile', '.circleci/config.yml', 'bitbucket-pipelines.yml', '.travis.yml'],
-      quality: [
-        'tsconfig.json',
-        'vitest.config.ts',
-        'vitest.config.js',
-        'vitest.config.mts',
-        'jest.config.js',
-        'jest.config.ts',
-        'jest.config.mjs',
-        'eslint.config.js',
-        'eslint.config.mjs',
-        '.eslintrc',
-        '.eslintrc.js',
-        '.eslintrc.json',
-        '.eslintrc.yml',
-        'biome.json',
-        'biome.jsonc',
-        '.prettierrc',
-        '.prettierrc.js',
-        '.prettierrc.json',
-        'prettier.config.js',
-        'phpunit.xml',
-        'phpunit.xml.dist',
-        'phpstan.neon',
-        'phpstan.neon.dist',
+    const sectionFiles: Record<
+      "stack" | "ci" | "quality" | "architecture",
+      string[]
+    > = {
+      stack: [
+        "package.json",
+        "composer.json",
+        "Cargo.toml",
+        "pyproject.toml",
+        "go.mod",
       ],
-      architecture: ['README.md'],
+      ci: [
+        ".gitlab-ci.yml",
+        "Jenkinsfile",
+        ".circleci/config.yml",
+        "bitbucket-pipelines.yml",
+        ".travis.yml",
+      ],
+      quality: [
+        "tsconfig.json",
+        "vitest.config.ts",
+        "vitest.config.js",
+        "vitest.config.mts",
+        "jest.config.js",
+        "jest.config.ts",
+        "jest.config.mjs",
+        "eslint.config.js",
+        "eslint.config.mjs",
+        ".eslintrc",
+        ".eslintrc.js",
+        ".eslintrc.json",
+        ".eslintrc.yml",
+        "biome.json",
+        "biome.jsonc",
+        ".prettierrc",
+        ".prettierrc.js",
+        ".prettierrc.json",
+        "prettier.config.js",
+        "phpunit.xml",
+        "phpunit.xml.dist",
+        "phpstan.neon",
+        "phpstan.neon.dist",
+      ],
+      architecture: ["README.md"],
     };
 
     let total = 0;
@@ -74,14 +113,20 @@ export function createTokenEstimates(
       }
     }
 
-    if (includeSections.includes('ci')) {
+    if (includeSections.includes("ci")) {
       try {
-        const { readdir: readDirAsync } = await import('node:fs/promises');
-        const workflowDir = resolveSafePath(getProjectRoot(), '.github/workflows');
-        const workflowFiles = await readDirAsync(workflowDir, { withFileTypes: true });
+        const { readdir: readDirAsync } = await import("node:fs/promises");
+        const workflowDir = resolveSafePath(
+          getProjectRoot(),
+          ".github/workflows",
+        );
+        const workflowFiles = await readDirAsync(workflowDir, {
+          withFileTypes: true,
+        });
         for (const file of workflowFiles) {
           if (!file.isFile()) continue;
-          if (!file.name.endsWith('.yml') && !file.name.endsWith('.yaml')) continue;
+          if (!file.name.endsWith(".yml") && !file.name.endsWith(".yaml"))
+            continue;
           total += await fullFileTokens(`.github/workflows/${file.name}`);
         }
       } catch {
@@ -89,7 +134,7 @@ export function createTokenEstimates(
       }
     }
 
-    if (includeSections.includes('architecture')) {
+    if (includeSections.includes("architecture")) {
       total += 200;
     }
 
@@ -104,8 +149,8 @@ export function createTokenEstimates(
     const SAMPLE_LIMIT = 30;
 
     try {
-      const { readdir: readDirAsync } = await import('node:fs/promises');
-      const { resolve: resolvePath } = await import('node:path');
+      const { readdir: readDirAsync } = await import("node:fs/promises");
+      const { resolve: resolvePath } = await import("node:path");
       const absDir = resolveSafePath(getProjectRoot(), relativePath);
       const sampledFiles: string[] = [];
       let totalFiles = 0;
@@ -115,7 +160,7 @@ export function createTokenEstimates(
 
         for (const entry of entries) {
           if (entry.isFile()) {
-            const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
+            const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
             if (!CODE_EXTENSIONS.has(ext)) continue;
             totalFiles++;
             if (sampledFiles.length < SAMPLE_LIMIT) {
@@ -171,7 +216,9 @@ export function createTokenEstimates(
     return total;
   }
 
-  async function estimateFindUsagesWorkflowTokens(files: string[]): Promise<number> {
+  async function estimateFindUsagesWorkflowTokens(
+    files: string[],
+  ): Promise<number> {
     let total = 0;
     let counted = 0;
     for (const file of files) {
@@ -209,10 +256,7 @@ export function createTokenEstimates(
     return total;
   }
 
-  function detectSavingsCategory(text: string): SavingsCategory {
-    if (text.startsWith('REMINDER:') || text.startsWith('DEDUP:')) return 'dedup';
-    return 'compression';
-  }
+  const detectSavingsCategory = detectSavingsCategoryPure;
 
   return {
     fullFileTokens,

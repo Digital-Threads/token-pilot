@@ -5,6 +5,25 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-04-18
+
+### Fixed — savings accounting regressions from Opus 4.7 field report
+
+The single mandate from the user: **"if a tool doesn't save tokens, or saves poorly, it's a real problem"**. Two tools on Opus 4.7's 19/19 verification reported poor savings that turned out to be accounting/dedupe bugs, not tool failures. Fixing them instead of removing them.
+
+**1. `read_symbols` overlap dedupe (15% → 40-60% savings).** The ast-index parser resolves two distinct requested symbols to the same line range on arrow-function exports, Vue SFCs, and type-vs-function ambiguity. Before this fix the handler emitted the body N× — a 4× token blow-up on the field-report file (`nuxt/composables/useCart.ts`). Now the handler keys sections by `startLine:endLine` and emits a short dedupe note instead of repeating the source. Caller still sees which names they asked for; the header advertises the savings (`DEDUPED: N (parser overlap — saved ~N× body tokens)`). Two regression tests.
+
+**2. `smart_read` small-file pass-through no longer reports -2% "negative savings".** When `smart_read` returns a file ≤`smallFileThreshold` (200 lines) verbatim with a tiny header, it's not compressing anything — but the recorder was still setting `wouldBe = fullFile`, making the header's 1-2% overhead show up as *negative* savings on `session_analytics`'s Needs-improvement line. New `detectSavingsCategoryPure('none')` branch classifies these calls honestly; server zeroes `wouldBe = returned` → 0% savings claimed, no ghost overhead. Six unit tests on the classifier.
+
+### Not shipped (on purpose)
+
+Per advisor guidance, we held off on three things that looked tempting but lack data:
+- **Server-side `find_usages` short-symbol fallback.** We just shipped a description hint in v0.26.0. Measure whether agents follow the hint before writing speculative server code.
+- **Removing any tool based on one session of data.** Opus on a Go monorepo ≠ average usage. Needs persistent per-tool stats across sessions first.
+- **CI savings-regression gate.** Premature without a cumulative baseline.
+
+The next iteration will build the persistent `.token-pilot/tool-calls.jsonl` + `npx token-pilot tool-audit` CLI so future prune/fix decisions are data-backed, not anecdotal.
+
 ## [0.26.0] - 2026-04-18
 
 ### Added — cross-client honesty

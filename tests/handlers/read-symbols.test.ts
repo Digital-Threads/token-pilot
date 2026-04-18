@@ -207,3 +207,118 @@ describe("handleReadSymbols guard", () => {
     expect(text).toMatch(/SYMBOL 1\/1/);
   });
 });
+
+// ─── v0.26.1 — overlap dedupe (Opus 4.7 field report) ───────────────────────
+
+describe("handleReadSymbols overlap dedupe", () => {
+  it("dedupes symbols that resolve to the same line range", async () => {
+    // Simulates the ast-index parser bug: two distinct symbol names map
+    // to the exact same range. Before dedupe, read_symbols would emit
+    // the body twice (2× token cost). After dedupe, second becomes a
+    // short note pointing at the first.
+    const filePath = join(tempDir, "overlap.ts");
+    await writeFile(filePath, makeFile(60));
+
+    const structure = {
+      path: filePath,
+      symbols: [
+        {
+          name: "useCart",
+          kind: "function",
+          location: { startLine: 1, endLine: 51, lineCount: 51 },
+          children: [],
+          references: [],
+        },
+        // AddTripOptions (type) incorrectly classified as function AND
+        // given the same range as useCart — the exact shape reported by
+        // Opus 4.7 on Vue SFC / TS-type files.
+        {
+          name: "AddTripOptions",
+          kind: "function",
+          location: { startLine: 1, endLine: 51, lineCount: 51 },
+          children: [],
+          references: [],
+        },
+      ],
+    };
+
+    const reg = new ContextRegistry();
+    const cache = new FileCache(100, 200);
+    const resolver = new SymbolResolver(stubAst(structure));
+
+    const res = await handleReadSymbols(
+      { path: filePath, symbols: ["useCart", "AddTripOptions"] },
+      tempDir,
+      resolver,
+      cache,
+      reg,
+      stubAst(structure),
+    );
+
+    const text = res.content[0].text;
+
+    // Header advertises the dedupe
+    expect(text).toMatch(/DEDUPED: 1/);
+
+    // First symbol has full body
+    expect(text).toMatch(/SYMBOL 1\/2: useCart \(function\)/);
+
+    // Second symbol is a short note, NOT a full body repeat
+    expect(text).toMatch(/SYMBOL 2\/2: AddTripOptions — DEDUPED/);
+    expect(text).toMatch(/Same \[L1-51\] range as "useCart"/);
+
+    // Critically, the second SYMBOL section should NOT include the
+    // "(function) [L..-..] (N lines)" full-header pattern — that
+    // would mean we emitted the body again.
+    const secondBlock = text.split("SYMBOL 2/2")[1] ?? "";
+    expect(secondBlock).not.toMatch(/\(function\) \[L1-51\]/);
+  });
+
+  it("does NOT dedupe when ranges differ (normal case)", async () => {
+    const filePath = join(tempDir, "normal.ts");
+    await writeFile(filePath, makeFile(60));
+
+    const structure = {
+      path: filePath,
+      symbols: [
+        {
+          name: "foo",
+          kind: "function",
+          location: { startLine: 1, endLine: 20, lineCount: 20 },
+          children: [],
+          references: [],
+        },
+        {
+          name: "bar",
+          kind: "function",
+          location: { startLine: 21, endLine: 40, lineCount: 20 },
+          children: [],
+          references: [],
+        },
+      ],
+    };
+
+    const reg = new ContextRegistry();
+    const cache = new FileCache(100, 200);
+    const resolver = new SymbolResolver(stubAst(structure));
+
+    const res = await handleReadSymbols(
+      { path: filePath, symbols: ["foo", "bar"] },
+      tempDir,
+      resolver,
+      cache,
+      reg,
+      stubAst(structure),
+    );
+
+    const text = res.content[0].text;
+
+    // No dedupe banner
+    expect(text).not.toMatch(/DEDUPED:/);
+    // Both symbols get full treatment
+    expect(text).toMatch(/SYMBOL 1\/2: foo \(function\)/);
+    expect(text).toMatch(/SYMBOL 2\/2: bar \(function\)/);
+    // Neither is marked as deduped
+    expect(text).not.toMatch(/— DEDUPED/);
+  });
+});

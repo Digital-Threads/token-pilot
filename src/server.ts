@@ -363,6 +363,18 @@ export async function createServer(
     recentlyEdited?: boolean;
   }): string | null {
     const { absPath, args, recentlyEdited, ...rest } = call;
+
+    // v0.26.1 — honest accounting. When a handler signals 'none' as
+    // the savings category (e.g. smart_read small-file pass-through),
+    // we weren't compressing anything — the caller got the file back
+    // verbatim plus a tiny header. Claiming wouldBe = fullFile here
+    // produced the -2% "negative savings" line on Opus 4.7's
+    // session_analytics. Zero the delta: 0% savings claimed, no ghost
+    // overhead.
+    if (rest.savingsCategory === "none") {
+      rest.tokensWouldBe = rest.tokensReturned;
+    }
+
     analytics.record({
       ...rest,
       intent: classifyIntent(rest.tool),
