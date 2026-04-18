@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
+    "bench:hook": "node scripts/bench-hook.mjs",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && node --input-type=module -e \"import { chmod } from 'node:fs/promises'; await chmod('dist/index.js', 0o755);\""
   },
