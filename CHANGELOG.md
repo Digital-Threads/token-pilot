@@ -5,6 +5,22 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.5] - 2026-04-18
+
+### Changed — ast-index is now a hard npm dependency
+
+Until now `ast-index` was auto-downloaded from GitHub on first MCP-server start. That worked but had weak spots: exotic architectures, corporate proxies, ZIP-only Windows path — any of them left the user with a token-pilot that couldn't do structural reads until they manually ran `install-ast-index`. Users also rightly expected *"I just `npm install`d the package — it should just work"*.
+
+- **`@ast-index/cli@^3.38.0` moved from implicit auto-install to `dependencies`.** Regular `npm install token-pilot` now pulls the main package + the correct platform-specific native binary (`@ast-index/cli-<platform>-<arch>`) as a transitive dep, same pattern Rollup / esbuild / swc use. Removed the old `peerDependencies: ast-index` stub — confusing and never served a purpose.
+- **New `findViaBundledDep()` is first in the binary resolution order** (after config override, before system PATH). Walks up from our own module to `node_modules/@ast-index/cli/bin/ast-index`; works whether npm created `.bin/ast-index` symlinks or not.
+- **`BinaryStatus.source` gains `"bundled"`** to distinguish the new path from `system` / `npm` / `managed` / `none`. `doctor` honours it.
+- **`scripts/postinstall.mjs` is a safety net** — runs after `npm install`, checks `findBinary()` result; if nothing found, fires the GitHub download fallback. **Never fails the install** — any error ends in a single stderr warning and exit 0. Respects `TOKEN_PILOT_SKIP_POSTINSTALL=1` and `CI=true` for sandboxed builds.
+
+Result: fresh `npm install token-pilot` gives a ready-to-work binary on macOS (arm64 + x64), Linux (arm64 + x64), Windows x64 — no first-run download step, no stderr noise about "ast-index not found, downloading…".
+
+### Numbers
+- 907 tests green, `tsc --noEmit` clean. `npm install @ast-index/cli` end-to-end verified against actual npm registry.
+
 ## [0.23.4] - 2026-04-18
 
 ### Fixed
