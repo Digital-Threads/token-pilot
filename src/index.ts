@@ -436,11 +436,11 @@ async function runHookReadDispatchImpl(
     /* silent — hook must not break */
   }
 
-  const writeEvent = (
+  const writeEvent = async (
     eventKind: HookEvent["event"],
     summaryTokens: number,
-  ): void => {
-    void appendEvent(projectRoot, {
+  ): Promise<void> => {
+    await appendEvent(projectRoot, {
       ts: Date.now(),
       session_id: sessionId,
       agent_type: agentType,
@@ -459,7 +459,7 @@ async function runHookReadDispatchImpl(
       `File "${filePath}" has ${lineCount} lines. Use mcp__token-pilot__smart_read("${filePath}") ` +
       `for a structural overview, or mcp__token-pilot__read_for_edit("${filePath}", symbol="<name>") ` +
       `for edit context. Bounded Read with offset/limit is still allowed.`;
-    writeEvent("denied", Math.ceil(reason.length / 4));
+    await writeEvent("denied", Math.ceil(reason.length / 4));
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -472,7 +472,7 @@ async function runHookReadDispatchImpl(
   // mode === 'deny-enhanced'
   const pipelineResult = await runSummaryPipeline(fileContent, filePath);
   if (pipelineResult.kind === "pass-through") {
-    writeEvent("pass-through", 0);
+    await writeEvent("pass-through", 0);
     return null;
   }
 
@@ -481,7 +481,7 @@ async function runHookReadDispatchImpl(
     summary: pipelineResult.summary,
     tier: pipelineResult.tier,
   });
-  writeEvent("denied", Math.ceil(message.length / 4));
+  await writeEvent("denied", Math.ceil(message.length / 4));
 
   return JSON.stringify({
     hookSpecificOutput: {
