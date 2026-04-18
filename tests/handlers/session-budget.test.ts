@@ -104,6 +104,24 @@ describe("handleSessionBudget", () => {
     expect(payload.effectiveThreshold).toBe(90); // base × 0.3
   });
 
+  it("projects events-until-exhaustion when history exists", async () => {
+    await seedEvents(tempDir, [
+      event("sess-1", 5_000),
+      event("sess-1", 5_000),
+      event("sess-1", 5_000),
+    ]);
+    const res = await handleSessionBudget({ sessionId: "sess-1" }, tempDir, {
+      baseThreshold: 300,
+      adaptiveThreshold: true,
+      adaptiveBudgetTokens: 100_000,
+    });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.eventCount).toBe(3);
+    expect(payload.avgSavedPerEvent).toBe(5000);
+    // (100_000 - 15_000) / 5_000 = 17
+    expect(payload.eventsUntilExhaustion).toBe(17);
+  });
+
   it("handles missing sessionId gracefully", async () => {
     const res = await handleSessionBudget({ sessionId: "" }, tempDir, {
       baseThreshold: 300,

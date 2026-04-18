@@ -16,28 +16,56 @@ export function loadSessionSavedTokens(
   projectRoot: string,
   sessionId: string,
 ): number {
-  if (!sessionId) return 0;
+  return loadSessionStats(projectRoot, sessionId).savedTokens;
+}
+
+export interface SessionStats {
+  savedTokens: number;
+  eventCount: number;
+  firstTsMs: number | null;
+  lastTsMs: number | null;
+}
+
+export function loadSessionStats(
+  projectRoot: string,
+  sessionId: string,
+): SessionStats {
+  const empty: SessionStats = {
+    savedTokens: 0,
+    eventCount: 0,
+    firstTsMs: null,
+    lastTsMs: null,
+  };
+  if (!sessionId) return empty;
   const path = join(projectRoot, ".token-pilot", "hook-events.jsonl");
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
   } catch {
-    return 0;
+    return empty;
   }
-  let total = 0;
+  let savedTokens = 0;
+  let eventCount = 0;
+  let firstTsMs: number | null = null;
+  let lastTsMs: number | null = null;
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
       const e = JSON.parse(line) as {
         session_id?: string;
         savedTokens?: number;
+        ts?: number;
       };
-      if (e.session_id === sessionId && typeof e.savedTokens === "number") {
-        total += e.savedTokens;
+      if (e.session_id !== sessionId) continue;
+      if (typeof e.savedTokens === "number") savedTokens += e.savedTokens;
+      eventCount += 1;
+      if (typeof e.ts === "number") {
+        if (firstTsMs == null || e.ts < firstTsMs) firstTsMs = e.ts;
+        if (lastTsMs == null || e.ts > lastTsMs) lastTsMs = e.ts;
       }
     } catch {
       /* skip malformed */
     }
   }
-  return total;
+  return { savedTokens, eventCount, firstTsMs, lastTsMs };
 }
