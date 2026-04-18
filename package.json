@@ -10,6 +10,7 @@
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",
+    "dist/agents/*.md",
     "start.sh",
     ".claude-plugin/",
     ".mcp.json",
@@ -19,7 +20,7 @@
   ],
   "scripts": {
     "prebuild": "node --input-type=module -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true });\"",
-    "build": "tsc",
+    "build": "tsc && node scripts/build-agents.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
