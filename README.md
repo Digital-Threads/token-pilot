@@ -6,7 +6,7 @@ Three layers, each useful on its own, stronger together:
 
 1. **MCP tools** — structural reads (`smart_read`, `read_symbol`, `read_for_edit`, …). Ask for an outline or load one function by name instead of the whole file.
 2. **Read hook** — intercepts large raw `Read` calls and answers with a structural summary in the denial reason itself. Works for every agent, including ones that only have basic tools.
-3. **`tp-*` subagents** — six Claude Code delegates (`tp-run`, `tp-onboard`, `tp-pr-reviewer`, `tp-impact-analyzer`, `tp-refactor-planner`, `tp-test-triage`) with MCP-first behaviour and tight response budgets.
+3. **`tp-*` subagents** — Claude Code delegates with MCP-first behaviour and tight response budgets. Tier 1 workhorses (`tp-run`, `tp-onboard`, `tp-pr-reviewer`, `tp-impact-analyzer`, `tp-refactor-planner`, `tp-test-triage`) plus Tier 2 specialists (`tp-debugger`, `tp-migration-scout`, `tp-test-writer`, `tp-dead-code-finder`, `tp-commit-writer`).
 
 ## How It Works
 
@@ -42,7 +42,7 @@ npx -y token-pilot init
 This does two things:
 
 1. Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode).
-2. If you're on a TTY, asks whether to install the six `tp-*` subagents now — pick `user` (available in every project) or `project` scope.
+2. If you're on a TTY, asks whether to install the `tp-*` subagents now — pick `user` (available in every project) or `project` scope.
 
 Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
 
@@ -99,7 +99,9 @@ Env var overrides: `TOKEN_PILOT_MODE=off`, `TOKEN_PILOT_DENY_THRESHOLD=500`, `TO
 
 ## Subagents
 
-Six Claude Code subagents guarantee MCP-first behaviour with tight response budgets and verdict-first output:
+Claude Code subagents guarantee MCP-first behaviour with tight response budgets and verdict-first output. **Tier 1** are everyday workhorses invoked proactively; **Tier 2** are focused specialists you reach for when a specific kind of work comes up (debugging, migration, test authoring, cleanup, commits).
+
+**Tier 1 — workhorses:**
 
 | Agent | When to invoke | Budget |
 |-------|---------------|-------:|
@@ -110,11 +112,21 @@ Six Claude Code subagents guarantee MCP-first behaviour with tight response budg
 | `tp-refactor-planner` | Plan a refactor with exact edit context per step | 500 |
 | `tp-test-triage` | Investigate test failures → root cause → minimal fix | 500 |
 
+**Tier 2 — specialists:**
+
+| Agent | When to invoke | Budget |
+|-------|---------------|-------:|
+| `tp-debugger` | Stack trace / error → root-cause line via call-tree traversal | 700 |
+| `tp-migration-scout` | Pre-migration impact map grouped by effort class | 800 |
+| `tp-test-writer` | Write tests for ONE symbol, mirrors project style, runs tests | 900 |
+| `tp-dead-code-finder` | Cross-checked dead-code detection, output-only (never deletes) | 600 |
+| `tp-commit-writer` | Draft Conventional-Commit from staged diff; refuses failing tests | 400 |
+
 `init` offers to install these; to do it later or add them to another project, run `npx token-pilot install-agents`. Remove with `npx token-pilot uninstall-agents --scope=user|project`.
 
 For third-party agents (e.g. `acc-*` plugins) whose tool allowlist excludes token-pilot MCP, `npx token-pilot bless-agents` creates project-level overrides that add the missing tools. `doctor` warns when the original agent has changed since blessing; `unbless-agents` reverses.
 
-## MCP Tools (21)
+## MCP Tools
 
 ### Reading
 
@@ -149,7 +161,8 @@ For third-party agents (e.g. `acc-*` plugins) whose tool allowlist excludes toke
 
 | Tool | Purpose |
 |------|---------|
-| `session_snapshot` | Compact markdown snapshot (<200 tokens) of goal, decisions, facts, blockers, next step |
+| `session_snapshot` | Compact markdown snapshot (<200 tokens) of goal, decisions, facts, blockers, next step. Auto-persisted to `.token-pilot/snapshots/latest.md`; SessionStart surfaces a pointer when recent. |
+| `session_budget` | Hook-suppression pressure for this session: saved tokens, burn fraction, effective denyThreshold, time-to-compact projection |
 | `session_analytics` | Token savings: per-tool breakdown, top files, policy advisories |
 
 ## CLI

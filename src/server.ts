@@ -97,10 +97,17 @@ export async function createServer(
   const sessionRegistries = new SessionRegistryManager(projectRoot);
   // Flush persisted session registries on shutdown (best-effort; every hot
   // tool-call path also flushes immediately, so this is only for registries
-  // whose last access never got a post-call flush).
-  process.once("beforeExit", () => {
+  // whose last access never got a post-call flush). `beforeExit` doesn't
+  // fire on signal-based termination (SIGINT / SIGTERM), so we hook those
+  // too — Node runs every signal listener before the default action, giving
+  // flushAll a fair chance to complete. `process.exit()` bypasses listeners
+  // entirely; callers that care about durability should not use it.
+  const shutdownFlush = (): void => {
     void sessionRegistries.flushAll();
-  });
+  };
+  process.once("beforeExit", shutdownFlush);
+  process.once("SIGINT", shutdownFlush);
+  process.once("SIGTERM", shutdownFlush);
   const symbolResolver = new SymbolResolver(astIndex);
 
   /**
@@ -1139,6 +1146,7 @@ export async function createServer(
         case "session_snapshot": {
           const snapshotArgs = args as {
             goal: string;
+            decisions?: string[];
             confirmed?: string[];
             files?: string[];
             blocked?: string;
