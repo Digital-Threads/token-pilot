@@ -24,7 +24,10 @@ import { handleSessionStart } from "./hooks/session-start.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
-import { handleInstallAgents } from "./cli/install-agents.js";
+import {
+  handleInstallAgents,
+  maybeEmitStartupReminder,
+} from "./cli/install-agents.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
 
 const execFileAsync = promisify(execFile);
@@ -237,6 +240,16 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   const config = await loadConfig(projectRoot);
   const binaryStatus = await findBinary(config.astIndex.binaryPath);
   checkAllUpdates(config, binaryStatus).catch(() => {
+    /* ignore */
+  });
+
+  // Phase 5 subtask 5.6 — one-time reminder when no tp-* agents installed.
+  // Non-blocking, silent on error, single-fire per process.
+  maybeEmitStartupReminder({
+    projectRoot,
+    homeDir: homedir(),
+    configSuppressed: config.agents?.reminder === false,
+  }).catch(() => {
     /* ignore */
   });
 

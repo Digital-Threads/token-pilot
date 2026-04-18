@@ -330,3 +330,78 @@ export async function handleInstallAgents(
     return 1;
   }
 }
+
+// ─── Startup reminder (Phase 5 subtask 5.6) ─────────────────────────────────
+
+export interface StartupReminderOptions {
+  projectRoot: string;
+  homeDir: string;
+  /**
+   * If true, the reminder is suppressed. Callers pass
+   * `cfg.agents.reminder === false` here.
+   */
+  configSuppressed: boolean;
+  /** Environment snapshot to consult; defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Scan both user-scope (`<homeDir>/.claude/agents`) and project-scope
+ * (`<projectRoot>/.claude/agents`) for any `tp-*.md`. The reminder fires
+ * only when nothing is found in either location.
+ */
+async function anyTpAgentInstalled(
+  projectRoot: string,
+  homeDir: string,
+): Promise<boolean> {
+  for (const root of [projectRoot, homeDir]) {
+    try {
+      const entries = await readdir(join(root, ".claude", "agents"));
+      if (entries.some((f) => f.startsWith("tp-") && f.endsWith(".md"))) {
+        return true;
+      }
+    } catch {
+      // Missing dir → this scope has nothing; keep checking.
+    }
+  }
+  return false;
+}
+
+/**
+ * Pure, testable check: should the MCP startup emit the agent-install
+ * reminder right now?
+ */
+export async function shouldEmitStartupReminder(
+  opts: StartupReminderOptions,
+): Promise<boolean> {
+  const env = opts.env ?? process.env;
+  if (env.TOKEN_PILOT_NO_AGENT_REMINDER === "1") return false;
+  if (env.TOKEN_PILOT_SUBAGENT === "1") return false;
+  if (opts.configSuppressed) return false;
+  return !(await anyTpAgentInstalled(opts.projectRoot, opts.homeDir));
+}
+
+export const STARTUP_REMINDER_MESSAGE =
+  "[token-pilot] tp-* agents not installed. Run `npx token-pilot install-agents` " +
+  "to enable guaranteed-savings subagents (scope: user or project — your choice).\n";
+
+/**
+ * Emit the reminder to stderr at most once per process. Safe to call
+ * multiple times; subsequent calls are no-ops.
+ */
+let startupReminderEmitted = false;
+
+export async function maybeEmitStartupReminder(
+  opts: StartupReminderOptions,
+): Promise<boolean> {
+  if (startupReminderEmitted) return false;
+  if (!(await shouldEmitStartupReminder(opts))) return false;
+  process.stderr.write(STARTUP_REMINDER_MESSAGE);
+  startupReminderEmitted = true;
+  return true;
+}
+
+/** Test-only: reset the single-fire guard. */
+export function _resetStartupReminderForTests(): void {
+  startupReminderEmitted = false;
+}
