@@ -5,6 +5,21 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-04-18
+
+### Fixed — two findings from v0.23.6 field verification
+
+**1. `read_symbols` guard missed on real Vue / TS files.** The field report showed a 6-symbols-from-6-exports request where the v0.23.6 guard failed to trip. Root cause: the guard used `sum(lineCount) / fileLines ≥ 0.7`, but ast-index's parser returns **overlapping ranges** on arrow functions / `export function` / Vue SFCs / TypeScript type-vs-function — so `sum(lineCount)` gets inflated past the file size and ratios become meaningless. Switched to a **count-based** guard: if ≥ 3 symbols AND ≥ 70% of the file's top-level symbol count, refuse and advise `smart_read`. Immune to parser line-range bugs.
+
+**2. `docs/token-pilot-dir.md` was not shipped in the npm package.** I added the file in v0.23.6 but forgot the `docs/*.md` glob in `package.json` `files:`. Now included.
+
+### Added
+
+- **Parser-overlap warning.** If the handler sees `sum(symbol.lineCount) > file.lineCount × 1.5` (definite parser mis-parse — symbols claiming more lines than the file has), it logs one stderr warning pointing at the upstream `defendend/Claude-ast-index-search` issue tracker. Doesn't fail the request; gives users a signal when ast-index is the real culprit for weird results.
+
+### Numbers
+- 911 tests green (+1 regression test for overlapping-ranges guard), `tsc --noEmit` clean.
+
 ## [0.24.0] - 2026-04-18
 
 ### Added — Tier 3 combo-agents (TP-z64 delivered)

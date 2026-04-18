@@ -136,6 +136,45 @@ describe("handleReadSymbols guard", () => {
     expect(text).toMatch(/SYMBOL 1\/1: tiny/);
   });
 
+  it("catches Vue-SFC-style overlapping ranges (count-based, not line-based)", async () => {
+    // v0.24.1 regression: ast-index parser bugs on arrow-functions / Vue
+    // SFCs / TS types return overlapping ranges that inflate sum(lineCount).
+    // Line-based guard missed this case. Count-based guard catches it:
+    // 6 symbols requested, 6 total in structure → 100% coverage.
+    const filePath = join(tempDir, "useCart.ts");
+    await writeFile(filePath, makeFile(60));
+    const structure = {
+      path: filePath,
+      // Every "symbol" bogusly claims lines 1-51 (overlapping ranges as
+      // observed on a real Vue/TS file in the field report)
+      symbols: Array.from({ length: 6 }, (_, i) => ({
+        name: `sym${i}`,
+        kind: "function",
+        location: { startLine: 1, endLine: 51, lineCount: 51 },
+        children: [],
+        references: [],
+      })),
+    };
+
+    const reg = new ContextRegistry();
+    const cache = new FileCache(100, 200);
+    const resolver = new SymbolResolver(stubAst(structure));
+    const res = await handleReadSymbols(
+      {
+        path: filePath,
+        symbols: ["sym0", "sym1", "sym2", "sym3", "sym4", "sym5"],
+      },
+      tempDir,
+      resolver,
+      cache,
+      reg,
+      stubAst(structure),
+    );
+    const text = res.content[0].text;
+    expect(text).toMatch(/ADVISORY/);
+    expect(text).toMatch(/6\/6/);
+  });
+
   it("does not trip when fewer than 3 symbols requested", async () => {
     const filePath = join(tempDir, "two.ts");
     await writeFile(filePath, makeFile(100));
