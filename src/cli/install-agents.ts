@@ -30,6 +30,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "./agent-frontmatter.js";
+import { detectClient, nonClaudeClientWarning } from "./detect-client.js";
 
 export type Scope = "user" | "project";
 
@@ -354,11 +355,49 @@ export async function handleInstallAgents(
     homeDir?: string;
     projectRoot?: string;
     isTTY?: boolean;
+    env?: NodeJS.ProcessEnv;
   },
 ): Promise<number> {
   const scopeArg = parseFlag(argv, "scope");
   const force = parseFlag(argv, "force") !== undefined;
   const projectRoot = opts?.projectRoot ?? process.cwd();
+  const homeDir = opts?.homeDir ?? homedir();
+  const env = opts?.env ?? process.env;
+
+  // v0.26.5 — plugin-aware note. If we're running as a Claude Code
+  // plugin (CLAUDE_PLUGIN_ROOT set), `install-agents` is still useful —
+  // tp-* subagents are separate from plugin hooks. But the directory
+  // the plugin installer created is the authoritative one; we print a
+  // short note so the user doesn't think they need to reinstall on
+  // every plugin update.
+  if (env.CLAUDE_PLUGIN_ROOT) {
+    process.stderr.write(
+      "[token-pilot] Note: you're running as a Claude Code plugin. " +
+        "install-agents still works for tp-* subagents (those are separate " +
+        "from plugin hooks). Continuing.\n",
+    );
+  }
+
+  // v0.26.0 — detect non-Claude clients where tp-* subagents have no
+  // runtime. We still let users force-install via --scope (they may run
+  // multiple clients side-by-side), but we warn loudly so nobody ends
+  // up with a ghost ~/.claude/agents/ directory nothing invokes.
+  const detection = await detectClient(homeDir, projectRoot, env);
+  const warning = nonClaudeClientWarning(detection);
+  if (warning) {
+    process.stderr.write(warning + "\n");
+    if (scopeArg === undefined) {
+      // Silent bail is worse than a warning — return 0 so CI/postinstall
+      // don't treat this as a failure, but skip creating the directory.
+      process.stderr.write(
+        "[token-pilot] Skipping agent install (pass --scope to override).\n",
+      );
+      return 0;
+    }
+    process.stderr.write(
+      `[token-pilot] --scope=${scopeArg} supplied — proceeding anyway.\n`,
+    );
+  }
 
   let scope: Scope;
   if (scopeArg === "user" || scopeArg === "project") {
@@ -395,7 +434,7 @@ export async function handleInstallAgents(
     const result = await installAgents({
       scope,
       projectRoot,
-      homeDir: opts?.homeDir ?? homedir(),
+      homeDir,
       distAgentsDir,
       force,
     });

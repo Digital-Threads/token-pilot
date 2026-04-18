@@ -1,15 +1,32 @@
 {
   "name": "token-pilot",
-  "displayName": "Token Pilot",
-  "description": "Reduces token consumption by 60-80% via AST-aware lazy file reading. 18 MCP tools for structural code reading, symbol navigation, and cross-file search.",
-  "version": "0.13.0",
-  "author": "Digital-Threads",
-  "repository": "https://github.com/Digital-Threads/token-pilot",
-  "license": "MIT",
-  "keywords": ["mcp", "token", "ast", "code-reading", "optimization"],
-  "categories": ["developer-tools", "code-analysis"],
-  "installMethod": "plugin",
-  "requirements": {
-    "node": ">=18.0.0"
-  }
+  "owner": {
+    "name": "Digital-Threads",
+    "email": "shahinyanm@gmail.com"
+  },
+  "metadata": {
+    "description": "Token Pilot — save 60-90% tokens when AI reads code",
+    "version": "0.26.5"
+  },
+  "plugins": [
+    {
+      "name": "token-pilot",
+      "source": "./",
+      "description": "Reduces token consumption by 60-90% via AST-aware lazy file reading, structural symbol navigation, and cross-session tool-usage analytics. 22 MCP tools + 19 subagents + budget watchdog hooks.",
+      "version": "0.26.5",
+      "author": {
+        "name": "Digital-Threads"
+      },
+      "category": "development",
+      "keywords": [
+        "mcp",
+        "token",
+        "ast",
+        "code-reading",
+        "optimization",
+        "context-window",
+        "subagents"
+      ]
+    }
+  ]
 }

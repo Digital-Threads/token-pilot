@@ -44,7 +44,31 @@ This does two things:
 1. Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode).
 2. If you're on a TTY, asks whether to install the `tp-*` subagents now — pick `user` (available in every project) or `project` scope.
 
-Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
+Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client — though support varies (see matrix below).
+
+## Client support matrix
+
+Not every capability works in every client. Subagents are a Claude Code concept; other clients still get the MCP tools + Read hook but won't auto-invoke `tp-*` agents.
+
+| Client          | MCP tools | Read hook (context-mode) | `tp-*` subagents (19) | `model:` frontmatter (haiku) | Budget watchdog |
+|-----------------|:---------:|:------------------------:|:---------------------:|:----------------------------:|:---------------:|
+| Claude Code     | ✅        | ✅                       | ✅                    | ✅                           | ✅              |
+| Cursor          | ✅        | ✅                       | ❌                    | ❌ (ignored)                 | ❌              |
+| Codex CLI       | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Gemini CLI      | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Cline (VS Code) | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Antigravity     | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+
+**What non-Claude users get (~60% of the package):**
+- All 22 MCP tools: `smart_read`, `read_symbol`, `find_usages`, `smart_diff`, `code_audit`, `session_analytics`, etc.
+- The Read hook that blocks oversized reads and suggests token-saving alternatives.
+
+**What needs Claude Code to work:**
+- 19 `tp-*` subagents invoked via the `Task` tool.
+- `model: claude-haiku-4-5` frontmatter on format-bound agents (commit-writer, session-restorer, onboard) — cheaper runs.
+- `PostToolUse:Task` budget watchdog — logs agent runs exceeding their declared budget to `.token-pilot/over-budget.log`.
+
+`install-agents` detects non-Claude clients via env vars + filesystem markers (`CURSOR_TRACE_ID`, `~/.codex/`, `~/.gemini/`, etc.) and **skips installing** unless you pass `--scope=user|project` explicitly.
 
 ## Manual MCP install (per-client examples)
 
@@ -52,10 +76,20 @@ If `init` isn't right for your setup — CI, non-TTY environments, editing a sha
 
 ### Claude Code
 
-Two equivalent paths:
+Three paths — pick one, they're mutually exclusive.
+
+**A. As a Claude Code plugin (one-step install — hooks + MCP registered together):**
 
 ```bash
-# Via CLI (recommended — handles scope + scoping)
+claude plugin marketplace add https://github.com/Digital-Threads/token-pilot
+claude plugin install token-pilot@token-pilot
+```
+
+Claude Code clones the repo into `~/.claude/plugins/cache/token-pilot/`, sets `CLAUDE_PLUGIN_ROOT`, and registers the MCP server + all hooks declared in `.claude-plugin/hooks/hooks.json`. No `install-hook` call needed. `install-agents` still applies for the tp-* subagents (they're separate from plugin hooks).
+
+**B. Via MCP config (npm-based, no plugin system):**
+
+```bash
 claude mcp add token-pilot -- npx -y token-pilot
 claude mcp add --scope user token-pilot -- npx -y token-pilot
 claude mcp add --scope project token-pilot -- npx -y token-pilot
@@ -71,6 +105,10 @@ claude mcp add --scope project token-pilot -- npx -y token-pilot
   }
 }
 ```
+
+Then `npx token-pilot install-hook` to register the PreToolUse Read/Edit hooks and `npx token-pilot install-agents --scope=user` to install the 19 tp-* subagents.
+
+**C. One-liner `init`:** `npx -y token-pilot init` — writes path B config for you, then prompts about subagents.
 
 ### Cursor
 
@@ -119,10 +157,21 @@ No env vars required. Optional overrides:
 
 | Env var | Default | Purpose |
 |---|---|---|
+| `TOKEN_PILOT_PROFILE` | `full` | `nav`/`edit`/`full` — trims the advertised `tools/list` payload to save ~2 k tokens per session (see "Tool profiles" below) |
 | `TOKEN_PILOT_DENY_THRESHOLD` | `300` | Line count above which the Read hook intervenes |
 | `TOKEN_PILOT_ADAPTIVE_THRESHOLD` | `false` | Enable the adaptive curve as the session burns |
 | `TOKEN_PILOT_BYPASS` | unset | Set to `1` to disable the Read hook for one session |
 | `TOKEN_PILOT_SKIP_POSTINSTALL` | unset | Skip the `ast-index` safety-net install at `npm install` time |
+
+### Tool profiles
+
+| Profile | Tools | ~Tokens | Use when |
+|---------|------:|--------:|----------|
+| `full` *(default)* | 22 | ~4 150 | All capabilities |
+| `edit` | 16 | ~3 120 | Code-change workflows (nav + batch reads + `read_for_edit`) |
+| `nav` | 10 | ~1 910 | Read-only exploration / subagents that only navigate |
+
+Set via `TOKEN_PILOT_PROFILE` in your MCP server env block. Handlers stay live regardless — a subagent that explicitly names a filtered-out tool still gets served. The profile only trims what we advertise in `tools/list` at session start.
 
 ### Subagents (Claude Code only)
 
@@ -255,6 +304,8 @@ token-pilot install-hook           # Install PreToolUse hook
 token-pilot uninstall-hook
 token-pilot stats                  # Totals + top files from hook-events.jsonl
 token-pilot stats --session[=<id>] | --by-agent
+token-pilot tool-audit             # Per-tool savings distribution (cumulative across sessions)
+token-pilot tool-audit --json      # Same, machine-readable
 token-pilot doctor                 # Diagnostics (ast-index, config, upstream drift)
 token-pilot install-ast-index      # Download ast-index binary (auto on first run)
 ```

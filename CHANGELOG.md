@@ -5,6 +5,145 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.5] - 2026-04-18
+
+### Fixed — plugin installation path was broken since 2026-03-01
+
+Surface: a user asked "can token-pilot be installed as a Claude Code plugin?". The `.claude-plugin/` manifest said yes, but attempting `claude plugin install token-pilot@token-pilot` against our repo failed on schema errors. Root cause: `marketplace.json` and `plugin.json` were written 2026-03-01 for the Claude Code schema as-of-then. The schema has since moved to a `owner`/`plugins`-array shape in `marketplace.json` and `author`-as-object in `plugin.json`, with `mcpServers` declared inside `plugin.json` itself. Our files never caught up. Every user who tried the plugin path for 48 days saw a validation error.
+
+Fixed: both manifests rewritten to current shape. Verified end-to-end — `claude plugin marketplace add <path> && claude plugin install token-pilot@token-pilot` now reports ✔ Successfully installed and the MCP server connects green.
+
+### Added — README documents both install paths
+
+Until now the README only described npm/npx. With plugin install fixed, the Claude Code section now lays out three paths side-by-side:
+- **A.** `claude plugin install` — hooks + MCP + (optional) tp-* agents in one step.
+- **B.** `claude mcp add -- npx -y token-pilot` — for npm-based setups.
+- **C.** `npx -y token-pilot init` — the one-liner that writes path B for you.
+
+### Changed — plugin-aware CLI behaviour
+
+- **`install-hook`** now early-returns with an explanation when `CLAUDE_PLUGIN_ROOT` is set. Plugin installation already wires hooks via `.claude-plugin/hooks/hooks.json`; calling `install-hook` on top would double-register every PreToolUse/PostToolUse matcher. This prevents the silent duplication.
+- **`install-agents`** keeps working under plugin mode (tp-* subagents are independent of plugin hooks — they live in `~/.claude/agents/` regardless) but now prints a one-line note so the user doesn't wonder why a plugin install needs a manual step. New regression test covers the plugin-mode path.
+- **`doctor`** prints a new `Install mode:` line — one of `plugin (<root>)` / `dev / worktree (contributor)` / `npm / npx`. Helps diagnose support issues: "why do I have two hook entries?" → doctor says `plugin` → answer is "remove the manual install-hook run".
+
+### Removed — repo-level `.mcp.json`
+
+The file at the repo root was a 2026-03 plugin-compat artifact using `${CLAUDE_PLUGIN_ROOT}/start.sh`. It only resolved correctly when token-pilot ran as a registered plugin — for anyone developing the repo locally (or running the MCP server from a worktree) it just produced `✗ Failed to connect` in `claude mcp list`. With plugin install fixed and the `mcpServers` block moved inside `plugin.json`, the file is no longer needed from either path. Removed.
+
+**Note for users migrating npm → plugin:** if you ran `npx token-pilot install-hook` on your old npm setup and then install as a plugin, both will register hooks — every PreToolUse matcher fires twice. Clean the manual entry out of `~/.claude/settings.json` (the one whose `command` starts with `token-pilot hook-read`). The v0.26.5 early-return only prevents *new* duplicates; it doesn't clean old ones.
+
+975 tests still passing (+1 new: plugin-mode regression).
+
+## [0.26.4] - 2026-04-18
+
+### Added — automatic profile recommendation in `doctor`
+
+v0.26.3 shipped profiles, but the default stayed `full` — a breaking default change would silently hide tools from anyone who actually uses `code_audit` / `test_summary` / `find_unused`. The correct path: **data-driven advisory, not default flip**.
+
+`npx token-pilot doctor` now reads the cumulative `.token-pilot/tool-calls.jsonl` (introduced v0.26.2) and prints a profile recommendation:
+
+```
+── profile recommendation ──
+  data:         30 calls, 1 distinct tools
+  recommend:    TOKEN_PILOT_PROFILE=nav
+  why:          Every tool you've used (1 distinct) is part of the nav subset. You're a read-only explorer.
+  savings:      ~2200 tokens (−54%) on every tools/list response
+  apply:        add "env": { "TOKEN_PILOT_PROFILE": "nav" } to your token-pilot entry in .mcp.json
+```
+
+Decision matrix (pure, unit-tested):
+- Every call ∈ nav-set → recommend `nav`.
+- Uses edit-prep tools (read_for_edit, batch reads) but never full-only → recommend `edit`.
+- Touches any full-only tool (test_summary, code_audit, find_unused, session_*) → stay on `full`.
+- <20 calls total → insufficient data, say so honestly, tell user to re-run doctor after a few sessions.
+
+**Never auto-applies.** Recommendation is printed, not written. Users who haven't read the CHANGELOG learn the lever exists next time they run `doctor`. Gives the narrowest profile that *doesn't silently break their workflow*, because the recommendation is based on their actual usage — not ours.
+
+11 unit tests on the decision matrix + formatter (min-samples boundary, all branches of the matrix, empty-input safety, env-snippet rendering).
+
+## [0.26.3] - 2026-04-18
+
+### Added — tool profiles (lifted honestly from Token Savior's idea)
+
+When an MCP server advertises 22 tools, every `tools/list` response costs the agent ~4 k tokens *before it does anything*. Most sessions don't need every tool — a code-review subagent uses `smart_read` + `find_usages` + `outline` and nothing else. A profile lets the operator ship a narrower `tools/list` while keeping every handler live (so a subagent that explicitly names a filtered-out tool still gets served — we just don't brag about every tool upfront).
+
+**Three profiles:**
+
+| Profile | Tools | ~Tokens in `tools/list` | When to use |
+|---------|------:|------------------------:|-------------|
+| `full` *(default)* | 22 | ~4 150 | All capabilities, same as pre-v0.26.3 |
+| `edit` | 16 | ~3 120 | Code-change workflows (nav + batch reads + read_for_edit) |
+| `nav` | 10 | ~1 910 | Read-only exploration (smart_read, outline, find_usages, project_overview, module_info, related_files, explore_area, smart_log, smart_diff, read_symbol) |
+
+**Savings:** `nav` saves ~2.2 k tokens (54 %) at session start; `edit` saves ~1 k (25 %). Every session pays this tax, so it compounds fast across a working day.
+
+**Selection:** set `TOKEN_PILOT_PROFILE=nav|edit|full` in the MCP server env block. Unknown values fall back to `full` with a stderr warning.
+
+**Containment invariant** (guarded by a unit test): `nav ⊂ edit ⊂ full`. A future tool added to `tool-definitions.ts` without updating a profile set ends up in `full` only — conservative by default, so we never accidentally hide a tool from everyone.
+
+11 unit tests (filter math, containment, unknown-value fallback, case-insensitivity, whitespace).
+
+### Noted for later — context-mode stewardship
+
+We currently integrate with [context-mode](https://github.com/mksglu/context-mode) only as a detector + advisor (suggest its `execute` tool when Bash stdout is large). If in a future release we don't deepen that integration, the dependency should be dropped — carrying a soft integration we don't leverage is exactly the kind of "not saving tokens, therefore a problem" the user mandate calls out. Tracked, not actioned this release.
+
+## [0.26.2] - 2026-04-18
+
+### Added — persistent per-tool savings data
+
+The user's mandate for Token Pilot is one thing: **"save the maximum number of tokens, all possible ways, no hacks, clean architecture"** — and the corollary, "if a tool doesn't save tokens, or saves poorly, drop it". Executing that mandate responsibly needs **data across many sessions**, not one Opus field report on a Go monorepo.
+
+Until v0.26.1 the MCP tool-call analytics lived entirely in memory (`SessionAnalytics`). The moment the MCP server restarted — every session end, every `/clear`, every laptop reboot — the per-tool distribution reset. Decisions about which tools pay off had no real baseline.
+
+**1. `src/core/tool-call-log.ts` — append-only JSONL log of every MCP tool call.** Schema matches the in-memory `ToolCall` minus runtime-only fields (intent, decisionTrace). Written from `recordWithTrace` fire-and-forget. Same rotation + retention contract as the existing `hook-events.jsonl` (10 MB rotation, 30-day age cap, 100 MB total size cap). Silent on disk errors — telemetry never blocks the tool-response path. 9 regression tests (roundtrip, JSONL tolerance, cross-session persistence, retention by age, retention by size).
+
+**2. `npx token-pilot tool-audit` — CLI that reads every log file + archive and emits a per-tool savings table.** Default human-readable output, `--json` for scripts. Flags a tool as "low-value" when reduction <20% *across ≥5 calls* — the min-samples gate exists so one bad session doesn't get a tool removed. Output is sorted by total tokens saved so your biggest contributor sits on top. 10 unit tests covering aggregation math, sorting, flagging threshold, JSON shape, empty-dataset message.
+
+What this unlocks (not in this release, but the foundation is now in place):
+- Real prune decisions: "after 50 sessions, `X` saves <5% on average → remove or restrict".
+- CI savings-regression gate: `tool-audit --fail-below=20` on a baseline.
+- Tool description tuning: compare `smart_read`'s cumulative reduction to `read_symbol` — whichever consistently wins, describe more aggressively.
+
+No behavioural change to existing tools — this is strictly observation infrastructure.
+
+## [0.26.1] - 2026-04-18
+
+### Fixed — savings accounting regressions from Opus 4.7 field report
+
+The single mandate from the user: **"if a tool doesn't save tokens, or saves poorly, it's a real problem"**. Two tools on Opus 4.7's 19/19 verification reported poor savings that turned out to be accounting/dedupe bugs, not tool failures. Fixing them instead of removing them.
+
+**1. `read_symbols` overlap dedupe (15% → 40-60% savings).** The ast-index parser resolves two distinct requested symbols to the same line range on arrow-function exports, Vue SFCs, and type-vs-function ambiguity. Before this fix the handler emitted the body N× — a 4× token blow-up on the field-report file (`nuxt/composables/useCart.ts`). Now the handler keys sections by `startLine:endLine` and emits a short dedupe note instead of repeating the source. Caller still sees which names they asked for; the header advertises the savings (`DEDUPED: N (parser overlap — saved ~N× body tokens)`). Two regression tests.
+
+**2. `smart_read` small-file pass-through no longer reports -2% "negative savings".** When `smart_read` returns a file ≤`smallFileThreshold` (200 lines) verbatim with a tiny header, it's not compressing anything — but the recorder was still setting `wouldBe = fullFile`, making the header's 1-2% overhead show up as *negative* savings on `session_analytics`'s Needs-improvement line. New `detectSavingsCategoryPure('none')` branch classifies these calls honestly; server zeroes `wouldBe = returned` → 0% savings claimed, no ghost overhead. Six unit tests on the classifier.
+
+### Not shipped (on purpose)
+
+Per advisor guidance, we held off on three things that looked tempting but lack data:
+- **Server-side `find_usages` short-symbol fallback.** We just shipped a description hint in v0.26.0. Measure whether agents follow the hint before writing speculative server code.
+- **Removing any tool based on one session of data.** Opus on a Go monorepo ≠ average usage. Needs persistent per-tool stats across sessions first.
+- **CI savings-regression gate.** Premature without a cumulative baseline.
+
+The next iteration will build the persistent `.token-pilot/tool-calls.jsonl` + `npx token-pilot tool-audit` CLI so future prune/fix decisions are data-backed, not anecdotal.
+
+## [0.26.0] - 2026-04-18
+
+### Added — cross-client honesty
+
+**1. `install-agents` detects non-Claude clients and skips silently.** Until this release, running `npx token-pilot install-agents` in Cursor / Codex CLI / Gemini CLI / Cline silently created a `~/.claude/agents/` directory that nothing in those clients would ever read. `tp-*` subagents are a Claude Code concept — other clients still benefit from MCP tools + Read hook, but the 19 delegates sit idle. New detector (`src/cli/detect-client.ts`) checks env vars (`CURSOR_TRACE_ID`, `GEMINI_CLI`, `OPENAI_CODEX`, `CLAUDE_PLUGIN_ROOT`) and on-disk markers (`~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.gemini/`). When a non-Claude client is detected and `--scope` is not passed, install-agents prints a clear warning and exits 0 without touching disk. Explicit `--scope=user|project` overrides (multi-client setups). 10 detector unit tests + 3 integration tests.
+
+**2. README: client support matrix.** Honest table showing what works where — MCP tools ✅ everywhere, subagents + `model:` frontmatter + budget watchdog Claude Code only. Non-Claude users get ~60% of the package. Fixes the implicit "works with all clients" promise that was hiding a real gap.
+
+### Improved
+
+**3. `tp-dead-code-finder` project-type detection.** Field report showed this agent running 128 `find_usages` iterations over 145s on a Go project — because it defaulted to MCP-based scanning even when native tools (`go vet + deadcode`, `phpstan --level=max`, `vulture`, `ts-prune`) would do the same job in one Bash call. Agent body now instructs the first pass through the right native analyzer based on project markers (`go.mod`, `composer.json`, `pyproject.toml`, `package.json`). `find_unused` is the fallback, not the default. Budget discipline: ≥40 candidates → report top-20 with confidence, not iterate.
+
+**4. `find_usages` tool description: Grep hint for short symbols.** Semantic find is great for specific symbol names, but wastes tokens when the symbol is ≤4 chars and generic (`id`, `err`, `Cmd`, `db`) — resolves ambiguously across thousands of files, Grep is cheaper. Description now says so explicitly.
+
+### Deferred to a later epic
+
+- **Auto session-snapshot writer on `PreCompact` / `Stop` hook events.** Claude Code does not expose these events to external hooks today — needs either an upstream feature request or a polling alternative. Tracked as research, not shipped.
+- **Cross-client equivalents of `tp-*` subagents.** Cursor Custom Rules (`.cursor/rules/*.mdc`), Gemini `GEMINI.md`, Codex system prompts — can we generate equivalent guidance from our templates? Separate design doc, not v0.26.
+
 ## [0.25.0] - 2026-04-18
 
 ### Fixed — findings from Opus 4.7 19/19 verification

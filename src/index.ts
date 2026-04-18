@@ -41,6 +41,7 @@ import {
   type HookEvent,
 } from "./core/event-log.js";
 import { handleStats } from "./cli/stats.js";
+import { handleToolAudit } from "./cli/tool-audit.js";
 import { promptYesNo } from "./cli/install-agents.js";
 import { runClaudeCodeEnvCheck } from "./cli/doctor-env-check.js";
 import {
@@ -232,6 +233,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "stats": {
       const code = await handleStats(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
+    case "tool-audit": {
+      const code = await handleToolAudit(cliArgs.slice(1));
       process.exit(code);
       return;
     }
@@ -634,6 +640,22 @@ export function handleHookEdit() {
 }
 
 export async function handleInstallHook(projectRoot: string) {
+  // v0.26.5 — plugin-aware early-return. If we're running as a Claude
+  // Code plugin (CLAUDE_PLUGIN_ROOT set) the hooks are already declared
+  // in .claude-plugin/hooks/hooks.json and Claude Code wires them up
+  // on install. Calling install-hook in that context would write a
+  // duplicate entry to the user's settings.json and emit two hooks for
+  // every event. Bail early.
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    console.log(
+      "token-pilot is running as a Claude Code plugin — hooks are already\n" +
+        "declared in .claude-plugin/hooks/hooks.json and registered by the\n" +
+        "plugin installer. `install-hook` is only needed for npm/npx setups.\n" +
+        "Skipping to avoid duplicate hook entries.",
+    );
+    process.exit(0);
+  }
+
   let hookOptions: { scriptPath?: string; nodeExecPath?: string } | undefined;
   try {
     const rawPath = fileURLToPath(new URL("./index.js", import.meta.url));
@@ -689,6 +711,21 @@ export async function handleDoctor() {
   const cwd = process.cwd();
 
   console.log(`token-pilot doctor v${version}\n`);
+
+  // ── Installation mode ──
+  // v0.26.5 — tell the user HOW token-pilot is installed. Matters
+  // because plugin users don't need `install-hook` (hooks come from
+  // .claude-plugin/hooks/hooks.json); npm users do. dev/worktree users
+  // are usually contributors running from a local checkout.
+  let installMode: string;
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    installMode = `plugin (${process.env.CLAUDE_PLUGIN_ROOT})`;
+  } else if (process.argv[1]?.includes("/.claude/worktrees/")) {
+    installMode = "dev / worktree (contributor)";
+  } else {
+    installMode = "npm / npx";
+  }
+  console.log(`Install mode:   ${installMode}`);
 
   // ── Environment ──
   const nodeVersion = process.version;
@@ -808,6 +845,27 @@ export async function handleDoctor() {
     console.log("");
   } catch {
     /* ignore */
+  }
+
+  // ── profile recommendation ──
+  // v0.26.4 — data-driven. Reads cumulative tool-calls.jsonl and suggests
+  // the narrowest TOKEN_PILOT_PROFILE that wouldn't hide any tool the
+  // user actually invokes. Never auto-applies; doctor just prints the
+  // env snippet and why.
+  try {
+    const { loadAllToolCalls } = await import("./core/tool-call-log.js");
+    const { recommendProfile, formatRecommendation } =
+      await import("./server/profile-recommender.js");
+    const events = await loadAllToolCalls(cwd);
+    const rec = recommendProfile(events);
+    // Only print when there's actionable signal OR a clear "stay on full"
+    // with enough data — skip the noise when the log is empty.
+    if (rec.totalCalls > 0) {
+      console.log(formatRecommendation(rec));
+      console.log("");
+    }
+  } catch {
+    /* doctor must never crash over an optional check */
   }
 
   // ── CLAUDE.md hygiene ──

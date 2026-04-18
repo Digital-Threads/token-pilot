@@ -287,3 +287,111 @@ describe("agents.scope persistence", () => {
     ).toBe(false);
   });
 });
+
+// ─── v0.26.0 — non-Claude client detection ──────────────────────────────────
+
+describe("handleInstallAgents — non-Claude client warning", () => {
+  it("non-Claude client without --scope: warn and exit 0, no install", async () => {
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    const code = await handleInstallAgents([], {
+      isTTY: false,
+      distAgentsDir: dist,
+      projectRoot: project,
+      homeDir: home,
+      env: { CURSOR_TRACE_ID: "abc" },
+    });
+
+    // Exit 0 (not an error, just "nothing to do for this client")
+    expect(code).toBe(0);
+    // No ghost directory created
+    expect(await fileExists(join(home, ".claude", "agents", "tp-run.md"))).toBe(
+      false,
+    );
+    expect(
+      await fileExists(join(project, ".claude", "agents", "tp-run.md")),
+    ).toBe(false);
+  });
+
+  it("non-Claude client WITH --scope=user: warn but proceed", async () => {
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    const code = await handleInstallAgents(["--scope=user"], {
+      isTTY: false,
+      distAgentsDir: dist,
+      projectRoot: project,
+      homeDir: home,
+      env: { CURSOR_TRACE_ID: "abc" },
+    });
+
+    // User forced install — should proceed despite warning
+    expect(code).toBe(0);
+    expect(await fileExists(join(home, ".claude", "agents", "tp-run.md"))).toBe(
+      true,
+    );
+  });
+
+  it("Claude Code (env) without --scope: install as usual", async () => {
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    // Pre-persist so non-TTY path has a scope to pick
+    await persistScope(project, "user");
+
+    const code = await handleInstallAgents([], {
+      isTTY: false,
+      distAgentsDir: dist,
+      projectRoot: project,
+      homeDir: home,
+      env: { CLAUDE_PLUGIN_ROOT: "/some/path" },
+    });
+
+    expect(code).toBe(0);
+    expect(await fileExists(join(home, ".claude", "agents", "tp-run.md"))).toBe(
+      true,
+    );
+  });
+
+  // v0.26.5 — plugin-aware note (CLAUDE_PLUGIN_ROOT set → note + still works)
+  it("Claude Code plugin mode (CLAUDE_PLUGIN_ROOT set): installs normally with note", async () => {
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    const code = await handleInstallAgents(["--scope=user"], {
+      isTTY: false,
+      distAgentsDir: dist,
+      projectRoot: project,
+      homeDir: home,
+      env: { CLAUDE_PLUGIN_ROOT: "/some/plugin/path" },
+    });
+
+    // Plugin mode should not block install — tp-* agents are separate
+    // from plugin hooks.
+    expect(code).toBe(0);
+    expect(await fileExists(join(home, ".claude", "agents", "tp-run.md"))).toBe(
+      true,
+    );
+  });
+});

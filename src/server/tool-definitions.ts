@@ -313,7 +313,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_usages",
     description:
-      "Use INSTEAD OF Grep for finding symbol references. Semantic search — groups by: definitions, imports, usages. Supports scope, kind, limit, lang filters. Use context_lines to include surrounding code.",
+      "Use INSTEAD OF Grep for finding symbol references. Semantic search — groups by: definitions, imports, usages. Supports scope, kind, limit, lang filters. Use context_lines to include surrounding code. HINT: for very short / generic symbols (≤4 chars like `id`, `err`, `Cmd`, `db`) Grep is usually cheaper than find_usages — the semantic grouping doesn't pay off when the symbol resolves ambiguously across thousands of files.",
     inputSchema: {
       type: "object" as const,
       properties: {

@@ -53,10 +53,15 @@ import { detectContextMode } from "./integration/context-mode-detector.js";
 import type { ContextModeStatus } from "./integration/context-mode-detector.js";
 import { estimateTokens } from "./core/token-estimator.js";
 import { checkPolicy, isFullReadTool } from "./core/policy-engine.js";
+import { appendToolCall } from "./core/tool-call-log.js";
 import {
   MCP_INSTRUCTIONS,
   TOOL_DEFINITIONS,
 } from "./server/tool-definitions.js";
+import {
+  filterToolsByProfile,
+  parseProfileEnv,
+} from "./server/tool-profiles.js";
 import { createTokenEstimates } from "./server/token-estimates.js";
 import {
   validateSmartReadArgs,
@@ -333,8 +338,21 @@ export async function createServer(
     },
   );
 
+  // v0.26.3 — tool profiles. TOKEN_PILOT_PROFILE=nav|edit|full (default
+  // full) trims the advertised tools/list payload. Handlers stay live,
+  // so a subagent that explicitly names a filtered-out tool still gets
+  // a response — we just don't brag about every tool upfront.
+  const activeProfile = parseProfileEnv(process.env.TOKEN_PILOT_PROFILE, (m) =>
+    process.stderr.write(m + "\n"),
+  );
+  const advertisedTools = filterToolsByProfile(TOOL_DEFINITIONS, activeProfile);
+  if (activeProfile !== "full") {
+    process.stderr.write(
+      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools. Unset TOKEN_PILOT_PROFILE for the full set.\n`,
+    );
+  }
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: TOOL_DEFINITIONS,
+    tools: advertisedTools,
   }));
 
   // Token estimation functions (extracted to server/token-estimates.ts)
@@ -361,8 +379,21 @@ export async function createServer(
     absPath?: string;
     args?: Record<string, unknown> | object;
     recentlyEdited?: boolean;
+    sessionId?: string;
   }): string | null {
     const { absPath, args, recentlyEdited, ...rest } = call;
+
+    // v0.26.1 — honest accounting. When a handler signals 'none' as
+    // the savings category (e.g. smart_read small-file pass-through),
+    // we weren't compressing anything — the caller got the file back
+    // verbatim plus a tiny header. Claiming wouldBe = fullFile here
+    // produced the -2% "negative savings" line on Opus 4.7's
+    // session_analytics. Zero the delta: 0% savings claimed, no ghost
+    // overhead.
+    if (rest.savingsCategory === "none") {
+      rest.tokensWouldBe = rest.tokensReturned;
+    }
+
     analytics.record({
       ...rest,
       intent: classifyIntent(rest.tool),
@@ -395,6 +426,23 @@ export async function createServer(
       readForEditCalled,
       totalCallCount,
       totalTokensReturned,
+    });
+
+    // v0.26.2 — persist for cumulative tool-audit. Fire-and-forget;
+    // disk failures must not block the tool-response path. The audit
+    // CLI reads all archives + current to build a per-tool savings
+    // distribution across sessions, which is the foundation for any
+    // future prune/fix decision.
+    void appendToolCall(projectRoot, {
+      ts: rest.timestamp,
+      session_id: call.sessionId ?? "",
+      tool: rest.tool,
+      path: rest.path,
+      tokensReturned: rest.tokensReturned,
+      tokensWouldBe: rest.tokensWouldBe,
+      savingsCategory: rest.savingsCategory ?? "compression",
+      sessionCacheHit: rest.sessionCacheHit,
+      delegatedToContextMode: rest.delegatedToContextMode,
     });
 
     return advisory ? `\n${advisory.message}` : null;

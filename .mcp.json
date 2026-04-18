@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "token-pilot": {
-      "command": "sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/start.sh"]
-    }
-  }
-}
