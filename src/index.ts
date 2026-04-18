@@ -36,6 +36,12 @@ import {
 } from "./core/event-log.js";
 import { handleStats } from "./cli/stats.js";
 import { promptYesNo } from "./cli/install-agents.js";
+import { runClaudeCodeEnvCheck } from "./cli/doctor-env-check.js";
+import {
+  claudeIgnoreStatus,
+  writeDefaultClaudeIgnore,
+} from "./cli/claudeignore.js";
+import { assessClaudeMd } from "./cli/claudemd-hygiene.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -674,6 +680,55 @@ export async function handleDoctor() {
     console.log("");
   }
 
+  // ── Claude Code env-var savings tips ──
+  try {
+    const tips = await runClaudeCodeEnvCheck();
+    if (tips.length > 0) {
+      console.log("── Claude Code env knobs (savings tips) ──");
+      for (const t of tips) {
+        console.log(`  ⚠ ${t}`);
+      }
+      console.log("");
+    }
+  } catch {
+    /* doctor must never crash over an optional check */
+  }
+
+  // ── .claudeignore ──
+  try {
+    const status = await claudeIgnoreStatus(cwd);
+    console.log("── .claudeignore ──");
+    if (status.kind === "absent") {
+      console.log(
+        `  not present — run \`npx token-pilot init\` to add sensible defaults`,
+      );
+    } else if (status.kind === "managed") {
+      console.log(`  present ✓ (managed by token-pilot; safe to edit)`);
+    } else {
+      console.log(`  present ✓ (user-owned; token-pilot will not touch it)`);
+    }
+    console.log("");
+  } catch {
+    /* ignore */
+  }
+
+  // ── CLAUDE.md hygiene ──
+  try {
+    const r = await assessClaudeMd(cwd);
+    if (r.kind === "bloated") {
+      console.log("── CLAUDE.md hygiene ──");
+      console.log(
+        `  ⚠ ${r.path} has ${r.nonEmptyLines} non-empty lines (threshold: ${r.threshold}).`,
+      );
+      console.log(
+        `  This file loads into every Claude Code message — splitting into docs/*.md and loading on-demand saves tokens per turn.`,
+      );
+      console.log("");
+    }
+  } catch {
+    /* ignore */
+  }
+
   process.exit(0);
 }
 
@@ -774,6 +829,32 @@ export async function handleInit(targetDir: string) {
     // Non-TTY path — at minimum surface the next step in the log.
     console.log(
       `\nNext step (Claude Code): npx token-pilot install-agents --scope=user|project`,
+    );
+  }
+
+  // Offer `.claudeignore` — small one-time win that compounds per message.
+  // Separate TTY check so a script that declined agents can still get ignore,
+  // and vice versa.
+  const ignoreStatus = await claudeIgnoreStatus(targetDir);
+  if (offeredAgents && ignoreStatus.kind !== "user-owned") {
+    console.log("");
+    const yesIgnore = await promptYesNo(
+      ignoreStatus.kind === "absent"
+        ? "Create .claudeignore with sensible defaults (node_modules, dist, lockfiles, …)?"
+        : "Refresh .claudeignore defaults (managed by token-pilot)?",
+      true,
+    );
+    if (yesIgnore) {
+      const wrote = await writeDefaultClaudeIgnore(targetDir);
+      if (wrote) console.log("✓ .claudeignore written");
+      else
+        console.log(
+          "(Skipped — existing .claudeignore is user-owned; not touched.)",
+        );
+    }
+  } else if (ignoreStatus.kind === "absent") {
+    console.log(
+      `\nTip: \`npx token-pilot init\` offers to create .claudeignore — improves context by skipping node_modules, build artefacts, lockfiles.`,
     );
   }
 
