@@ -5,6 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.7] - 2026-04-18
+
+### Changed — per-agent `model:` selection for cheap, format-bound work
+
+Claude Code allows each subagent to declare its own model in frontmatter (or `inherit` from the main agent). We've been relying on the user's global `CLAUDE_CODE_SUBAGENT_MODEL` env var as a blunt switch — that doesn't fit because some `tp-*` agents need real reasoning (debugger, impact analyzer, refactor planner) while others are pure format work. Moved three agents to **haiku-4.5** explicitly:
+
+- **`tp-commit-writer`** — classifies diff → Conventional type, drafts short message. Context-bound, no architectural decisions.
+- **`tp-session-restorer`** — parses `latest.md` + git status, emits a fixed-shape briefing. Pure transformation.
+- **`tp-onboard`** — pulls project_overview and retells it in an orientation map. Format-bound.
+
+The other 11 agents keep `inherit` — they do enough reasoning (intent, risk classification, call-tree traversal) that haiku would regress them. `tp-dead-code-finder` and `tp-audit-scanner` stay inherit for now; we'll revisit after real-world usage shows whether cross-check accuracy holds on haiku.
+
+**User is NOT asked to set `CLAUDE_CODE_SUBAGENT_MODEL`.** The selection is per-agent and shipped with the template — predictable, rollback-friendly (one line per agent).
+
+### Planned
+
+- **TP-z64** (v0.28 backlog) — expanded tp-* roster with combo-agents that pair novel MCP-tool combinations for niche workflows (review-impact, test-coverage-gapper, api-surface-tracker, dep-health, incident-timeline). Must be brainstormed with names + triggers before implementation; deferred until v0.24 onboarding wizard ships and baseline stabilises.
+- **v0.24.0** — onboarding wizard (doctor-warnings → one-step applied): writes `MAX_THINKING_TOKENS=10000` + `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50` to `~/.claude/settings.json`, generates `.claudeignore` if missing. Does NOT set `CLAUDE_CODE_SUBAGENT_MODEL` — per-agent model now handles that.
+
+### Numbers
+- 910 tests green, `tsc --noEmit` clean, 14 agents built.
+
 ## [0.23.6] - 2026-04-18
 
 ### Fixed — five findings from a live user audit
