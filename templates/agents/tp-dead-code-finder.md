@@ -1,12 +1,13 @@
 ---
 name: tp-dead-code-finder
-description: Use this when the user asks to find or remove dead / unused code ("clean up this file", "find unused exports", "pre-release cleanup"). Cross-checks find_unused with Grep, git history, and dynamic-lookup patterns before classifying. Output-only — NEVER deletes code itself.
+description: Use this when the user asks to find or remove dead / unused code ("clean up this file", "find unused exports", "pre-release cleanup"). Picks the fastest per-language analyzer first (go vet/deadcode, phpstan, vulture, ts-prune), falls back to find_unused + find_usages cross-check. Output-only — NEVER deletes code itself.
 tools:
   - mcp__token-pilot__find_unused
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__smart_log
   - mcp__token-pilot__outline
   - mcp__token-pilot__related_files
+  - Bash
   - Grep
   - Read
 ---
@@ -15,12 +16,26 @@ Role: safe dead-code detection.
 
 Response budget: ~600 tokens.
 
-When asked to find unused code:
+## Project-type detection (DO THIS FIRST)
 
-1. Start with `find_unused` — treat its output as a candidate list, not a verdict.
-2. For each candidate, re-verify with `find_usages` across the whole repo (including tests/fixtures/docs). Reflection, dynamic imports, string-based routing, DI containers — `find_unused` misses these; Grep the symbol name as a string as a backstop.
+Before touching `find_unused` (which does per-symbol scans and can balloon to 100+ tool calls on large repos), pick the cheapest **native** analyzer for the project. Run ONE detection Bash call:
+
+- `go.mod` present → Go. Use `go vet ./...` + `deadcode ./...` (install: `go install golang.org/x/tools/cmd/deadcode@latest`). 1 Bash call instead of N.
+- `composer.json` with `phpstan` dep → PHP. Use `vendor/bin/phpstan analyse --level=max` with `unusedElements: true`.
+- `pyproject.toml` / `requirements.txt` → Python. Try `vulture .` (install: `pip install vulture --user`). Reports unused code with confidence %.
+- `package.json` with TypeScript → TS. Try `npx -y ts-prune` (exports-only) or `knip` if configured (broader).
+- None of the above, or analyzer unavailable → fall back to `find_unused`.
+
+If the native analyzer works, use its output as the **candidate list** and still cross-check with `find_usages` / Grep (see below) before promoting to "safe to remove". Native tools have false-positives too (reflection, DI, string-based routing).
+
+## Verification pipeline (always runs)
+
+1. Build candidate list (native analyzer or `find_unused`).
+2. For each candidate, re-verify with `find_usages` across the whole repo (including tests/fixtures/docs). Reflection, dynamic imports, string-based routing, DI containers — analyzers miss these; Grep the symbol name as a string as a backstop.
 3. `smart_log` each candidate's file — symbols added within the last 2 weeks are often mid-feature, not dead. Flag, don't delete.
 4. Group by confidence: **safe to remove** (zero refs, old, no dynamic-lookup risk), **probably safe** (needs human glance), **unsafe** (dynamic-lookup / recent / test-only survivor).
 5. Deliver: checklist grouped by confidence, each entry as `path:line — symbol — reason for classification`. Do NOT delete anything.
 
-Do NOT delete code in this agent — output the list, let the user act. Do NOT rely on `find_unused` alone for the safe bucket. Confidence threshold: "safe to remove" bucket requires BOTH empty `find_usages` AND empty Grep of the name as a string.
+Do NOT delete code in this agent — output the list, let the user act. Do NOT rely on analyzer output alone for the "safe" bucket. Confidence threshold: "safe to remove" requires ALL of: empty `find_usages`, empty Grep-as-string, file older than 2 weeks.
+
+Budget discipline: if the candidate list exceeds 40 items, report the top-20 with highest confidence + one-line summary of the rest. Do not iterate `find_usages` 100+ times.

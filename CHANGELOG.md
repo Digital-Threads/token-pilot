@@ -5,6 +5,25 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-04-18
+
+### Added — cross-client honesty
+
+**1. `install-agents` detects non-Claude clients and skips silently.** Until this release, running `npx token-pilot install-agents` in Cursor / Codex CLI / Gemini CLI / Cline silently created a `~/.claude/agents/` directory that nothing in those clients would ever read. `tp-*` subagents are a Claude Code concept — other clients still benefit from MCP tools + Read hook, but the 19 delegates sit idle. New detector (`src/cli/detect-client.ts`) checks env vars (`CURSOR_TRACE_ID`, `GEMINI_CLI`, `OPENAI_CODEX`, `CLAUDE_PLUGIN_ROOT`) and on-disk markers (`~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.gemini/`). When a non-Claude client is detected and `--scope` is not passed, install-agents prints a clear warning and exits 0 without touching disk. Explicit `--scope=user|project` overrides (multi-client setups). 10 detector unit tests + 3 integration tests.
+
+**2. README: client support matrix.** Honest table showing what works where — MCP tools ✅ everywhere, subagents + `model:` frontmatter + budget watchdog Claude Code only. Non-Claude users get ~60% of the package. Fixes the implicit "works with all clients" promise that was hiding a real gap.
+
+### Improved
+
+**3. `tp-dead-code-finder` project-type detection.** Field report showed this agent running 128 `find_usages` iterations over 145s on a Go project — because it defaulted to MCP-based scanning even when native tools (`go vet + deadcode`, `phpstan --level=max`, `vulture`, `ts-prune`) would do the same job in one Bash call. Agent body now instructs the first pass through the right native analyzer based on project markers (`go.mod`, `composer.json`, `pyproject.toml`, `package.json`). `find_unused` is the fallback, not the default. Budget discipline: ≥40 candidates → report top-20 with confidence, not iterate.
+
+**4. `find_usages` tool description: Grep hint for short symbols.** Semantic find is great for specific symbol names, but wastes tokens when the symbol is ≤4 chars and generic (`id`, `err`, `Cmd`, `db`) — resolves ambiguously across thousands of files, Grep is cheaper. Description now says so explicitly.
+
+### Deferred to a later epic
+
+- **Auto session-snapshot writer on `PreCompact` / `Stop` hook events.** Claude Code does not expose these events to external hooks today — needs either an upstream feature request or a polling alternative. Tracked as research, not shipped.
+- **Cross-client equivalents of `tp-*` subagents.** Cursor Custom Rules (`.cursor/rules/*.mdc`), Gemini `GEMINI.md`, Codex system prompts — can we generate equivalent guidance from our templates? Separate design doc, not v0.26.
+
 ## [0.25.0] - 2026-04-18
 
 ### Fixed — findings from Opus 4.7 19/19 verification

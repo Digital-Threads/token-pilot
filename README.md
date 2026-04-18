@@ -44,7 +44,31 @@ This does two things:
 1. Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode).
 2. If you're on a TTY, asks whether to install the `tp-*` subagents now — pick `user` (available in every project) or `project` scope.
 
-Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client.
+Restart your AI assistant to activate. The Read hook auto-installs the first time `token-pilot` starts inside Claude Code. Works with **Claude Code, Cursor, Codex, Antigravity, Cline**, and any MCP-compatible client — though support varies (see matrix below).
+
+## Client support matrix
+
+Not every capability works in every client. Subagents are a Claude Code concept; other clients still get the MCP tools + Read hook but won't auto-invoke `tp-*` agents.
+
+| Client          | MCP tools | Read hook (context-mode) | `tp-*` subagents (19) | `model:` frontmatter (haiku) | Budget watchdog |
+|-----------------|:---------:|:------------------------:|:---------------------:|:----------------------------:|:---------------:|
+| Claude Code     | ✅        | ✅                       | ✅                    | ✅                           | ✅              |
+| Cursor          | ✅        | ✅                       | ❌                    | ❌ (ignored)                 | ❌              |
+| Codex CLI       | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Gemini CLI      | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Cline (VS Code) | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+| Antigravity     | ✅        | ✅                       | ❌                    | ❌                           | ❌              |
+
+**What non-Claude users get (~60% of the package):**
+- All 22 MCP tools: `smart_read`, `read_symbol`, `find_usages`, `smart_diff`, `code_audit`, `session_analytics`, etc.
+- The Read hook that blocks oversized reads and suggests token-saving alternatives.
+
+**What needs Claude Code to work:**
+- 19 `tp-*` subagents invoked via the `Task` tool.
+- `model: claude-haiku-4-5` frontmatter on format-bound agents (commit-writer, session-restorer, onboard) — cheaper runs.
+- `PostToolUse:Task` budget watchdog — logs agent runs exceeding their declared budget to `.token-pilot/over-budget.log`.
+
+`install-agents` detects non-Claude clients via env vars + filesystem markers (`CURSOR_TRACE_ID`, `~/.codex/`, `~/.gemini/`, etc.) and **skips installing** unless you pass `--scope=user|project` explicitly.
 
 ## Manual MCP install (per-client examples)
 
