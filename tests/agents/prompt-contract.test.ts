@@ -124,4 +124,28 @@ describe.each(TIER1)("template %s", ({ name, budget }) => {
       60,
     );
   });
+
+  it("role block (body) is ≤30 non-empty lines per TP-816 §5.4.4", () => {
+    const md = readFileSync(filePath, "utf-8");
+    const { body } = parseFrontmatter(md);
+    const bodyLines = body.split(/\r?\n/).filter((l) => l.trim() !== "").length;
+    expect(
+      bodyLines,
+      `role block must be ≤30 non-empty lines (got ${bodyLines})`,
+    ).toBeLessThanOrEqual(30);
+  });
+
+  it("description follows '[Role]. [Purpose]. Use ...' pattern", () => {
+    const md = readFileSync(filePath, "utf-8");
+    const { meta } = parseFrontmatter(md);
+    const desc = String(meta.description ?? "");
+    const sentences = desc.split(/\.\s+/).filter(Boolean);
+    expect(
+      sentences.length,
+      `description should read as multiple sentences (got "${desc}")`,
+    ).toBeGreaterThanOrEqual(2);
+    expect(desc, `description must include a "Use ..." trigger phrase`).toMatch(
+      /\bUse\s/,
+    );
+  });
 });
