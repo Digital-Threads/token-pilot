@@ -5,6 +5,32 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.3] - 2026-04-18
+
+### Added — tool profiles (lifted honestly from Token Savior's idea)
+
+When an MCP server advertises 22 tools, every `tools/list` response costs the agent ~4 k tokens *before it does anything*. Most sessions don't need every tool — a code-review subagent uses `smart_read` + `find_usages` + `outline` and nothing else. A profile lets the operator ship a narrower `tools/list` while keeping every handler live (so a subagent that explicitly names a filtered-out tool still gets served — we just don't brag about every tool upfront).
+
+**Three profiles:**
+
+| Profile | Tools | ~Tokens in `tools/list` | When to use |
+|---------|------:|------------------------:|-------------|
+| `full` *(default)* | 22 | ~4 150 | All capabilities, same as pre-v0.26.3 |
+| `edit` | 16 | ~3 120 | Code-change workflows (nav + batch reads + read_for_edit) |
+| `nav` | 10 | ~1 910 | Read-only exploration (smart_read, outline, find_usages, project_overview, module_info, related_files, explore_area, smart_log, smart_diff, read_symbol) |
+
+**Savings:** `nav` saves ~2.2 k tokens (54 %) at session start; `edit` saves ~1 k (25 %). Every session pays this tax, so it compounds fast across a working day.
+
+**Selection:** set `TOKEN_PILOT_PROFILE=nav|edit|full` in the MCP server env block. Unknown values fall back to `full` with a stderr warning.
+
+**Containment invariant** (guarded by a unit test): `nav ⊂ edit ⊂ full`. A future tool added to `tool-definitions.ts` without updating a profile set ends up in `full` only — conservative by default, so we never accidentally hide a tool from everyone.
+
+11 unit tests (filter math, containment, unknown-value fallback, case-insensitivity, whitespace).
+
+### Noted for later — context-mode stewardship
+
+We currently integrate with [context-mode](https://github.com/mksglu/context-mode) only as a detector + advisor (suggest its `execute` tool when Bash stdout is large). If in a future release we don't deepen that integration, the dependency should be dropped — carrying a soft integration we don't leverage is exactly the kind of "not saving tokens, therefore a problem" the user mandate calls out. Tracked, not actioned this release.
+
 ## [0.26.2] - 2026-04-18
 
 ### Added — persistent per-tool savings data

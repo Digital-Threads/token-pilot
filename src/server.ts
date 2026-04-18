@@ -58,6 +58,10 @@ import {
   MCP_INSTRUCTIONS,
   TOOL_DEFINITIONS,
 } from "./server/tool-definitions.js";
+import {
+  filterToolsByProfile,
+  parseProfileEnv,
+} from "./server/tool-profiles.js";
 import { createTokenEstimates } from "./server/token-estimates.js";
 import {
   validateSmartReadArgs,
@@ -334,8 +338,21 @@ export async function createServer(
     },
   );
 
+  // v0.26.3 — tool profiles. TOKEN_PILOT_PROFILE=nav|edit|full (default
+  // full) trims the advertised tools/list payload. Handlers stay live,
+  // so a subagent that explicitly names a filtered-out tool still gets
+  // a response — we just don't brag about every tool upfront.
+  const activeProfile = parseProfileEnv(process.env.TOKEN_PILOT_PROFILE, (m) =>
+    process.stderr.write(m + "\n"),
+  );
+  const advertisedTools = filterToolsByProfile(TOOL_DEFINITIONS, activeProfile);
+  if (activeProfile !== "full") {
+    process.stderr.write(
+      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools. Unset TOKEN_PILOT_PROFILE for the full set.\n`,
+    );
+  }
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: TOOL_DEFINITIONS,
+    tools: advertisedTools,
   }));
 
   // Token estimation functions (extracted to server/token-estimates.ts)

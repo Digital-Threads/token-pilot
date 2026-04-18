@@ -143,10 +143,21 @@ No env vars required. Optional overrides:
 
 | Env var | Default | Purpose |
 |---|---|---|
+| `TOKEN_PILOT_PROFILE` | `full` | `nav`/`edit`/`full` — trims the advertised `tools/list` payload to save ~2 k tokens per session (see "Tool profiles" below) |
 | `TOKEN_PILOT_DENY_THRESHOLD` | `300` | Line count above which the Read hook intervenes |
 | `TOKEN_PILOT_ADAPTIVE_THRESHOLD` | `false` | Enable the adaptive curve as the session burns |
 | `TOKEN_PILOT_BYPASS` | unset | Set to `1` to disable the Read hook for one session |
 | `TOKEN_PILOT_SKIP_POSTINSTALL` | unset | Skip the `ast-index` safety-net install at `npm install` time |
+
+### Tool profiles
+
+| Profile | Tools | ~Tokens | Use when |
+|---------|------:|--------:|----------|
+| `full` *(default)* | 22 | ~4 150 | All capabilities |
+| `edit` | 16 | ~3 120 | Code-change workflows (nav + batch reads + `read_for_edit`) |
+| `nav` | 10 | ~1 910 | Read-only exploration / subagents that only navigate |
+
+Set via `TOKEN_PILOT_PROFILE` in your MCP server env block. Handlers stay live regardless — a subagent that explicitly names a filtered-out tool still gets served. The profile only trims what we advertise in `tools/list` at session start.
 
 ### Subagents (Claude Code only)
 
