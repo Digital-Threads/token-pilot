@@ -24,6 +24,7 @@ import { handleSessionStart } from "./hooks/session-start.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
+import { handleInstallAgents } from "./cli/install-agents.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -137,6 +138,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         process.exit(1);
       }
       await unblessAgents({ projectRoot: process.cwd(), names, all });
+      return;
+    }
+    case "install-agents": {
+      const code = await handleInstallAgents(cliArgs.slice(1));
+      process.exit(code);
       return;
     }
     case "init":
