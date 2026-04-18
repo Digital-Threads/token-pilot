@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.6] - 2026-04-18
+
+### Fixed — EPIPE stacktrace when piping CLI to `head`/`less`/`grep`
+
+First field report after the plugin install worked: user ran
+`npx token-pilot doctor | head -5` and got a red "Unhandled 'error' event"
+stacktrace from node:events. Classic Node.js CLI wart — `console.log`
+tries to write after `head` closed stdin, EPIPE propagates, no handler,
+crash.
+
+Fixed by swallowing `EPIPE` on stdout and stderr at process start
+(`process.stdout.on('error', ...)`). Any CLI piped to `head | less | grep`
+should behave this way; ours now does.
+
+Confirmed: `node dist/index.js doctor | head -5` returns exit 0 with a
+clean truncated output, no stacktrace.
+
 ## [0.26.5] - 2026-04-18
 
 ### Fixed — plugin installation path was broken since 2026-03-01

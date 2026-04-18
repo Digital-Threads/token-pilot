@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.26.5",
+  "version": "0.26.6",
   "description": "Saves 60-90% tokens when AI reads code. AST-aware lazy reading, symbol navigation, cross-session tool-usage analytics, 19 subagents with budget watchdog.",
   "author": {
     "name": "Digital-Threads",
