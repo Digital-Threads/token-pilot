@@ -30,6 +30,7 @@ import {
 } from "./cli/install-agents.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
 import { appendEvent, type HookEvent } from "./core/event-log.js";
+import { handleStats } from "./cli/stats.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -152,6 +153,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "uninstall-agents": {
       const code = await handleUninstallAgents(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
+    case "stats": {
+      const code = await handleStats(cliArgs.slice(1));
       process.exit(code);
       return;
     }
