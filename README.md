@@ -220,14 +220,33 @@ Drop `.token-pilot.json` in your project root. All fields optional.
 | `cache.maxSizeMB` | `100` | File cache ceiling (LRU eviction) |
 | `policies.maxFullFileReads` | `10` | Warn after N full-file reads in session |
 
-## Integration with context-mode
+## Ecosystem
 
-Token Pilot is complementary to [claude-context-mode](https://github.com/mksglu/claude-context-mode):
+Token Pilot sits in a small toolkit of three orthogonal pieces. Each has a single job; none overlaps with another.
 
-- **Token Pilot** — code files (AST structure, symbols, imports)
-- **context-mode** — non-code data (shell output, logs, JSON dumps) via sandbox + BM25
+```
+Agent
+  ├─ Read code file          → smart_read / read_symbol    (Token Pilot MCP)
+  │                               └→ ast-index              (structural backend)
+  ├─ Need a fresh Read?      → force: true                  (Token Pilot MCP)
+  ├─ Run code / inspect logs → execute                      (context-mode MCP)
+  └─ Bash agent, no MCP?     → ast-index <subcmd>           (CLI binary)
+```
 
-`init` sets up both; they don't overlap. If context-mode is unavailable, Token Pilot works standalone.
+| Tool | Role | When it fires |
+|------|------|---------------|
+| **[Token Pilot](.)** | Enforcement layer — Read hook, MCP structural reads, dedup, snapshots, subagents | Every code Read / Edit / session |
+| **[ast-index](https://github.com/defendend/Claude-ast-index-search)** | Structural indexer. Symbols, usages, hierarchy. Used by Token Pilot under the hood; also a standalone CLI for bash-only agents. | Auto-installed by Token Pilot; CLI available as `ast-index` |
+| **[context-mode](https://github.com/mksglu/claude-context-mode)** | Sandbox executor — runs shell / python / js, only stdout enters the window. Orthogonal: not for reading source. | Large `Bash` outputs, `execute(language, code)` calls |
+
+**Rules of thumb:**
+
+- Read code → Token Pilot `smart_read` / `read_symbol` (automatic via hook or MCP).
+- Execute code that produces big output → context-mode `execute`.
+- Bash agent or pre-flight shell command → `ast-index` CLI directly.
+- Never all three in `CLAUDE.md` — Token Pilot's `doctor` warns when `CLAUDE.md` exceeds 60 lines for this reason.
+
+`npx token-pilot init` wires Token Pilot + context-mode into `.mcp.json`; ast-index installs on first run. If any single tool is missing, the other two still work standalone.
 
 ## Supported Languages
 
