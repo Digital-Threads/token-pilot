@@ -29,6 +29,7 @@ import {
   maybeEmitStartupReminder,
 } from "./cli/install-agents.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
+import { appendEvent, type HookEvent } from "./core/event-log.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -339,10 +340,14 @@ async function runHookReadDispatchImpl(
 ): Promise<string | null> {
   if (mode === "off") return null;
 
-  // Parse stdin to get tool_input, unless a filePath was supplied directly.
+  // Parse stdin to get tool_input + session/agent metadata, unless a
+  // filePath was supplied directly (tests, --filePath invocation).
   let filePath = filePathArg;
   let hasOffset = false;
   let hasLimit = false;
+  let sessionId: string = "";
+  let agentType: string | null = null;
+  let agentId: string | null = null;
 
   if (!filePath) {
     try {
@@ -351,6 +356,10 @@ async function runHookReadDispatchImpl(
       filePath = input?.tool_input?.file_path;
       hasOffset = input?.tool_input?.offset != null;
       hasLimit = input?.tool_input?.limit != null;
+      sessionId = typeof input?.session_id === "string" ? input.session_id : "";
+      agentType =
+        typeof input?.agent_type === "string" ? input.agent_type : null;
+      agentId = typeof input?.agent_id === "string" ? input.agent_id : null;
     } catch {
       return null;
     }
@@ -389,12 +398,14 @@ async function runHookReadDispatchImpl(
     return null;
   }
 
-  // Telemetry — ignore any I/O failure silently.
+  const charEst = Math.ceil(fileContent.length / 4);
+  const wsRatio = (fileContent.match(/\s/g)?.length ?? 0) / fileContent.length;
+  const estTokens = Math.ceil(charEst * (1 - wsRatio * 0.3));
+
+  // Legacy telemetry (hook-denied.jsonl) — retained for backward compatibility
+  // with existing loadDeniedReads() readers in session-analytics. Never block
+  // hook dispatch on failure.
   try {
-    const charEst = Math.ceil(fileContent.length / 4);
-    const wsRatio =
-      (fileContent.match(/\s/g)?.length ?? 0) / fileContent.length;
-    const estTokens = Math.ceil(charEst * (1 - wsRatio * 0.3));
     const entry = JSON.stringify({
       filePath,
       lineCount,
@@ -402,18 +413,37 @@ async function runHookReadDispatchImpl(
       mode,
       timestamp: Date.now(),
     });
-    const dir = join(process.cwd(), ".token-pilot");
+    const dir = join(projectRoot, ".token-pilot");
     mkdirSync(dir, { recursive: true });
     appendFileSync(join(dir, "hook-denied.jsonl"), entry + "\n");
   } catch {
     /* silent — hook must not break */
   }
 
+  const writeEvent = (
+    eventKind: HookEvent["event"],
+    summaryTokens: number,
+  ): void => {
+    void appendEvent(projectRoot, {
+      ts: Date.now(),
+      session_id: sessionId,
+      agent_type: agentType,
+      agent_id: agentId,
+      event: eventKind,
+      file: filePath!,
+      lines: lineCount,
+      estTokens,
+      summaryTokens,
+      savedTokens: Math.max(0, estTokens - summaryTokens),
+    });
+  };
+
   if (mode === "advisory") {
     const reason =
       `File "${filePath}" has ${lineCount} lines. Use mcp__token-pilot__smart_read("${filePath}") ` +
       `for a structural overview, or mcp__token-pilot__read_for_edit("${filePath}", symbol="<name>") ` +
       `for edit context. Bounded Read with offset/limit is still allowed.`;
+    writeEvent("denied", Math.ceil(reason.length / 4));
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -426,6 +456,7 @@ async function runHookReadDispatchImpl(
   // mode === 'deny-enhanced'
   const pipelineResult = await runSummaryPipeline(fileContent, filePath);
   if (pipelineResult.kind === "pass-through") {
+    writeEvent("pass-through", 0);
     return null;
   }
 
@@ -434,6 +465,7 @@ async function runHookReadDispatchImpl(
     summary: pipelineResult.summary,
     tier: pipelineResult.tier,
   });
+  writeEvent("denied", Math.ceil(message.length / 4));
 
   return JSON.stringify({
     hookSpecificOutput: {
