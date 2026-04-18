@@ -524,12 +524,19 @@ export async function createServer(
           );
           const rsText = rsResult.content[0]?.text ?? "";
           const rsTokens = estimateTokens(rsText);
-          const fullTokensRs = await fullFileTokens(rsArgs.path);
+          // v0.23.6 — baseline is "N individual read_symbol calls", not
+          // "one raw Read of the whole file". read_symbols replaces the
+          // former, not the latter. Each read_symbol call carries its own
+          // header/confidence overhead (~60 tokens); we dedupe that into
+          // one shared file header, so batch saves roughly N-1 headers.
+          const perSymbolOverhead = 60;
+          const baselineRs =
+            rsTokens + (rsArgs.symbols.length - 1) * perSymbolOverhead;
           recordWithTrace({
             tool: "read_symbols",
             path: rsArgs.path,
             tokensReturned: rsTokens,
-            tokensWouldBe: fullTokensRs || rsTokens,
+            tokensWouldBe: baselineRs,
             timestamp: Date.now(),
             savingsCategory: "compression",
             absPath: resolve(projectRoot, rsArgs.path),

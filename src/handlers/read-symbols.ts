@@ -1,18 +1,18 @@
-import { readFile } from 'node:fs/promises';
-import type { AstIndexClient } from '../ast-index/client.js';
-import type { SymbolResolver } from '../core/symbol-resolver.js';
-import type { FileCache } from '../core/file-cache.js';
-import type { ContextRegistry } from '../core/context-registry.js';
-import { estimateTokens } from '../core/token-estimator.js';
-import { resolveSafePath } from '../core/validation.js';
-import { assessConfidence, formatConfidence } from '../core/confidence.js';
+import { readFile } from "node:fs/promises";
+import type { AstIndexClient } from "../ast-index/client.js";
+import type { SymbolResolver } from "../core/symbol-resolver.js";
+import type { FileCache } from "../core/file-cache.js";
+import type { ContextRegistry } from "../core/context-registry.js";
+import { estimateTokens } from "../core/token-estimator.js";
+import { resolveSafePath } from "../core/validation.js";
+import { assessConfidence, formatConfidence } from "../core/confidence.js";
 
 export interface ReadSymbolsArgs {
   path: string;
   symbols: string[];
   context_before?: number;
   context_after?: number;
-  show?: 'full' | 'head' | 'tail' | 'outline';
+  show?: "full" | "head" | "tail" | "outline";
 }
 
 export async function handleReadSymbols(
@@ -23,7 +23,7 @@ export async function handleReadSymbols(
   contextRegistry: ContextRegistry,
   astIndex?: AstIndexClient,
   advisoryReminders = true,
-): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
 
   // Get file content ONCE
@@ -33,18 +33,55 @@ export async function handleReadSymbols(
   if (cached) {
     lines = cached.lines;
   } else {
-    const content = await readFile(absPath, 'utf-8');
-    lines = content.split('\n');
+    const content = await readFile(absPath, "utf-8");
+    lines = content.split("\n");
   }
 
   // Get AST structure ONCE
   let structure = cached?.structure;
   if (!structure && astIndex) {
-    structure = await astIndex.outline(absPath) ?? undefined;
+    structure = (await astIndex.outline(absPath)) ?? undefined;
   }
 
   const N = args.symbols.length;
   const sections: string[] = [];
+
+  // v0.23.6 — anti-pattern guard. When the caller requests nearly every
+  // symbol in the file, the sum of bodies + N × per-symbol metadata
+  // exceeds a single raw Read. That's worse than what smart_read +
+  // read_for_edit would do. Refuse the request and tell the caller.
+  if (structure && structure.symbols && structure.symbols.length > 0) {
+    const uniqueRequested = new Set(args.symbols.map((s) => s.split(".")[0]));
+    const matchedTopLevel = structure.symbols.filter((s) =>
+      uniqueRequested.has(s.name),
+    );
+    const totalTopLevelLines = structure.symbols.reduce(
+      (sum, s) => sum + (s.location.lineCount ?? 0),
+      0,
+    );
+    const requestedLines = matchedTopLevel.reduce(
+      (sum, s) => sum + (s.location.lineCount ?? 0),
+      0,
+    );
+    if (
+      totalTopLevelLines > 0 &&
+      requestedLines / totalTopLevelLines >= 0.7 &&
+      matchedTopLevel.length >= 3
+    ) {
+      const text =
+        `FILE: ${args.path} | SYMBOLS: ${N} requested\n\n` +
+        `ADVISORY: You requested ${matchedTopLevel.length} symbols covering ` +
+        `≥70% of this file (${requestedLines}/${totalTopLevelLines} lines). ` +
+        `A batch read here costs more than reading the whole file once.\n\n` +
+        `Cheaper alternatives:\n` +
+        `  - smart_read("${args.path}") for a structural overview\n` +
+        `  - read_for_edit("${args.path}", "<symbol>") when you need exact edit context\n` +
+        `  - Raw Read with offset/limit for a specific range\n\n` +
+        `If you truly need every body, call read_symbols with a narrower list ` +
+        `or use raw Read (bounded).`;
+      return { content: [{ type: "text", text }] };
+    }
+  }
 
   // Show mode constants (same as read_symbol.ts)
   const MAX_SYMBOL_LINES = 300;
@@ -65,8 +102,8 @@ export async function handleReadSymbols(
     if (!resolved) {
       sections.push(
         `SYMBOL ${idx}/${N}: ${symbolName}\n` +
-        `ERROR: Symbol "${symbolName}" not found in ${args.path}.\n` +
-        `HINT: Use smart_read("${args.path}") to see available symbols.`,
+          `ERROR: Symbol "${symbolName}" not found in ${args.path}.\n` +
+          `HINT: Use smart_read("${args.path}") to see available symbols.`,
       );
       continue;
     }
@@ -81,55 +118,57 @@ export async function handleReadSymbols(
     const lineCount = resolved.endLine - resolved.startLine + 1;
 
     // Determine effective show mode
-    const showMode = args.show ?? (lineCount > MAX_SYMBOL_LINES ? 'outline' : 'full');
+    const showMode =
+      args.show ?? (lineCount > MAX_SYMBOL_LINES ? "outline" : "full");
     let displaySource = source;
     let truncated = false;
 
-    if (showMode === 'full') {
+    if (showMode === "full") {
       if (lineCount > MAX_FULL_LINES) {
-        const sourceLines = source.split('\n');
-        displaySource = sourceLines.slice(0, MAX_FULL_LINES).join('\n');
+        const sourceLines = source.split("\n");
+        displaySource = sourceLines.slice(0, MAX_FULL_LINES).join("\n");
         displaySource += `\n\n    ... truncated at ${MAX_FULL_LINES} lines (${lineCount - MAX_FULL_LINES} more). Use show="head"/"tail" for targeted view.`;
         truncated = true;
       }
-    } else if (showMode === 'head') {
-      const sourceLines = source.split('\n');
-      displaySource = sourceLines.slice(0, HEAD).join('\n');
+    } else if (showMode === "head") {
+      const sourceLines = source.split("\n");
+      displaySource = sourceLines.slice(0, HEAD).join("\n");
       if (lineCount > HEAD) {
         displaySource += `\n\n    ... ${lineCount - HEAD} more lines. Use show="tail" or read_symbol("${args.path}", "MethodName") for specific parts.`;
         truncated = true;
       }
-    } else if (showMode === 'tail') {
-      const sourceLines = source.split('\n');
-      displaySource = sourceLines.slice(-TAIL).join('\n');
+    } else if (showMode === "tail") {
+      const sourceLines = source.split("\n");
+      displaySource = sourceLines.slice(-TAIL).join("\n");
       if (lineCount > TAIL) {
-        displaySource = `    ... ${lineCount - TAIL} lines above ...\n\n` + displaySource;
+        displaySource =
+          `    ... ${lineCount - TAIL} lines above ...\n\n` + displaySource;
         truncated = true;
       }
     } else {
       // 'outline' mode: head + method list + tail
       if (lineCount > HEAD + TAIL) {
-        const sourceLines = source.split('\n');
-        const head = sourceLines.slice(0, HEAD).join('\n');
-        const tail = sourceLines.slice(-TAIL).join('\n');
+        const sourceLines = source.split("\n");
+        const head = sourceLines.slice(0, HEAD).join("\n");
+        const tail = sourceLines.slice(-TAIL).join("\n");
         const omitted = sourceLines.length - HEAD - TAIL;
 
-        let methodOutline = '';
+        let methodOutline = "";
         if (resolved.symbol.children && resolved.symbol.children.length > 0) {
-          const methodLines = resolved.symbol.children.map(c => {
+          const methodLines = resolved.symbol.children.map((c) => {
             const mLoc = `[L${c.location.startLine}-${c.location.endLine}]`;
-            return `  ${c.visibility === 'private' ? '🔒 ' : ''}${c.name}${c.kind === 'method' || c.kind === 'function' ? '()' : ''} ${mLoc} (${c.location.lineCount} lines)`;
+            return `  ${c.visibility === "private" ? "🔒 " : ""}${c.name}${c.kind === "method" || c.kind === "function" ? "()" : ""} ${mLoc} (${c.location.lineCount} lines)`;
           });
-          methodOutline = `\nMETHODS (${resolved.symbol.children.length}):\n${methodLines.join('\n')}\n`;
+          methodOutline = `\nMETHODS (${resolved.symbol.children.length}):\n${methodLines.join("\n")}\n`;
         }
 
         displaySource = [
           head,
-          '',
+          "",
           `    ... ${omitted} lines omitted — use read_symbol("${args.path}", "MethodName") to read specific methods ...`,
           methodOutline,
           tail,
-        ].join('\n');
+        ].join("\n");
         truncated = true;
       }
     }
@@ -137,23 +176,23 @@ export async function handleReadSymbols(
     if (truncated) anyTruncated = true;
 
     const symbolLines: string[] = [
-      `SYMBOL ${idx}/${N}: ${symbolName} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ''})`,
-      '',
+      `SYMBOL ${idx}/${N}: ${symbolName} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ""})`,
+      "",
       displaySource,
     ];
 
     if (resolved.symbol.references.length > 0) {
-      symbolLines.push('');
-      symbolLines.push(`REFERENCES: ${resolved.symbol.references.join(', ')}`);
+      symbolLines.push("");
+      symbolLines.push(`REFERENCES: ${resolved.symbol.references.join(", ")}`);
     }
 
-    sections.push(symbolLines.join('\n'));
+    sections.push(symbolLines.join("\n"));
 
     // Track each symbol
-    const sectionTokens = estimateTokens(symbolLines.join('\n'));
+    const sectionTokens = estimateTokens(symbolLines.join("\n"));
     totalTokens += sectionTokens;
     contextRegistry.trackLoad(absPath, {
-      type: 'symbol',
+      type: "symbol",
       symbolName,
       startLine: resolved.startLine,
       endLine: resolved.endLine,
@@ -166,10 +205,10 @@ export async function handleReadSymbols(
   }
 
   const header = `FILE: ${args.path} | SYMBOLS: ${N} requested`;
-  const body = sections.join('\n\n---\n\n');
-  const footer = 'CONTEXT TRACKED: These symbols are now in your context.';
+  const body = sections.join("\n\n---\n\n");
+  const footer = "CONTEXT TRACKED: These symbols are now in your context.";
 
-  const output = [header, '', body, '', footer].join('\n');
+  const output = [header, "", body, "", footer].join("\n");
 
   // Confidence metadata (aggregate)
   const confidenceMeta = assessConfidence({
@@ -180,5 +219,9 @@ export async function handleReadSymbols(
     astAvailable: !!structure,
   });
 
-  return { content: [{ type: 'text', text: output + formatConfidence(confidenceMeta) }] };
+  return {
+    content: [
+      { type: "text", text: output + formatConfidence(confidenceMeta) },
+    ],
+  };
 }

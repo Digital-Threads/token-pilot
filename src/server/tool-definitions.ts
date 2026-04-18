@@ -141,7 +141,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "read_symbols",
     description:
-      "Batch read MULTIPLE symbols from ONE file for UNDERSTANDING code — saves N-1 round-trips vs calling read_symbol N times. Returns formatted symbol bodies with show modes (full/head/tail/outline). Use this when READING code, not editing. For edit preparation use read_for_edit instead.",
+      "Batch read MULTIPLE symbols from ONE file — saves N-1 round-trips vs calling read_symbol N times. BEST FIT: 3–8 symbols in one file when you need their bodies. For 1–2 symbols use read_symbol (simpler). If you'd request ≥70% of the file's symbols, the handler refuses and points you to smart_read — that's cheaper than a large batch. For edit preparation use read_for_edit.",
     inputSchema: {
       type: "object" as const,
       properties: {
