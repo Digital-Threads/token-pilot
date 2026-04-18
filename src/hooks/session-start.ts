@@ -10,6 +10,9 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
+import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
+
+const SNAPSHOT_FRESH_MS = 24 * 3600 * 1000; // 24h
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -191,10 +194,19 @@ export async function handleSessionStart(
     }
 
     const agents = await scanAgents(opts.projectRoot, opts.homeDir);
-    const message = buildReminderMessage(
+    let message = buildReminderMessage(
       agents,
       opts.sessionStartConfig.maxReminderTokens,
     );
+
+    // TP-340: surface a fresh snapshot so the new session can resume.
+    const snap = await loadLatestSnapshot(opts.projectRoot);
+    if (snap && snap.ageMs < SNAPSHOT_FRESH_MS) {
+      const minutes = Math.round(snap.ageMs / 60000);
+      const age =
+        minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
+      message += `\n\n[token-pilot] session_snapshot available — saved ${age}. Read .token-pilot/snapshots/latest.md to resume.`;
+    }
 
     const output = {
       hookSpecificOutput: {
