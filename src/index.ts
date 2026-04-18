@@ -41,6 +41,7 @@ import {
   type HookEvent,
 } from "./core/event-log.js";
 import { handleStats } from "./cli/stats.js";
+import { handleToolAudit } from "./cli/tool-audit.js";
 import { promptYesNo } from "./cli/install-agents.js";
 import { runClaudeCodeEnvCheck } from "./cli/doctor-env-check.js";
 import {
@@ -232,6 +233,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "stats": {
       const code = await handleStats(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
+    case "tool-audit": {
+      const code = await handleToolAudit(cliArgs.slice(1));
       process.exit(code);
       return;
     }

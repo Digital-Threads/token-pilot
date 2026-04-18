@@ -5,6 +5,25 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.2] - 2026-04-18
+
+### Added — persistent per-tool savings data
+
+The user's mandate for Token Pilot is one thing: **"save the maximum number of tokens, all possible ways, no hacks, clean architecture"** — and the corollary, "if a tool doesn't save tokens, or saves poorly, drop it". Executing that mandate responsibly needs **data across many sessions**, not one Opus field report on a Go monorepo.
+
+Until v0.26.1 the MCP tool-call analytics lived entirely in memory (`SessionAnalytics`). The moment the MCP server restarted — every session end, every `/clear`, every laptop reboot — the per-tool distribution reset. Decisions about which tools pay off had no real baseline.
+
+**1. `src/core/tool-call-log.ts` — append-only JSONL log of every MCP tool call.** Schema matches the in-memory `ToolCall` minus runtime-only fields (intent, decisionTrace). Written from `recordWithTrace` fire-and-forget. Same rotation + retention contract as the existing `hook-events.jsonl` (10 MB rotation, 30-day age cap, 100 MB total size cap). Silent on disk errors — telemetry never blocks the tool-response path. 9 regression tests (roundtrip, JSONL tolerance, cross-session persistence, retention by age, retention by size).
+
+**2. `npx token-pilot tool-audit` — CLI that reads every log file + archive and emits a per-tool savings table.** Default human-readable output, `--json` for scripts. Flags a tool as "low-value" when reduction <20% *across ≥5 calls* — the min-samples gate exists so one bad session doesn't get a tool removed. Output is sorted by total tokens saved so your biggest contributor sits on top. 10 unit tests covering aggregation math, sorting, flagging threshold, JSON shape, empty-dataset message.
+
+What this unlocks (not in this release, but the foundation is now in place):
+- Real prune decisions: "after 50 sessions, `X` saves <5% on average → remove or restrict".
+- CI savings-regression gate: `tool-audit --fail-below=20` on a baseline.
+- Tool description tuning: compare `smart_read`'s cumulative reduction to `read_symbol` — whichever consistently wins, describe more aggressively.
+
+No behavioural change to existing tools — this is strictly observation infrastructure.
+
 ## [0.26.1] - 2026-04-18
 
 ### Fixed — savings accounting regressions from Opus 4.7 field report

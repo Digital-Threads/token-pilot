@@ -53,6 +53,7 @@ import { detectContextMode } from "./integration/context-mode-detector.js";
 import type { ContextModeStatus } from "./integration/context-mode-detector.js";
 import { estimateTokens } from "./core/token-estimator.js";
 import { checkPolicy, isFullReadTool } from "./core/policy-engine.js";
+import { appendToolCall } from "./core/tool-call-log.js";
 import {
   MCP_INSTRUCTIONS,
   TOOL_DEFINITIONS,
@@ -361,6 +362,7 @@ export async function createServer(
     absPath?: string;
     args?: Record<string, unknown> | object;
     recentlyEdited?: boolean;
+    sessionId?: string;
   }): string | null {
     const { absPath, args, recentlyEdited, ...rest } = call;
 
@@ -407,6 +409,23 @@ export async function createServer(
       readForEditCalled,
       totalCallCount,
       totalTokensReturned,
+    });
+
+    // v0.26.2 — persist for cumulative tool-audit. Fire-and-forget;
+    // disk failures must not block the tool-response path. The audit
+    // CLI reads all archives + current to build a per-tool savings
+    // distribution across sessions, which is the foundation for any
+    // future prune/fix decision.
+    void appendToolCall(projectRoot, {
+      ts: rest.timestamp,
+      session_id: call.sessionId ?? "",
+      tool: rest.tool,
+      path: rest.path,
+      tokensReturned: rest.tokensReturned,
+      tokensWouldBe: rest.tokensWouldBe,
+      savingsCategory: rest.savingsCategory ?? "compression",
+      sessionCacheHit: rest.sessionCacheHit,
+      delegatedToContextMode: rest.delegatedToContextMode,
     });
 
     return advisory ? `\n${advisory.message}` : null;

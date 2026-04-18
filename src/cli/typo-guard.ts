@@ -35,6 +35,7 @@ export const KNOWN_COMMANDS = [
   "install-agents",
   "uninstall-agents",
   "stats",
+  "tool-audit",
   "save-doc",
   "list-docs",
   "init",

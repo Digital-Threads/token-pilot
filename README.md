@@ -279,6 +279,8 @@ token-pilot install-hook           # Install PreToolUse hook
 token-pilot uninstall-hook
 token-pilot stats                  # Totals + top files from hook-events.jsonl
 token-pilot stats --session[=<id>] | --by-agent
+token-pilot tool-audit             # Per-tool savings distribution (cumulative across sessions)
+token-pilot tool-audit --json      # Same, machine-readable
 token-pilot doctor                 # Diagnostics (ast-index, config, upstream drift)
 token-pilot install-ast-index      # Download ast-index binary (auto on first run)
 ```
