@@ -125,6 +125,16 @@ Claude Code subagents guarantee MCP-first behaviour with tight response budgets 
 | `tp-audit-scanner` | Read-only security / quality audit; Critical / Important / Minor findings | 800 |
 | `tp-session-restorer` | Rehydrate state after /clear or compaction from latest snapshot | 400 |
 
+**Tier 3 — combo / workflow:**
+
+| Agent | When to invoke | Budget |
+|-------|---------------|-------:|
+| `tp-review-impact` | Pre-merge blast-radius review (diff × dependents × API surface) | 700 |
+| `tp-test-coverage-gapper` | Find symbols with zero test references, prioritised | 500 |
+| `tp-api-surface-tracker` | Public API diff vs last release → MAJOR / MINOR / PATCH verdict | 600 |
+| `tp-dep-health` | Dep audit: stale × heavily-used × removable | 600 |
+| `tp-incident-timeline` | Correlate an incident window with commits, rank likely culprits | 700 |
+
 Every agent's budget is enforced post-response — overshoots beyond 10 % land in `.token-pilot/over-budget.log`.
 
 `init` offers to install these; to do it later or add them to another project, run `npx token-pilot install-agents`. Remove with `npx token-pilot uninstall-agents --scope=user|project`.

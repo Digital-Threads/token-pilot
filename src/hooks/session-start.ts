@@ -140,20 +140,25 @@ Raw Read/Grep allowed only with offset/limit / narrow regex / non-code files,
 or TOKEN_PILOT_BYPASS=1.`;
 
 const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, use the Task tool:
-  bug / stack trace      → tp-debugger
-  PR / diff review       → tp-pr-reviewer
-  impact before change   → tp-impact-analyzer
-  plan refactor          → tp-refactor-planner
-  failing tests          → tp-test-triage
-  write new tests        → tp-test-writer
-  migrate API / version  → tp-migration-scout
-  "why is this like this?"→ tp-history-explorer
-  security / quality audit→ tp-audit-scanner
-  resume after /clear    → tp-session-restorer
-  dead code cleanup      → tp-dead-code-finder
-  commit message         → tp-commit-writer
-  repo onboarding        → tp-onboard
-  general workhorse      → tp-run
+  bug / stack trace       → tp-debugger
+  PR / diff review        → tp-pr-reviewer
+  impact before change    → tp-impact-analyzer
+  plan refactor           → tp-refactor-planner
+  failing tests           → tp-test-triage
+  write new tests         → tp-test-writer
+  migrate API / version   → tp-migration-scout
+  "why is this like this?" → tp-history-explorer
+  security / quality audit → tp-audit-scanner
+  resume after /clear     → tp-session-restorer
+  dead code cleanup       → tp-dead-code-finder
+  commit message          → tp-commit-writer
+  repo onboarding         → tp-onboard
+  blast radius of a PR    → tp-review-impact
+  test coverage gaps      → tp-test-coverage-gapper
+  public API diff / semver → tp-api-surface-tracker
+  dependency audit        → tp-dep-health
+  incident post-mortem    → tp-incident-timeline
+  general workhorse       → tp-run
 Delegating keeps main-context lean; each specialist has a narrow toolset + budget.`;
 
 function estimateTokens(text: string): number {
