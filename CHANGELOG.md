@@ -5,6 +5,35 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.5] - 2026-04-18
+
+### Fixed — plugin installation path was broken since 2026-03-01
+
+Surface: a user asked "can token-pilot be installed as a Claude Code plugin?". The `.claude-plugin/` manifest said yes, but attempting `claude plugin install token-pilot@token-pilot` against our repo failed on schema errors. Root cause: `marketplace.json` and `plugin.json` were written 2026-03-01 for the Claude Code schema as-of-then. The schema has since moved to a `owner`/`plugins`-array shape in `marketplace.json` and `author`-as-object in `plugin.json`, with `mcpServers` declared inside `plugin.json` itself. Our files never caught up. Every user who tried the plugin path for 48 days saw a validation error.
+
+Fixed: both manifests rewritten to current shape. Verified end-to-end — `claude plugin marketplace add <path> && claude plugin install token-pilot@token-pilot` now reports ✔ Successfully installed and the MCP server connects green.
+
+### Added — README documents both install paths
+
+Until now the README only described npm/npx. With plugin install fixed, the Claude Code section now lays out three paths side-by-side:
+- **A.** `claude plugin install` — hooks + MCP + (optional) tp-* agents in one step.
+- **B.** `claude mcp add -- npx -y token-pilot` — for npm-based setups.
+- **C.** `npx -y token-pilot init` — the one-liner that writes path B for you.
+
+### Changed — plugin-aware CLI behaviour
+
+- **`install-hook`** now early-returns with an explanation when `CLAUDE_PLUGIN_ROOT` is set. Plugin installation already wires hooks via `.claude-plugin/hooks/hooks.json`; calling `install-hook` on top would double-register every PreToolUse/PostToolUse matcher. This prevents the silent duplication.
+- **`install-agents`** keeps working under plugin mode (tp-* subagents are independent of plugin hooks — they live in `~/.claude/agents/` regardless) but now prints a one-line note so the user doesn't wonder why a plugin install needs a manual step. New regression test covers the plugin-mode path.
+- **`doctor`** prints a new `Install mode:` line — one of `plugin (<root>)` / `dev / worktree (contributor)` / `npm / npx`. Helps diagnose support issues: "why do I have two hook entries?" → doctor says `plugin` → answer is "remove the manual install-hook run".
+
+### Removed — repo-level `.mcp.json`
+
+The file at the repo root was a 2026-03 plugin-compat artifact using `${CLAUDE_PLUGIN_ROOT}/start.sh`. It only resolved correctly when token-pilot ran as a registered plugin — for anyone developing the repo locally (or running the MCP server from a worktree) it just produced `✗ Failed to connect` in `claude mcp list`. With plugin install fixed and the `mcpServers` block moved inside `plugin.json`, the file is no longer needed from either path. Removed.
+
+**Note for users migrating npm → plugin:** if you ran `npx token-pilot install-hook` on your old npm setup and then install as a plugin, both will register hooks — every PreToolUse matcher fires twice. Clean the manual entry out of `~/.claude/settings.json` (the one whose `command` starts with `token-pilot hook-read`). The v0.26.5 early-return only prevents *new* duplicates; it doesn't clean old ones.
+
+975 tests still passing (+1 new: plugin-mode regression).
+
 ## [0.26.4] - 2026-04-18
 
 ### Added — automatic profile recommendation in `doctor`

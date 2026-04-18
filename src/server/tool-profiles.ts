@@ -32,7 +32,7 @@ export const PROFILE_NAMES: readonly ToolProfile[] = [
 ] as const;
 
 /** Minimum nav profile — exploration only, no editing support. */
-const NAV_TOOLS: ReadonlySet<string> = new Set([
+export const NAV_TOOLS: ReadonlySet<string> = new Set([
   "smart_read",
   "read_symbol",
   "outline",
@@ -46,7 +46,7 @@ const NAV_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /** Edit profile adds batch reads + edit-preparation tools. */
-const EDIT_EXTRAS: ReadonlySet<string> = new Set([
+export const EDIT_EXTRAS: ReadonlySet<string> = new Set([
   "read_symbols",
   "read_range",
   "read_section",

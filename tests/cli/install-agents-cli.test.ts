@@ -368,4 +368,30 @@ describe("handleInstallAgents — non-Claude client warning", () => {
       true,
     );
   });
+
+  // v0.26.5 — plugin-aware note (CLAUDE_PLUGIN_ROOT set → note + still works)
+  it("Claude Code plugin mode (CLAUDE_PLUGIN_ROOT set): installs normally with note", async () => {
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    const code = await handleInstallAgents(["--scope=user"], {
+      isTTY: false,
+      distAgentsDir: dist,
+      projectRoot: project,
+      homeDir: home,
+      env: { CLAUDE_PLUGIN_ROOT: "/some/plugin/path" },
+    });
+
+    // Plugin mode should not block install — tp-* agents are separate
+    // from plugin hooks.
+    expect(code).toBe(0);
+    expect(await fileExists(join(home, ".claude", "agents", "tp-run.md"))).toBe(
+      true,
+    );
+  });
 });

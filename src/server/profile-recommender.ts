@@ -20,32 +20,7 @@
  */
 
 import type { ToolCallEvent } from "../core/tool-call-log.js";
-import type { ToolProfile } from "./tool-profiles.js";
-
-/** Mirror of the sets inside tool-profiles.ts — kept local to avoid
- *  exporting internal filter state. Must stay in sync; guarded by a unit
- *  test that asserts the symmetric difference is empty. */
-const NAV_TOOLS: ReadonlySet<string> = new Set([
-  "smart_read",
-  "read_symbol",
-  "outline",
-  "find_usages",
-  "project_overview",
-  "module_info",
-  "related_files",
-  "explore_area",
-  "smart_log",
-  "smart_diff",
-]);
-
-const EDIT_EXTRAS: ReadonlySet<string> = new Set([
-  "read_symbols",
-  "read_range",
-  "read_section",
-  "read_diff",
-  "read_for_edit",
-  "smart_read_many",
-]);
+import { NAV_TOOLS, EDIT_EXTRAS, type ToolProfile } from "./tool-profiles.js";
 
 /** Below this the sample is too small to make a confident recommendation. */
 const MIN_SAMPLE_CALLS = 20;

@@ -364,6 +364,20 @@ export async function handleInstallAgents(
   const homeDir = opts?.homeDir ?? homedir();
   const env = opts?.env ?? process.env;
 
+  // v0.26.5 — plugin-aware note. If we're running as a Claude Code
+  // plugin (CLAUDE_PLUGIN_ROOT set), `install-agents` is still useful —
+  // tp-* subagents are separate from plugin hooks. But the directory
+  // the plugin installer created is the authoritative one; we print a
+  // short note so the user doesn't think they need to reinstall on
+  // every plugin update.
+  if (env.CLAUDE_PLUGIN_ROOT) {
+    process.stderr.write(
+      "[token-pilot] Note: you're running as a Claude Code plugin. " +
+        "install-agents still works for tp-* subagents (those are separate " +
+        "from plugin hooks). Continuing.\n",
+    );
+  }
+
   // v0.26.0 — detect non-Claude clients where tp-* subagents have no
   // runtime. We still let users force-install via --scope (they may run
   // multiple clients side-by-side), but we warn loudly so nobody ends

@@ -76,10 +76,20 @@ If `init` isn't right for your setup — CI, non-TTY environments, editing a sha
 
 ### Claude Code
 
-Two equivalent paths:
+Three paths — pick one, they're mutually exclusive.
+
+**A. As a Claude Code plugin (one-step install — hooks + MCP registered together):**
 
 ```bash
-# Via CLI (recommended — handles scope + scoping)
+claude plugin marketplace add https://github.com/Digital-Threads/token-pilot
+claude plugin install token-pilot@token-pilot
+```
+
+Claude Code clones the repo into `~/.claude/plugins/cache/token-pilot/`, sets `CLAUDE_PLUGIN_ROOT`, and registers the MCP server + all hooks declared in `.claude-plugin/hooks/hooks.json`. No `install-hook` call needed. `install-agents` still applies for the tp-* subagents (they're separate from plugin hooks).
+
+**B. Via MCP config (npm-based, no plugin system):**
+
+```bash
 claude mcp add token-pilot -- npx -y token-pilot
 claude mcp add --scope user token-pilot -- npx -y token-pilot
 claude mcp add --scope project token-pilot -- npx -y token-pilot
@@ -95,6 +105,10 @@ claude mcp add --scope project token-pilot -- npx -y token-pilot
   }
 }
 ```
+
+Then `npx token-pilot install-hook` to register the PreToolUse Read/Edit hooks and `npx token-pilot install-agents --scope=user` to install the 19 tp-* subagents.
+
+**C. One-liner `init`:** `npx -y token-pilot init` — writes path B config for you, then prompts about subagents.
 
 ### Cursor
 

@@ -1,9 +1,27 @@
 {
   "name": "token-pilot",
-  "version": "0.25.0",
-  "description": "Enforcement layer for token-efficient AI coding: MCP-first hook with structural denial summaries, SessionStart reminder, bless-agents CLI, and six tp-* subagents — works for every agent including those without MCP access.",
-  "author": "token-pilot",
+  "version": "0.26.5",
+  "description": "Saves 60-90% tokens when AI reads code. AST-aware lazy reading, symbol navigation, cross-session tool-usage analytics, 19 subagents with budget watchdog.",
+  "author": {
+    "name": "Digital-Threads",
+    "url": "https://github.com/Digital-Threads"
+  },
+  "homepage": "https://github.com/Digital-Threads/token-pilot#readme",
+  "repository": "https://github.com/Digital-Threads/token-pilot",
   "license": "MIT",
-  "skills": "../skills",
-  "hooks": "./hooks"
+  "keywords": [
+    "mcp",
+    "token",
+    "ast",
+    "code-reading",
+    "context-window",
+    "subagents",
+    "optimization"
+  ],
+  "mcpServers": {
+    "token-pilot": {
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/start.sh"]
+    }
+  }
 }
