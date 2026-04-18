@@ -183,8 +183,20 @@ export async function installAgents(
     }
 
     if (storedHash === templateHash) {
-      // unchanged-installed: silent skip (re-write would be a no-op).
-      result.skipped.push({ name, reason: "unchanged" });
+      // unchanged-installed: body matches template. But body hash ignores
+      // frontmatter, so a description / tools update leaves the hash
+      // equal while the file genuinely needs refreshing. Respect --force
+      // by always rewriting in that case; keep silent skip otherwise.
+      if (opts.force) {
+        try {
+          await writeFile(targetPath, templateMd);
+          result.installed.push(name);
+        } catch {
+          result.skipped.push({ name, reason: "write failed" });
+        }
+      } else {
+        result.skipped.push({ name, reason: "unchanged" });
+      }
       continue;
     }
 

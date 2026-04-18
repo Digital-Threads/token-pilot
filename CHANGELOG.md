@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.4] - 2026-04-18
+
+### Fixed
+
+- **`install-agents --force` now actually forces a refresh when body-hash matches.** Before this fix, `--force` was a no-op for unchanged-installed agents because the body hash (used to detect template drift) ignores the YAML frontmatter. Any frontmatter-only update (description, tools list, etc.) left `storedHash === templateHash`, so `--force` reported `unchanged` and skipped. This silently blocked v0.23.3's PROACTIVELY triggers from reaching existing installations — users had to `rm ~/.claude/agents/tp-*.md` first. Now `--force` rewrites the file regardless of body-hash match, while still refusing to touch user-owned files that carry no `token_pilot_body_hash` stamp.
+
+### Numbers
+- 907 tests green (+1 regression test for `--force` on unchanged files), `tsc --noEmit` clean.
+
 ## [0.23.3] - 2026-04-18
 
 ### Changed — PROACTIVELY triggers in every agent description + wider MANDATORY block

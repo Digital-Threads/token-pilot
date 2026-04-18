@@ -192,6 +192,39 @@ describe("installAgents — idempotence", () => {
     expect(written).toBe(original);
   });
 
+  it("unchanged-installed + --force: re-writes the file (v0.23.4 fix)", async () => {
+    // Regression: before v0.23.4, --force on an unchanged file was a no-op.
+    // That broke the common case of a frontmatter-only update (description
+    // or tools changed, body unchanged → hash unchanged). --force must now
+    // actually force a refresh.
+    const dist = await makeTmp();
+    tmpDirs.push(dist);
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    await writeFakeDistAgent(dist, "tp-run");
+
+    await installAgents({
+      scope: "project",
+      projectRoot: project,
+      homeDir: "/dev/null",
+      distAgentsDir: dist,
+    });
+    // Re-run with --force on an unchanged file.
+    const forced = await installAgents({
+      scope: "project",
+      projectRoot: project,
+      homeDir: "/dev/null",
+      distAgentsDir: dist,
+      force: true,
+    });
+    expect(forced.installed).toEqual(["tp-run"]);
+    expect(
+      forced.skipped.some(
+        (s) => s.name === "tp-run" && /unchanged/i.test(s.reason),
+      ),
+    ).toBe(false);
+  });
+
   it("template-upgraded: stored hash differs, body matches stored → overwrite", async () => {
     const dist = await makeTmp();
     tmpDirs.push(dist);
