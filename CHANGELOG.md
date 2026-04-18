@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-04-18
+
+### Added
+- **Adaptive Read-hook threshold (TP-bbo)** — opt-in `hooks.adaptiveThreshold` auto-lowers `denyThreshold` as the current session burns through `hooks.adaptiveBudgetTokens` (default 100k). Piecewise curve: unchanged below 30% burn, ×0.75 at 30–60%, ×0.5 at 60–80%, ×0.3 (floor 50 lines) beyond. Burn is read from `.token-pilot/hook-events.jsonl` `savedTokens` for the live `session_id`. Default off — zero behaviour change unless the user enables it. Env overrides: `TOKEN_PILOT_ADAPTIVE_THRESHOLD`, `TOKEN_PILOT_ADAPTIVE_BUDGET`.
+- **Save-doc CLI (TP-89n)** — `token-pilot save-doc <name>` persists any stdin text (curl, WebFetch, long research notes) to `.token-pilot/docs/<name>.md` so it survives compaction and can be re-read cheaply with `smart_read` / `read_range` instead of refetching the external source. `token-pilot list-docs` enumerates saved docs. Name validation refuses traversal / path separators; overwrite is explicit (`--overwrite`).
+
+### Numbers
+- 862 tests green, `tsc --noEmit` clean.
+
 ## [0.21.0] - 2026-04-18
 
 ### Added

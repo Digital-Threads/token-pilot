@@ -23,6 +23,7 @@ import { isPathWithinProject } from "./hooks/path-safety.js";
 import { handleSessionStart } from "./hooks/session-start.js";
 import { computeEffectiveThreshold } from "./hooks/adaptive-threshold.js";
 import { loadSessionSavedTokens } from "./core/session-savings.js";
+import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
@@ -197,6 +198,16 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "stats": {
       const code = await handleStats(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
+    case "save-doc": {
+      const code = await handleSaveDocCli(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
+    case "list-docs": {
+      const code = await handleListDocsCli();
       process.exit(code);
       return;
     }
@@ -1004,6 +1015,8 @@ Usage:
   token-pilot uninstall-hook [root] Remove PreToolUse hook
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
   token-pilot doctor                Run diagnostics (check ast-index, config, updates)
+  token-pilot save-doc <name>       Save stdin to .token-pilot/docs/<name>.md
+  token-pilot list-docs             List saved docs
   token-pilot --version             Show version
   token-pilot --help                Show this help
 
