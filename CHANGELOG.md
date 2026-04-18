@@ -5,6 +5,27 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.6] - 2026-04-18
+
+### Fixed — five findings from a live user audit
+
+A real-world QA pass on a large Nuxt repo surfaced five issues. All addressed.
+
+**1. `read_symbols` regression (−16% tokens saved).** When the caller requested nearly every symbol of a file, the sum of bodies + N × per-symbol metadata exceeded a raw Read of the whole file — batch tool was worse than no batch. Two fixes:
+- Handler now includes an anti-pattern guard: if ≥ 70 % of the file's line coverage is requested AND ≥ 3 symbols, it refuses with a short advisory pointing at `smart_read` / `read_for_edit` / bounded `Read`.
+- Server-side `tokensWouldBe` for `read_symbols` corrected to reflect reality: baseline is "N individual `read_symbol` calls", not "one raw Read of the whole file". Saved now shows the real win — deduped headers + shared file open — instead of a misleading figure that flipped negative in the edge case.
+
+**2. Tool description updated.** `read_symbols` now says *"BEST FIT: 3–8 symbols in one file … if you'd request ≥ 70 % of the file's symbols, the handler refuses and points you to smart_read"*. Prior docstring didn't give agents a decision rule, so they used it reflexively.
+
+**3. `tp-commit-writer` trivial-diff guard.** The agent's `description:` was unconditional — reviewers triggered it on a whitespace-only docs diff (239 s subagent spawn for a one-line message). Now it explicitly says *"Do NOT use for docs-only, whitespace-only, or < 20-line diffs — the user can write those manually faster than a subagent spawn"*.
+
+**4. `docs/token-pilot-dir.md` — side-files layout reference.** Users saw `hook-events.jsonl` and `hook-denied.jsonl` appear but no snapshots/context-registries/docs directories, wondered if features were broken. They're lazy-created: each sub-path only appears when the triggering feature fires. New doc lists every path, who writes it, when, and whether to commit. Recommended `.gitignore` stanza included.
+
+**5. `tp-migration-scout` context-mode "fallback" — false alarm.** Audit reported the agent announced a fallback from an unavailable `context-mode` tool. Verified: `tp-migration-scout.md` does not advertise `context-mode` anywhere. The agent self-reported a fallback it invented. No code change needed; noted for future behavioural-harness work (TP-q33b).
+
+### Numbers
+- 910 tests green (+3 regression tests for `read_symbols` guard), `tsc --noEmit` clean.
+
 ## [0.23.5] - 2026-04-18
 
 ### Changed — ast-index is now a hard npm dependency
