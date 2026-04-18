@@ -46,33 +46,25 @@ export async function handleReadSymbols(
   const N = args.symbols.length;
   const sections: string[] = [];
 
-  // v0.23.6 — anti-pattern guard. When the caller requests nearly every
-  // symbol in the file, the sum of bodies + N × per-symbol metadata
-  // exceeds a single raw Read. That's worse than what smart_read +
-  // read_for_edit would do. Refuse the request and tell the caller.
-  if (structure && structure.symbols && structure.symbols.length > 0) {
+  // v0.24.1 — anti-pattern guard. When the caller requests most of the
+  // symbols in the file, a batch read costs more than one smart_read.
+  // Earlier versions used sum(lineCount), but ast-index parser bugs
+  // (arrow functions / export function / Vue SFC / TS types) return
+  // overlapping ranges that inflate the sum and let the guard miss. The
+  // count-based check (requested symbols / total top-level symbols) is
+  // immune to those parser issues.
+  if (structure && structure.symbols && structure.symbols.length >= 3) {
     const uniqueRequested = new Set(args.symbols.map((s) => s.split(".")[0]));
     const matchedTopLevel = structure.symbols.filter((s) =>
       uniqueRequested.has(s.name),
     );
-    const totalTopLevelLines = structure.symbols.reduce(
-      (sum, s) => sum + (s.location.lineCount ?? 0),
-      0,
-    );
-    const requestedLines = matchedTopLevel.reduce(
-      (sum, s) => sum + (s.location.lineCount ?? 0),
-      0,
-    );
-    if (
-      totalTopLevelLines > 0 &&
-      requestedLines / totalTopLevelLines >= 0.7 &&
-      matchedTopLevel.length >= 3
-    ) {
+    const total = structure.symbols.length;
+    if (matchedTopLevel.length >= 3 && matchedTopLevel.length / total >= 0.7) {
       const text =
         `FILE: ${args.path} | SYMBOLS: ${N} requested\n\n` +
-        `ADVISORY: You requested ${matchedTopLevel.length} symbols covering ` +
-        `≥70% of this file (${requestedLines}/${totalTopLevelLines} lines). ` +
-        `A batch read here costs more than reading the whole file once.\n\n` +
+        `ADVISORY: You requested ${matchedTopLevel.length}/${total} symbols ` +
+        `(≥70% of the file's top-level symbols). A batch read here costs ` +
+        `more than reading the whole file once.\n\n` +
         `Cheaper alternatives:\n` +
         `  - smart_read("${args.path}") for a structural overview\n` +
         `  - read_for_edit("${args.path}", "<symbol>") when you need exact edit context\n` +
@@ -80,6 +72,25 @@ export async function handleReadSymbols(
         `If you truly need every body, call read_symbols with a narrower list ` +
         `or use raw Read (bounded).`;
       return { content: [{ type: "text", text }] };
+    }
+
+    // v0.24.1 — sanity-check for parser-produced overlapping ranges. When
+    // the sum of symbol lineCounts exceeds the actual file line count by
+    // >1.5× we're almost certainly seeing ast-index getting confused by
+    // arrow functions / Vue SFCs / type-vs-function. Log once so users
+    // can report upstream; don't fail the request.
+    const totalSymbolLines = structure.symbols.reduce(
+      (sum, s) => sum + (s.location.lineCount ?? 0),
+      0,
+    );
+    const fileLines = lines.length;
+    if (fileLines > 0 && totalSymbolLines > fileLines * 1.5) {
+      process.stderr.write(
+        `[token-pilot] ast-index parser produced overlapping symbol ranges for ${args.path} ` +
+          `(sum=${totalSymbolLines} lines vs file=${fileLines}). ` +
+          `Results may mis-classify symbols; consider smart_read + read_for_edit instead. ` +
+          `Upstream issue: https://github.com/defendend/Claude-ast-index-search/issues\n`,
+      );
     }
   }
 
