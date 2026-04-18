@@ -38,8 +38,24 @@ export async function loadConfig(
   ) as TokenPilotConfig;
 
   applyHookModeMigration(merged, userConfig ?? {});
+  applyEnvOverrides(merged);
 
   return merged;
+}
+
+/**
+ * Env-var overrides that the user can set without editing the config
+ * file. Per TP-816 §7.3. Only integer-valued, positive numbers are
+ * accepted; malformed values are ignored silently.
+ */
+function applyEnvOverrides(merged: TokenPilotConfig): void {
+  const raw = process.env.TOKEN_PILOT_DENY_THRESHOLD;
+  if (raw !== undefined) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n > 0) {
+      merged.hooks.denyThreshold = n;
+    }
+  }
 }
 
 /**

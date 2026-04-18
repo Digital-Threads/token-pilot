@@ -29,7 +29,11 @@ import {
   maybeEmitStartupReminder,
 } from "./cli/install-agents.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
-import { appendEvent, type HookEvent } from "./core/event-log.js";
+import {
+  appendEvent,
+  applyRetention,
+  type HookEvent,
+} from "./core/event-log.js";
 import { handleStats } from "./cli/stats.js";
 
 const execFileAsync = promisify(execFile);
@@ -257,6 +261,12 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
     homeDir: homedir(),
     configSuppressed: config.agents?.reminder === false,
   }).catch(() => {
+    /* ignore */
+  });
+
+  // Phase 6 subtask 6.2 — age + size retention on hook-events archives.
+  // Fire-and-forget: retention failures must never block startup.
+  applyRetention(projectRoot).catch(() => {
     /* ignore */
   });
 

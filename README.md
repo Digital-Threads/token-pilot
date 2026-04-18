@@ -244,6 +244,17 @@ token-pilot --version            # Show version
 token-pilot --help               # Show help
 ```
 
+### Environment variables
+
+| Var | Effect |
+|-----|--------|
+| `TOKEN_PILOT_MODE=off` | Disable the PreToolUse hook for this process. |
+| `TOKEN_PILOT_BYPASS=1` | Pass every Read through (no summaries). |
+| `TOKEN_PILOT_DENY_THRESHOLD=<n>` | Override `hooks.denyThreshold` (positive int). |
+| `TOKEN_PILOT_DEBUG=1` | Verbose hook logging to stderr. |
+| `TOKEN_PILOT_NO_AGENT_REMINDER=1` | Suppress the MCP-startup install-agents reminder. |
+| `TOKEN_PILOT_SUBAGENT=1` | Marks the MCP server as running inside a subagent; skips the reminder. |
+
 ## Configuration
 
 Create `.token-pilot.json` in your project root to customize behavior:

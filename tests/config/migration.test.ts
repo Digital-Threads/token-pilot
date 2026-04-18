@@ -155,3 +155,50 @@ describe("legacy hooks.mode:deny migration", () => {
     expect(persisted.hooks.migratedFrom).toBeUndefined();
   });
 });
+
+describe("TOKEN_PILOT_DENY_THRESHOLD env override", () => {
+  const savedEnv = process.env.TOKEN_PILOT_DENY_THRESHOLD;
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.TOKEN_PILOT_DENY_THRESHOLD;
+    else process.env.TOKEN_PILOT_DENY_THRESHOLD = savedEnv;
+  });
+
+  it("overrides config denyThreshold when a valid positive int is set", async () => {
+    const dir = await makeTmp();
+    tmpDirs.push(dir);
+    await writeFile(
+      join(dir, ".token-pilot.json"),
+      JSON.stringify({ hooks: { denyThreshold: 100 } }),
+    );
+    process.env.TOKEN_PILOT_DENY_THRESHOLD = "777";
+    const cfg = await loadConfig(dir);
+    expect(cfg.hooks.denyThreshold).toBe(777);
+  });
+
+  it("falls back to config when env value is non-numeric", async () => {
+    const dir = await makeTmp();
+    tmpDirs.push(dir);
+    await writeFile(
+      join(dir, ".token-pilot.json"),
+      JSON.stringify({ hooks: { denyThreshold: 123 } }),
+    );
+    process.env.TOKEN_PILOT_DENY_THRESHOLD = "not-a-number";
+    const cfg = await loadConfig(dir);
+    expect(cfg.hooks.denyThreshold).toBe(123);
+  });
+
+  it("ignores non-positive env values (0 or negative)", async () => {
+    const dir = await makeTmp();
+    tmpDirs.push(dir);
+    await writeFile(
+      join(dir, ".token-pilot.json"),
+      JSON.stringify({ hooks: { denyThreshold: 123 } }),
+    );
+    process.env.TOKEN_PILOT_DENY_THRESHOLD = "0";
+    const cfg = await loadConfig(dir);
+    expect(cfg.hooks.denyThreshold).toBe(123);
+    process.env.TOKEN_PILOT_DENY_THRESHOLD = "-5";
+    const cfg2 = await loadConfig(dir);
+    expect(cfg2.hooks.denyThreshold).toBe(123);
+  });
+});
