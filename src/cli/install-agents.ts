@@ -253,6 +253,64 @@ function parseFlag(argv: string[], key: string): string | undefined {
   return undefined;
 }
 
+// ─── scope persistence in .token-pilot.json ─────────────────────────────────
+
+function configPath(projectRoot: string): string {
+  return join(projectRoot, ".token-pilot.json");
+}
+
+/**
+ * Read `agents.scope` from `<projectRoot>/.token-pilot.json`. Returns
+ * null if the file is missing, unreadable, not valid JSON, or if the
+ * field is absent. Never throws — a bad config should not block install.
+ */
+export async function readPersistedScope(
+  projectRoot: string,
+): Promise<Scope | null> {
+  try {
+    const raw = await readFile(configPath(projectRoot), "utf-8");
+    const json = JSON.parse(raw) as { agents?: { scope?: unknown } };
+    const s = json.agents?.scope;
+    if (s === "user" || s === "project") return s;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist `agents.scope` into `<projectRoot>/.token-pilot.json`, merging
+ * with any existing config. Failures are swallowed — persistence is a
+ * convenience, not a correctness requirement.
+ */
+export async function persistScope(
+  projectRoot: string,
+  scope: Scope,
+): Promise<void> {
+  const p = configPath(projectRoot);
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(p, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* fresh file */
+  }
+  const currentAgents =
+    (existing.agents as Record<string, unknown> | undefined) ?? {};
+  const next = {
+    ...existing,
+    agents: { ...currentAgents, scope },
+  };
+  try {
+    await writeFile(p, JSON.stringify(next, null, 2) + "\n");
+  } catch {
+    /* ignore — persistence is best-effort */
+  }
+}
+
 /**
  * CLI entry: `token-pilot install-agents [--scope=user|project] [--force]`.
  *
@@ -271,6 +329,7 @@ export async function handleInstallAgents(
 ): Promise<number> {
   const scopeArg = parseFlag(argv, "scope");
   const force = parseFlag(argv, "force") !== undefined;
+  const projectRoot = opts?.projectRoot ?? process.cwd();
 
   let scope: Scope;
   if (scopeArg === "user" || scopeArg === "project") {
@@ -281,14 +340,23 @@ export async function handleInstallAgents(
     );
     return 1;
   } else {
-    const tty = opts?.isTTY ?? process.stdin.isTTY === true;
-    if (!tty) {
+    // No flag — try persisted scope from .token-pilot.json, else prompt.
+    const persisted = await readPersistedScope(projectRoot);
+    if (persisted) {
+      scope = persisted;
       process.stderr.write(
-        "install-agents: --scope=user|project is required in non-interactive mode.\n",
+        `[token-pilot] Using persisted scope: ${scope} (from .token-pilot.json)\n`,
       );
-      return 1;
+    } else {
+      const tty = opts?.isTTY ?? process.stdin.isTTY === true;
+      if (!tty) {
+        process.stderr.write(
+          "install-agents: --scope=user|project is required in non-interactive mode.\n",
+        );
+        return 1;
+      }
+      scope = await promptScope();
     }
-    scope = await promptScope();
   }
 
   const distAgentsDir =
@@ -297,7 +365,7 @@ export async function handleInstallAgents(
   try {
     const result = await installAgents({
       scope,
-      projectRoot: opts?.projectRoot ?? process.cwd(),
+      projectRoot,
       homeDir: opts?.homeDir ?? homedir(),
       distAgentsDir,
       force,
@@ -305,6 +373,8 @@ export async function handleInstallAgents(
 
     const plural = (n: number, s: string) => (n === 1 ? s : s + "s");
     if (result.installed.length > 0) {
+      // Best-effort persist the chosen scope so re-runs skip the prompt.
+      await persistScope(projectRoot, scope);
       process.stderr.write(
         `\n[token-pilot] Installed ${result.installed.length} ${plural(result.installed.length, "agent")} ` +
           `to ${result.targetDir}.\n` +
