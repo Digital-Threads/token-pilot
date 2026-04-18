@@ -24,6 +24,7 @@ import { handleSessionStart } from "./hooks/session-start.js";
 import { computeEffectiveThreshold } from "./hooks/adaptive-threshold.js";
 import { loadSessionSavedTokens } from "./core/session-savings.js";
 import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
+import { checkForTypo } from "./cli/typo-guard.js";
 import { isContextModeInstalledSync } from "./integration/context-mode-detector.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
@@ -109,6 +110,14 @@ export function getVersion(): string {
 }
 
 export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
+  // Guard against mis-typed commands like `install-aents` silently
+  // becoming a projectRoot=install-aents server launch. See TP-v0.22.3.
+  const typo = checkForTypo(cliArgs[0]);
+  if (typo.kind === "typo") {
+    process.stderr.write(`[token-pilot] ${typo.message}\n`);
+    process.exit(1);
+  }
+
   switch (cliArgs[0]) {
     case "hook-read": {
       const cfg = await loadConfig(process.cwd());

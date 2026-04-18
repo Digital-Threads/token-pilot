@@ -5,6 +5,15 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.3] - 2026-04-18
+
+### Fixed
+
+- **CLI typo guard** — mis-typed commands like `npx token-pilot install-aents` (missing `g`) used to silently become a `projectRoot=install-aents` MCP server launch and create stray `install-aents/.claude/settings.json` directories. Now the CLI detects command-shaped first args that aren't in the allow-list and aren't valid paths, prints `[token-pilot] Unknown command "install-aents". Did you mean "install-agents"?` on stderr, and exits non-zero. Levenshtein-based suggestion with a distance cap of 3.
+
+### Numbers
+- 890 tests green (+9 typo-guard regression tests), `tsc --noEmit` clean.
+
 ## [0.22.2] - 2026-04-18
 
 ### Fixed
