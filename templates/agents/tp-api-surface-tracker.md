@@ -19,7 +19,8 @@ When asked to audit API surface change:
 1. Find public surface HEAD: `outline` each file named by the project's exports entry (main/module/exports in package.json, or `index.*` / `mod.*`). Collect { name, signature, visibility=public } for every symbol.
 2. Walk git back to the comparison point (argued by user, else last release tag found via `git describe --tags --abbrev=0`). Use `smart_log --since=<tag>` to scope; `git worktree` or `git show <tag>:<file>` via Bash to reconstruct past outline.
 3. For each symbol present in only one side:
-   - Removed → **MAJOR** (breaking)
+   - **Always verify REMOVED with `read_symbol` on HEAD before reporting.** `smart_diff` can mis-label a symbol as REMOVED when only its surrounding context changed — a short confirmation read prevents false breaking-change alarms. If the symbol is still there, reclassify as PATCH (body-only change).
+   - Removed (verified) → **MAJOR** (breaking)
    - Added → **MINOR** (backward-compatible)
 4. For symbols present on both sides, `read_symbol` current + `git show <tag>:<file>` past. Compare signatures:
    - Parameter added without default → **MAJOR**
