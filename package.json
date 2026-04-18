@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.22.2",
+  "version": "0.22.3",
   "description": "Save up to 80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
