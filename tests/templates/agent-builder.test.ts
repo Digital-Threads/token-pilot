@@ -111,12 +111,17 @@ describe("composeAll", () => {
     const results = composeAll(TEMPLATES_DIR);
     const names = results.map((r) => r.name).sort();
     expect(names).toEqual([
+      "tp-commit-writer",
+      "tp-dead-code-finder",
+      "tp-debugger",
       "tp-impact-analyzer",
+      "tp-migration-scout",
       "tp-onboard",
       "tp-pr-reviewer",
       "tp-refactor-planner",
       "tp-run",
       "tp-test-triage",
+      "tp-test-writer",
     ]);
   });
 

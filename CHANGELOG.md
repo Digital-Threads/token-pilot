@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-04-18
+
+### Added — TP-02l Tier 2 subagents (5 new)
+
+Five more `tp-*` specialists, installed alongside the existing six via `npx token-pilot install-agents`:
+
+- **`tp-debugger`** — bug diagnosis via call-tree traversal (`find_usages` + `read_symbol` + `smart_log`). Given a stack trace or error, finds the root-cause line without Reading whole files.
+- **`tp-migration-scout`** — pre-migration impact map. Given a target (API, symbol, dependency), emits a file-by-file checklist grouped by effort class (trivial / local / cross-file / needs-design).
+- **`tp-test-writer`** — writes tests for one specific symbol, mirroring the project's existing test style. Runs `test_summary` before declaring done — refuses to claim success on tests it didn't run.
+- **`tp-dead-code-finder`** — cross-checks `find_unused` with Grep, recent git history, and dynamic-lookup patterns before recommending deletion. Output only — never deletes.
+- **`tp-commit-writer`** — drafts a Conventional-Commit message from staged diff. Refuses to write when `test_summary` reports failures, when diff mixes types (asks to split), or when staged is empty.
+
+Total subagents now: **11** (6 Tier 1 + 5 Tier 2). Build pipeline auto-discovers `tp-*.md` files — no config changes required.
+
+### Numbers
+- 879 tests green, `tsc --noEmit` clean.
+
 ## [0.22.0] - 2026-04-18
 
 ### Added — TP-69m session-scoped dedup

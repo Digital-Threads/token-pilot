@@ -46,17 +46,22 @@ const FIXTURE_REQUIREMENTS: Record<string, string[]> = {
 // ─── composeAll snapshot ─────────────────────────────────────────────────────
 
 describe("composed agent snapshots (regression guard)", () => {
-  it("matches a stable set of 6 Tier 1 agents", () => {
+  it("matches a stable set of Tier 1 + Tier 2 agents", () => {
     const results = composeAll(TEMPLATES_DIR);
     const names = results.map((r) => r.name).sort();
     expect(names).toMatchInlineSnapshot(`
       [
+        "tp-commit-writer",
+        "tp-dead-code-finder",
+        "tp-debugger",
         "tp-impact-analyzer",
+        "tp-migration-scout",
         "tp-onboard",
         "tp-pr-reviewer",
         "tp-refactor-planner",
         "tp-run",
         "tp-test-triage",
+        "tp-test-writer",
       ]
     `);
   });
