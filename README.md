@@ -230,6 +230,16 @@ token-pilot uninstall-hook       # Remove hook
 token-pilot hook-read <file>     # Hook handler (called by Claude Code)
 token-pilot hook-edit            # Edit hook handler (called by Claude Code)
 token-pilot doctor               # Run diagnostics (ast-index, config, updates)
+token-pilot install-agents       # Install tp-* subagents (prompts for scope)
+token-pilot install-agents --scope=user     # …or into ~/.claude/agents
+token-pilot install-agents --scope=project  # …or into ./.claude/agents
+token-pilot install-agents --force          # Overwrite user-edited agents
+token-pilot uninstall-agents --scope=user|project
+token-pilot bless-agents         # Add token-pilot MCP to third-party agents
+token-pilot unbless-agents <name>... | --all
+token-pilot stats                # Summarise hook-events.jsonl (totals + top files)
+token-pilot stats --session[=<id>]          # Filter to one session (most recent if no id)
+token-pilot stats --by-agent     # Group savings by agent_type
 token-pilot --version            # Show version
 token-pilot --help               # Show help
 ```
