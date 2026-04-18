@@ -6,6 +6,7 @@ import {
 import { AstIndexClient } from "./ast-index/client.js";
 import { FileCache } from "./core/file-cache.js";
 import { ContextRegistry } from "./core/context-registry.js";
+import { SessionRegistryManager } from "./core/session-registry.js";
 import { SymbolResolver } from "./core/symbol-resolver.js";
 import {
   SessionAnalytics,
@@ -93,7 +94,35 @@ export async function createServer(
     config.smartRead.smallFileThreshold,
   );
   const contextRegistry = new ContextRegistry();
+  const sessionRegistries = new SessionRegistryManager(projectRoot);
+  // Flush persisted session registries on shutdown (best-effort; every hot
+  // tool-call path also flushes immediately, so this is only for registries
+  // whose last access never got a post-call flush).
+  process.once("beforeExit", () => {
+    void sessionRegistries.flushAll();
+  });
   const symbolResolver = new SymbolResolver(astIndex);
+
+  /**
+   * TP-69m — pick the right ContextRegistry for this tool call.
+   *   - force:true  → empty registry (agent wants to bypass dedup)
+   *   - session_id present → per-session, disk-backed registry
+   *   - neither    → process-default (legacy behaviour for callers that
+   *     don't yet know their session_id)
+   */
+  function pickRegistry(rawArgs: unknown): {
+    reg: ContextRegistry;
+    sessionId: string;
+    force: boolean;
+  } {
+    const a = (rawArgs ?? {}) as Record<string, unknown>;
+    const force = a.force === true;
+    const sessionId = typeof a.session_id === "string" ? a.session_id : "";
+    if (force) return { reg: new ContextRegistry(), sessionId, force: true };
+    if (sessionId)
+      return { reg: sessionRegistries.getFor(sessionId), sessionId, force };
+    return { reg: contextRegistry, sessionId, force };
+  }
 
   // Try to init ast-index (non-fatal if not available)
   const needsAutoDetect = !!options?.skipAstIndex;
@@ -379,13 +408,14 @@ export async function createServer(
       switch (name) {
         case "smart_read": {
           const validArgs = validateSmartReadArgs(args);
+          const picked = pickRegistry(args);
 
           // Try non-code handler for JSON/YAML/MD etc.
           if (isNonCodeStructured(validArgs.path)) {
             const nonCodeResult = await handleNonCodeRead(
               validArgs.path,
               projectRoot,
-              contextRegistry,
+              picked.reg,
               {
                 contextModeStatus,
                 largeNonCodeThreshold: config.contextMode.largeNonCodeThreshold,
@@ -418,9 +448,12 @@ export async function createServer(
             projectRoot,
             astIndex,
             fileCache,
-            contextRegistry,
+            picked.reg,
             config,
           );
+          if (picked.sessionId && !picked.force) {
+            void sessionRegistries.flush(picked.sessionId);
+          }
           const text = result.content[0]?.text ?? "";
           const fullTokensSR = await fullFileTokens(validArgs.path);
           const policyAdv = recordWithTrace({
@@ -440,6 +473,7 @@ export async function createServer(
 
         case "read_symbol": {
           const symArgs = validateReadSymbolArgs(args);
+          const pickedSym = pickRegistry(args);
 
           // Dedup is handled inside handleReadSymbol
           const symResult = await handleReadSymbol(
@@ -447,10 +481,13 @@ export async function createServer(
             projectRoot,
             symbolResolver,
             fileCache,
-            contextRegistry,
+            pickedSym.reg,
             astIndex,
             config.smartRead.advisoryReminders,
           );
+          if (pickedSym.sessionId && !pickedSym.force) {
+            void sessionRegistries.flush(pickedSym.sessionId);
+          }
           const symText = symResult.content[0]?.text ?? "";
           const symTokens = estimateTokens(symText);
           const fullTokensSym = await fullFileTokens(symArgs.path);
@@ -496,13 +533,17 @@ export async function createServer(
 
         case "read_range": {
           const rangeArgs = validateReadRangeArgs(args);
+          const pickedRange = pickRegistry(args);
           const rangeResult = await handleReadRange(
             rangeArgs,
             projectRoot,
             fileCache,
-            contextRegistry,
+            pickedRange.reg,
             config.smartRead.advisoryReminders,
           );
+          if (pickedRange.sessionId && !pickedRange.force) {
+            void sessionRegistries.flush(pickedRange.sessionId);
+          }
           const rangeText = rangeResult.content[0]?.text ?? "";
           const rangeTokens = estimateTokens(rangeText);
           const fullTokensRange = await fullFileTokens(rangeArgs.path);
@@ -595,14 +636,18 @@ export async function createServer(
 
         case "smart_read_many": {
           const manyArgs = validateSmartReadManyArgs(args);
+          const pickedMany = pickRegistry(args);
           const manyResult = await handleSmartReadMany(
             manyArgs,
             projectRoot,
             astIndex,
             fileCache,
-            contextRegistry,
+            pickedMany.reg,
             config,
           );
+          if (pickedMany.sessionId && !pickedMany.force) {
+            void sessionRegistries.flush(pickedMany.sessionId);
+          }
           const manyText = manyResult.content[0]?.text ?? "";
           const manyTokens = estimateTokens(manyText);
           const uniqueManyPaths = Array.from(new Set(manyArgs.paths));

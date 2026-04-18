@@ -1,6 +1,6 @@
-import type { ContextEntry, LoadedRegion, SymbolInfo } from '../types.js';
-import { estimateTokens } from './token-estimator.js';
-import { formatDuration } from './format-duration.js';
+import type { ContextEntry, LoadedRegion, SymbolInfo } from "../types.js";
+import { estimateTokens } from "./token-estimator.js";
+import { formatDuration } from "./format-duration.js";
 
 /**
  * Advisory Context Registry.
@@ -17,20 +17,23 @@ export class ContextRegistry {
     if (existing) {
       // Replace region of same type/symbol, add new ones
       const idx = existing.loaded.findIndex(
-        r => r.type === region.type && r.symbolName === region.symbolName
+        (r) => r.type === region.type && r.symbolName === region.symbolName,
       );
       if (idx >= 0) {
         existing.loaded[idx] = region;
       } else {
         existing.loaded.push(region);
       }
-      existing.tokenEstimate = existing.loaded.reduce((sum, r) => sum + r.tokens, 0);
+      existing.tokenEstimate = existing.loaded.reduce(
+        (sum, r) => sum + r.tokens,
+        0,
+      );
       existing.loadedAt = Date.now();
     } else {
       this.entries.set(path, {
         path,
         loaded: [region],
-        contentHash: '',
+        contentHash: "",
         tokenEstimate: region.tokens,
         loadedAt: Date.now(),
       });
@@ -52,7 +55,7 @@ export class ContextRegistry {
   isSymbolLoaded(path: string, symbolName: string): boolean {
     const entry = this.entries.get(path);
     if (!entry) return false;
-    return entry.loaded.some(r => r.symbolName === symbolName);
+    return entry.loaded.some((r) => r.symbolName === symbolName);
   }
 
   /** Check if any region of a file has been loaded into context. */
@@ -75,42 +78,48 @@ export class ContextRegistry {
    */
   compactReminder(path: string, symbols: SymbolInfo[]): string {
     const entry = this.entries.get(path);
-    if (!entry) return '';
+    if (!entry) return "";
 
     const elapsed = formatDuration(Date.now() - entry.loadedAt);
     const lines: string[] = [
       `REMINDER: ${path} (previously loaded ${elapsed} ago, unchanged)`,
-      '',
+      "",
     ];
 
     for (const region of entry.loaded) {
-      if (region.type === 'structure') {
+      if (region.type === "structure") {
         lines.push(`  Structure loaded (${region.tokens} tokens)`);
         // Add brief symbol list
         for (const sym of symbols.slice(0, 5)) {
-          lines.push(`    ${sym.kind} ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`);
+          lines.push(
+            `    ${sym.kind} ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`,
+          );
         }
         if (symbols.length > 5) {
           lines.push(`    ... (${symbols.length - 5} more symbols)`);
         }
-      } else if (region.type === 'symbol' && region.symbolName) {
-        lines.push(`  ${region.symbolName} [L${region.startLine}-${region.endLine}] (${region.tokens} tokens)`);
-      } else if (region.type === 'full') {
+      } else if (region.type === "symbol" && region.symbolName) {
+        lines.push(
+          `  ${region.symbolName} [L${region.startLine}-${region.endLine}] (${region.tokens} tokens)`,
+        );
+      } else if (region.type === "full") {
         lines.push(`  Full file loaded (${region.tokens} tokens)`);
       }
     }
 
-    lines.push('');
-    lines.push('HINT: File unchanged since last read. Use read_symbol() to reload specific parts, or read_diff() to see changes.');
+    lines.push("");
+    lines.push(
+      "HINT: File unchanged since last read. Use read_symbol() to reload specific parts, or read_diff() to see changes.",
+    );
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /** Check if file was loaded in full (type='full' region exists). */
   isFullyLoaded(path: string): boolean {
     const entry = this.entries.get(path);
     if (!entry) return false;
-    return entry.loaded.some(r => r.type === 'full');
+    return entry.loaded.some((r) => r.type === "full");
   }
 
   /**
@@ -119,28 +128,30 @@ export class ContextRegistry {
    */
   symbolReminder(path: string, symbolName: string): string {
     const entry = this.entries.get(path);
-    if (!entry) return '';
+    if (!entry) return "";
 
     const elapsed = formatDuration(Date.now() - entry.loadedAt);
-    const symbolRegion = entry.loaded.find(r => r.symbolName === symbolName);
-    const fullRegion = entry.loaded.find(r => r.type === 'full');
+    const symbolRegion = entry.loaded.find((r) => r.symbolName === symbolName);
+    const fullRegion = entry.loaded.find((r) => r.type === "full");
 
     if (fullRegion) {
-      const loc = symbolRegion ? ` Symbol at [L${symbolRegion.startLine}-${symbolRegion.endLine}].` : '';
+      const loc = symbolRegion
+        ? ` Symbol at [L${symbolRegion.startLine}-${symbolRegion.endLine}].`
+        : "";
       return [
         `DEDUP: "${symbolName}" in ${path} — full file already in context (loaded ${elapsed} ago, ${fullRegion.tokens} tokens, unchanged).${loc}`,
-        'HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.',
-      ].join('\n');
+        "HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.",
+      ].join("\n");
     }
 
     if (symbolRegion) {
       return [
         `DEDUP: "${symbolName}" in ${path} — already loaded ${elapsed} ago [L${symbolRegion.startLine}-${symbolRegion.endLine}] (${symbolRegion.tokens} tokens, unchanged).`,
-        'HINT: Symbol unchanged since last read. No need to re-read.',
-      ].join('\n');
+        "HINT: Symbol unchanged since last read. No need to re-read.",
+      ].join("\n");
     }
 
-    return '';
+    return "";
   }
 
   /**
@@ -149,27 +160,30 @@ export class ContextRegistry {
    */
   rangeReminder(path: string, startLine: number, endLine: number): string {
     const entry = this.entries.get(path);
-    if (!entry) return '';
+    if (!entry) return "";
 
-    const fullRegion = entry.loaded.find(r => r.type === 'full');
-    if (!fullRegion) return '';
+    const fullRegion = entry.loaded.find((r) => r.type === "full");
+    if (!fullRegion) return "";
 
     const elapsed = formatDuration(Date.now() - entry.loadedAt);
     return [
       `DEDUP: ${path} [L${startLine}-${endLine}] — full file already in context (loaded ${elapsed} ago, ${fullRegion.tokens} tokens, unchanged).`,
-      'HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.',
-    ].join('\n');
+      "HINT: File unchanged. No need to re-read. Use read_for_edit() if you need exact code for editing.",
+    ].join("\n");
   }
 
   forget(path: string, symbolName?: string): void {
     if (symbolName) {
       const entry = this.entries.get(path);
       if (entry) {
-        entry.loaded = entry.loaded.filter(r => r.symbolName !== symbolName);
+        entry.loaded = entry.loaded.filter((r) => r.symbolName !== symbolName);
         if (entry.loaded.length === 0) {
           this.entries.delete(path);
         } else {
-          entry.tokenEstimate = entry.loaded.reduce((sum, r) => sum + r.tokens, 0);
+          entry.tokenEstimate = entry.loaded.reduce(
+            (sum, r) => sum + r.tokens,
+            0,
+          );
         }
       }
     } else {
@@ -181,7 +195,12 @@ export class ContextRegistry {
     this.entries.clear();
   }
 
-  summary(): { files: number; totalTokens: number; sessionDuration: number; entries: ContextEntry[] } {
+  summary(): {
+    files: number;
+    totalTokens: number;
+    sessionDuration: number;
+    entries: ContextEntry[];
+  } {
     const allEntries = Array.from(this.entries.values());
     return {
       files: allEntries.length,
@@ -221,4 +240,33 @@ export class ContextRegistry {
     }
   }
 
+  /**
+   * Serialize registry state to a plain object (TP-69m persistence).
+   * Sets inside `entries[*].loaded[*]` lack `Set` fields; only `contentHash`
+   * etc. are simple scalars, so JSON round-trip works.
+   */
+  toSnapshot(): { sessionStart: number; entries: ContextEntry[] } {
+    return {
+      sessionStart: this.sessionStart,
+      entries: Array.from(this.entries.values()),
+    };
+  }
+
+  /**
+   * Rehydrate registry state previously produced by `toSnapshot()`. Silent
+   * on malformed input — a broken snapshot file should degrade to an empty
+   * registry, not crash the MCP server.
+   */
+  loadSnapshot(snap: unknown): void {
+    if (!snap || typeof snap !== "object") return;
+    const s = snap as { sessionStart?: number; entries?: ContextEntry[] };
+    if (typeof s.sessionStart === "number") this.sessionStart = s.sessionStart;
+    if (Array.isArray(s.entries)) {
+      for (const e of s.entries) {
+        if (e && typeof e.path === "string" && Array.isArray(e.loaded)) {
+          this.entries.set(e.path, e);
+        }
+      }
+    }
+  }
 }

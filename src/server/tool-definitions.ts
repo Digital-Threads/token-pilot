@@ -80,6 +80,16 @@ export const TOOL_DEFINITIONS = [
           description:
             "Token budget. If output exceeds this, auto-downgrades: full → outline → compact. Use for context-constrained sessions.",
         },
+        session_id: {
+          type: "string",
+          description:
+            "Optional Claude Code session_id. When provided, dedup state (already-loaded files) persists across MCP server restarts and /clear, tied to that session. Omit to use ephemeral process-scoped dedup.",
+        },
+        force: {
+          type: "boolean",
+          description:
+            "Bypass dedup — return full content even if the same path was already loaded earlier in this session. Use when the prior result was compacted out of context.",
+        },
       },
       required: ["path"],
     },
@@ -114,6 +124,15 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description:
             "Append raw code block for Edit old_string (saves a read_for_edit call)",
+        },
+        session_id: {
+          type: "string",
+          description:
+            "Optional Claude Code session_id for cross-restart dedup (see smart_read).",
+        },
+        force: {
+          type: "boolean",
+          description: "Bypass dedup (see smart_read.force).",
         },
       },
       required: ["path", "symbol"],
@@ -162,6 +181,15 @@ export const TOOL_DEFINITIONS = [
         end_line: {
           type: "number",
           description: "End line (1-indexed, inclusive)",
+        },
+        session_id: {
+          type: "string",
+          description:
+            "Optional Claude Code session_id for cross-restart dedup (see smart_read).",
+        },
+        force: {
+          type: "boolean",
+          description: "Bypass dedup (see smart_read.force).",
         },
       },
       required: ["path", "start_line", "end_line"],
@@ -267,6 +295,15 @@ export const TOOL_DEFINITIONS = [
           type: "number",
           description:
             "Token budget per file. If a file exceeds this, auto-downgrades to compact outline.",
+        },
+        session_id: {
+          type: "string",
+          description:
+            "Optional Claude Code session_id for cross-restart dedup (see smart_read).",
+        },
+        force: {
+          type: "boolean",
+          description: "Bypass dedup (see smart_read.force).",
         },
       },
       required: ["paths"],

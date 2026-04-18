@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-04-18
+
+### Added — TP-69m session-scoped dedup
+
+The `ContextRegistry` that remembers "this file / symbol / range is already in your context" used to live for the MCP server process lifetime — a restart or the way Claude Code spawns short-lived server instances threw the knowledge away. Now it is per-session and persisted to disk.
+
+Four mechanics shipped together:
+
+1. **`ContextRegistry` snapshot API** — new `toSnapshot()` / `loadSnapshot()` round-trip the state through plain JSON. Silent on malformed input (a broken snapshot file degrades to an empty registry, never crashes the server).
+2. **`SessionRegistryManager`** — owns a map of session_id → registry, LRU-caps the live set (default 8 sessions in memory), reads/writes `.token-pilot/context-registries/<id>.json`. Unsafe ids (empty, traversal, slashes) get an ephemeral in-memory registry that is never persisted.
+3. **Per-call `pickRegistry` in server.ts** — `smart_read`, `read_symbol`, `read_range`, `smart_read_many` now pick the right registry for each tool call based on args. No `session_id` → process-default (legacy behaviour). Flushes to disk after every successful dedup-aware call.
+4. **`force: true` escape hatch** — new optional arg on the four dedup tools. When compaction has evicted an earlier result from the agent's window, `force: true` returns the full content instead of a "you already loaded this" pointer. Critical: without it, a session-scoped dedup pointing to a compacted turn would be an impossible-to-escape pit.
+
+Schema additions on `smart_read` / `read_symbol` / `read_range` / `smart_read_many`: optional `session_id: string` and `force: boolean`. Backwards compatible — existing callers see no change.
+
+Shutdown: `SessionRegistryManager.flushAll()` is attached to `process.beforeExit` so any registries that missed their post-call flush still land on disk.
+
+### Numbers
+- 879 tests green, `tsc --noEmit` clean.
+
 ## [0.21.2] - 2026-04-18
 
 ### Added

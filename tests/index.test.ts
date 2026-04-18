@@ -133,7 +133,7 @@ describe("index CLI helpers", () => {
     await expect(indexModule.main(["--help"])).rejects.toThrow("EXIT:0");
     expect(
       logSpy.mock.calls.some((call) =>
-        String(call[0]).includes("MCP Tools (18)"),
+        String(call[0]).includes("MCP Tools (20)"),
       ),
     ).toBe(true);
   });
