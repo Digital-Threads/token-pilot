@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-04-18
+
+### Changed — agent toolset coverage
+
+Audit of all 14 agents vs 22 MCP tools surfaced 6 unused tools — 3 of those were genuine efficiency leaks (agents used scalar calls where batch was available). Fixed:
+
+- **`read_symbols`** (batch read of N symbols in one file) — now in `tp-pr-reviewer` + `tp-impact-analyzer`. Previously both ran `read_symbol` in a loop for changed diffs.
+- **`read_section`** (headed-section read for MD/YAML/JSON) — now in `tp-onboard` + `tp-audit-scanner` + `tp-session-restorer`. Previously `smart_read` pulled whole README / policy files when only one section was needed.
+- **`smart_read_many`** (batch read of N files) — now in `tp-pr-reviewer` + `tp-migration-scout` + `tp-impact-analyzer` + `tp-onboard`. Previously loops of `smart_read` across the touched file set.
+- **`session_budget`** — now in `tp-session-restorer`, included in the restored briefing so a resumed session knows its burn fraction + time-to-compact projection immediately.
+
+Each agent's numbered steps were updated with an explicit instruction to prefer the batch tool over a loop. Preambles unchanged.
+
+**Remaining "unused by tp-*" tools (by design):**
+- `session_snapshot` — called by the main Claude Code agent at turn boundaries, not by subagents.
+- `session_analytics` — user-facing summary tool invoked via `/ask token-pilot:session_analytics`, not subagent surface.
+
+### Numbers
+- 904 tests green (+0 new — existing parity tests catch frontmatter changes automatically), `tsc --noEmit` clean.
+
 ## [0.23.0] - 2026-04-18
 
 ### Added — three more specialist agents (TP-02l follow-up)

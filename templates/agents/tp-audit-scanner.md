@@ -7,6 +7,7 @@ tools:
   - mcp__token-pilot__smart_read
   - mcp__token-pilot__read_for_edit
   - mcp__token-pilot__outline
+  - mcp__token-pilot__read_section
   - Grep
   - Read
 ---
@@ -17,7 +18,7 @@ Response budget: ~800 tokens.
 
 When asked to audit a file / module / whole repo:
 
-1. Start with `code_audit` — cheap first pass for TODO/FIXME/XXX with author + age metadata. Flag items older than 90 days or missing an owner.
+1. Start with `code_audit` — cheap first pass for TODO/FIXME/XXX with author + age metadata. Flag items older than 90 days or missing an owner. For config / policy files (`.env.example`, YAML, JSON), `read_section` by key — NOT whole-file `smart_read`.
 2. For each high-risk concern, Grep the precise pattern across scope:
    - Secrets: `(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*["'][^"']{8,}` + `AKIA[0-9A-Z]{16}` + `-----BEGIN.*PRIVATE KEY-----`
    - Injection shapes: raw string concat into `exec`/`query`/`eval`/`Function(`, shell metachars in `spawn`/`system`
