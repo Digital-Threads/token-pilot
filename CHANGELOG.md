@@ -5,6 +5,20 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-04-18
+
+### Added
+- **`doctor` Claude Code env-var advisor (TP-c08)** — surfaces the four knobs the community guide flags as giving 60-80% session savings with zero code change (`CLAUDE_CODE_SUBAGENT_MODEL=haiku`, `MAX_THINKING_TOKENS=10000`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`, `model=sonnet`). Pure advisory — never modifies user settings; reads both `process.env` and `~/.claude/settings.json` with fallback semantics.
+- **`.claudeignore` generator (TP-rtg)** — `token-pilot init` now offers to create a `.claudeignore` with sensible defaults (node_modules, dist, build, __pycache__, lockfiles, source maps, …). Non-destructive: carries a magic-comment marker so re-runs refresh our own file in place but never clobber user-owned `.claudeignore`. `doctor` reports current status.
+- **CLAUDE.md hygiene check in `doctor` (TP-rtg)** — warns when `CLAUDE.md` exceeds 60 non-empty lines (that file loads into every Claude Code message; long rules are per-turn tax). Read-only; counts ignore blank lines and markdown horizontal rules.
+- **Bash output advisor (TP-jzh)** — new `PostToolUse:Bash` hook. When Bash stdout exceeds ~8000 characters, the hook appends a single-line `additionalContext` tip pointing the agent at cheaper alternatives (`mcp__token-pilot__test_summary` for test runs, bounded commands, head/tail piping). Cannot truncate output in-flight — Claude Code's PostToolUse is observational for non-MCP tools — but steers the next turn.
+
+### Changed
+- `.claude-plugin/hooks/hooks.json` and the installer now register the new PostToolUse:Bash hook alongside Read/Edit/SessionStart. Idempotent install adds it without touching existing hooks; uninstall removes PostToolUse too.
+
+### Numbers
+- 843 tests green, `tsc --noEmit` clean.
+
 ## [0.20.2] - 2026-04-18
 
 ### Changed

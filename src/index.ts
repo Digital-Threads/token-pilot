@@ -42,6 +42,10 @@ import {
   writeDefaultClaudeIgnore,
 } from "./cli/claudeignore.js";
 import { assessClaudeMd } from "./cli/claudemd-hygiene.js";
+import {
+  decidePostBashAdvice,
+  renderPostBashHookOutput,
+} from "./hooks/post-bash.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,6 +114,19 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "hook-edit":
       handleHookEdit();
       return;
+    case "hook-post-bash": {
+      try {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const advice = decidePostBashAdvice(input);
+        const rendered = renderPostBashHookOutput(advice);
+        if (rendered) process.stdout.write(rendered);
+      } catch {
+        /* silent — hook must not break */
+      }
+      process.exit(0);
+      return;
+    }
     case "hook-session-start": {
       const cfg = await loadConfig(process.cwd());
       // `sessionStart.enabled` is independent of `hooks.mode` by design —

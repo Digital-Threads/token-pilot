@@ -69,6 +69,17 @@ function createHookConfig(options?: HookInstallOptions) {
           ],
         },
       ],
+      PostToolUse: [
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-post-bash", options),
+            },
+          ],
+        },
+      ],
     },
   };
 }
@@ -157,7 +168,11 @@ export async function installHook(
           Array.isArray(settings.hooks?.SessionStart) &&
           settings.hooks.SessionStart.some(isTokenPilotHook);
 
-        if (hasRead && hasEdit && hasSessionStart) {
+        const hasPostBashHook =
+          Array.isArray(settings.hooks?.PostToolUse) &&
+          settings.hooks.PostToolUse.some(isTokenPilotHook);
+
+        if (hasRead && hasEdit && hasSessionStart && hasPostBashHook) {
           return {
             installed: false,
             fatal: false,
@@ -194,6 +209,18 @@ export async function installHook(
       settings.hooks.SessionStart.push(...hookConfig.hooks.SessionStart);
     }
 
+    // Install PostToolUse (Bash advisor) hook idempotently
+    const existingPost = settings.hooks?.PostToolUse;
+    const hasPostBash =
+      Array.isArray(existingPost) && existingPost.some(isTokenPilotHook);
+    if (!hasPostBash) {
+      if (!settings.hooks) settings.hooks = {};
+      if (!Array.isArray(settings.hooks.PostToolUse)) {
+        settings.hooks.PostToolUse = [];
+      }
+      settings.hooks.PostToolUse.push(...hookConfig.hooks.PostToolUse);
+    }
+
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 
     return {
@@ -225,7 +252,8 @@ export async function uninstallHook(
 
     const hasPreToolUse = !!settings.hooks?.PreToolUse;
     const hasSessionStart = !!settings.hooks?.SessionStart;
-    if (!hasPreToolUse && !hasSessionStart) {
+    const hasPostToolUse = !!settings.hooks?.PostToolUse;
+    if (!hasPreToolUse && !hasSessionStart && !hasPostToolUse) {
       return { removed: false, fatal: false, message: "No hooks to remove." };
     }
 
@@ -247,6 +275,15 @@ export async function uninstallHook(
       );
       if (settings.hooks.SessionStart.length === 0) {
         delete settings.hooks.SessionStart;
+      }
+    }
+
+    if (Array.isArray(settings.hooks?.PostToolUse)) {
+      settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+        (h: any) => !isTokenPilotHook(h),
+      );
+      if (settings.hooks.PostToolUse.length === 0) {
+        delete settings.hooks.PostToolUse;
       }
     }
 
