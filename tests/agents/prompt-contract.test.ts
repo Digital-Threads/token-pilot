@@ -66,35 +66,39 @@ describe.each(TIER1)("template %s", ({ name, budget }) => {
     }
   });
 
-  it("description is task-focused, ≤160 chars, no <example> blocks", () => {
+  it("description is task-focused, ≤350 chars, no <example> blocks", () => {
     const md = readFileSync(filePath, "utf-8");
     const { meta } = parseFrontmatter(md);
     const desc = String(meta.description ?? "");
 
     expect(desc.length).toBeGreaterThan(0);
+    // v0.23.3: increased from 160 → 350 to accommodate PROACTIVELY trigger
+    // phrases + concrete user-intent signals ("when the user reports …").
+    // Under 160 was too tight for Claude Code to reliably auto-invoke.
     expect(
       desc.length,
-      `description must be ≤160 chars (got ${desc.length})`,
-    ).toBeLessThanOrEqual(160);
+      `description must be ≤350 chars (got ${desc.length})`,
+    ).toBeLessThanOrEqual(350);
     expect(desc, "description must not contain <example> blocks").not.toMatch(
       /<example>/i,
     );
   });
 
-  it("only tp-run uses PROACTIVELY keyword", () => {
+  it("has an explicit invocation trigger (PROACTIVELY or 'Use this when')", () => {
     const md = readFileSync(filePath, "utf-8");
     const { meta } = parseFrontmatter(md);
     const desc = String(meta.description ?? "");
 
-    if (name === "tp-run") {
-      expect(desc, "tp-run must use PROACTIVELY keyword").toMatch(
-        /PROACTIVELY/,
-      );
-    } else {
-      expect(desc, `${name} must not use PROACTIVELY keyword`).not.toMatch(
-        /PROACTIVELY/,
-      );
-    }
+    // v0.23.3: every tp-* needs a concrete trigger phrase so Claude Code
+    // can auto-invoke. Either "PROACTIVELY" (Anthropic's canonical keyword)
+    // or an explicit "Use this when …" sentence. Descriptions without a
+    // trigger used to sit unused even when they fit the task.
+    const hasTrigger =
+      /PROACTIVELY/.test(desc) || /\bUse this when\b/i.test(desc);
+    expect(
+      hasTrigger,
+      `${name} description needs a trigger phrase ('PROACTIVELY …' or 'Use this when …')`,
+    ).toBe(true);
   });
 
   it(`body declares Response budget: ~${budget} tokens`, () => {
@@ -135,7 +139,7 @@ describe.each(TIER1)("template %s", ({ name, budget }) => {
     ).toBeLessThanOrEqual(30);
   });
 
-  it("description follows '[Role]. [Purpose]. Use ...' pattern", () => {
+  it("description reads as multiple sentences (trigger + scope + boundary)", () => {
     const md = readFileSync(filePath, "utf-8");
     const { meta } = parseFrontmatter(md);
     const desc = String(meta.description ?? "");
@@ -144,8 +148,5 @@ describe.each(TIER1)("template %s", ({ name, budget }) => {
       sentences.length,
       `description should read as multiple sentences (got "${desc}")`,
     ).toBeGreaterThanOrEqual(2);
-    expect(desc, `description must include a "Use ..." trigger phrase`).toMatch(
-      /\bUse\s/,
-    );
   });
 });

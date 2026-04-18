@@ -1,6 +1,6 @@
 ---
 name: tp-pr-reviewer
-description: PR diff reviewer. Reviews a changeset structurally — verdict first, then Critical/Important findings as path:line. Use when reviewing a diff or pending PR.
+description: PROACTIVELY use this when the user asks to review a diff, PR, commit range, or changeset ("review these changes", "look at my PR", "is this safe to merge"). Verdict-first output with Critical / Important findings. Do NOT use for writing code or planning.
 tools:
   - mcp__token-pilot__smart_diff
   - mcp__token-pilot__outline

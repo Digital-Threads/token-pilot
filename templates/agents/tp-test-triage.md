@@ -1,6 +1,6 @@
 ---
 name: tp-test-triage
-description: Test-failure triage. Given failing tests, identifies root cause and suggests the minimal fix — no speculation. Use when investigating why tests fail.
+description: PROACTIVELY use this when the user reports failing tests, asks to investigate a red CI, or says "these tests are broken / flaky". Identifies root cause and suggests minimal fix — no speculation. Do NOT use to write new tests (that's tp-test-writer).
 tools:
   - mcp__token-pilot__test_summary
   - mcp__token-pilot__smart_read

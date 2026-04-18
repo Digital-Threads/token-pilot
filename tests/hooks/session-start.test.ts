@@ -104,18 +104,19 @@ import { buildReminderMessage } from "../../src/hooks/session-start.js";
 
 describe("buildReminderMessage", () => {
   it("contains MANDATORY section", () => {
-    const msg = buildReminderMessage([], 250);
+    const msg = buildReminderMessage([], 500);
     expect(msg).toContain("MANDATORY");
-    expect(msg).toContain("mcp__token-pilot__smart_read");
+    // v0.23.3: short forms without mcp__token-pilot__ prefix for density
+    expect(msg).toContain("smart_read(path)");
   });
 
   it("contains WHEN DELEGATING section", () => {
-    const msg = buildReminderMessage([], 250);
+    const msg = buildReminderMessage([], 500);
     expect(msg).toContain("WHEN DELEGATING");
   });
 
   it("shows install hint when no agents found", () => {
-    const msg = buildReminderMessage([], 250);
+    const msg = buildReminderMessage([], 500);
     expect(msg).toContain("install-agents");
   });
 
@@ -148,23 +149,25 @@ describe("buildReminderMessage", () => {
   });
 
   it('trims agent list with "… and N more" when over budget', () => {
-    // Build many agents to force overflow
+    // Build many custom agents (none known to the DECISION_GUIDE) to force
+    // overflow. Budget tight enough that MANDATORY + header/footer fits but
+    // 30 extras do not.
     const agents = Array.from({ length: 30 }, (_, i) => ({
       name: `tp-agent-${i}`,
       description: `Description for agent number ${i} which is quite long to inflate token count`,
     }));
-    const msg = buildReminderMessage(agents, 250);
+    const msg = buildReminderMessage(agents, 600);
     expect(msg).toMatch(/… and \d+ more/);
   });
 
-  it("fits within maxReminderTokens (250) with 0 agents", () => {
-    const msg = buildReminderMessage([], 250);
+  it("fits within maxReminderTokens (500, new default) with 0 agents", () => {
+    const msg = buildReminderMessage([], 500);
     // Rough token estimate: chars/4
     const tokens = Math.ceil(msg.length / 4);
-    expect(tokens).toBeLessThanOrEqual(250);
+    expect(tokens).toBeLessThanOrEqual(500);
   });
 
-  it("fits within maxReminderTokens (250) with 6 typical agents", () => {
+  it("fits within maxReminderTokens (500) with all 14 typical agents", () => {
     const agents = [
       { name: "tp-run", description: "General workhorse, MCP-first" },
       { name: "tp-onboard", description: "Exploring an unfamiliar repo" },
@@ -172,10 +175,18 @@ describe("buildReminderMessage", () => {
       { name: "tp-impact-analyzer", description: "Tracing what will break" },
       { name: "tp-refactor-planner", description: "Planning a refactor" },
       { name: "tp-test-triage", description: "Investigating test failures" },
+      { name: "tp-debugger", description: "Bug root cause" },
+      { name: "tp-migration-scout", description: "Migration impact map" },
+      { name: "tp-test-writer", description: "Write tests for symbol" },
+      { name: "tp-dead-code-finder", description: "Find dead code" },
+      { name: "tp-commit-writer", description: "Conventional commit" },
+      { name: "tp-history-explorer", description: "Git archaeology" },
+      { name: "tp-audit-scanner", description: "Security scan" },
+      { name: "tp-session-restorer", description: "Restore after /clear" },
     ];
-    const msg = buildReminderMessage(agents, 250);
+    const msg = buildReminderMessage(agents, 500);
     const tokens = Math.ceil(msg.length / 4);
-    expect(tokens).toBeLessThanOrEqual(250);
+    expect(tokens).toBeLessThanOrEqual(500);
   });
 
   it("does NOT claim 'none installed' when all agents are trimmed due to budget (regression: show-stopper #1)", () => {
@@ -191,7 +202,7 @@ describe("buildReminderMessage", () => {
           "lorem ipsum dolor sit amet ".repeat(80),
       },
     ];
-    const msg = buildReminderMessage(agents, 250);
+    const msg = buildReminderMessage(agents, 600);
     expect(msg).not.toMatch(/none installed/);
     expect(msg).toMatch(/… and 1 more/);
   });
@@ -225,7 +236,7 @@ describe("handleSessionStart", () => {
       sessionStartConfig: {
         enabled: true,
         showStats: false,
-        maxReminderTokens: 250,
+        maxReminderTokens: 500,
       },
     });
     expect(out).not.toBeNull();
@@ -242,7 +253,7 @@ describe("handleSessionStart", () => {
       sessionStartConfig: {
         enabled: false,
         showStats: false,
-        maxReminderTokens: 250,
+        maxReminderTokens: 500,
       },
     });
     expect(out).toBeNull();
@@ -261,7 +272,7 @@ describe("handleSessionStart", () => {
       sessionStartConfig: {
         enabled: true,
         showStats: false,
-        maxReminderTokens: 250,
+        maxReminderTokens: 500,
       },
     });
     const parsed = JSON.parse(out!);
@@ -278,7 +289,7 @@ describe("handleSessionStart", () => {
       sessionStartConfig: {
         enabled: true,
         showStats: false,
-        maxReminderTokens: 250,
+        maxReminderTokens: 500,
       },
     });
     const parsed = JSON.parse(out!);

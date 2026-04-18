@@ -1,6 +1,6 @@
 ---
 name: tp-audit-scanner
-description: Read-only security + quality scan — hardcoded secrets, SQL/command injection shapes, unsafe-cast patterns, deprecated APIs, stale TODOs with missing owners. Reports by severity, never edits. Use for audits / pre-release sweeps, not for writing the fix.
+description: Use this when the user asks for a security / quality audit, pre-release sweep, or "scan this for issues". Finds hardcoded secrets, injection shapes, unsafe casts, stale TODOs — classified Critical / Important / Minor. Read-only, NEVER edits, never quotes secrets in output.
 tools:
   - mcp__token-pilot__code_audit
   - mcp__token-pilot__find_usages

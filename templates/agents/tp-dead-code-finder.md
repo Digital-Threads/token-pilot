@@ -1,6 +1,6 @@
 ---
 name: tp-dead-code-finder
-description: Finds truly unused symbols safe to delete. Cross-checks with git history, reflection / dynamic-import patterns, and test-only references before recommending removal. Use for codebase cleanup, NOT mid-feature.
+description: Use this when the user asks to find or remove dead / unused code ("clean up this file", "find unused exports", "pre-release cleanup"). Cross-checks find_unused with Grep, git history, and dynamic-lookup patterns before classifying. Output-only — NEVER deletes code itself.
 tools:
   - mcp__token-pilot__find_unused
   - mcp__token-pilot__find_usages

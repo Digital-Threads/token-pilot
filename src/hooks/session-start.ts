@@ -123,13 +123,21 @@ export async function scanAgents(
 
 const MANDATORY_BLOCK = `[token-pilot active]
 
-MANDATORY — for code files, use these before raw Read:
-  mcp__token-pilot__smart_read(path)        — structural overview
-  mcp__token-pilot__read_symbol(path, sym)  — one function / class
-  mcp__token-pilot__read_for_edit(path, sym)— exact text for editing
-  mcp__token-pilot__outline(path)           — symbol list
+MANDATORY — use these BEFORE raw Read / Grep / git:
+  smart_read(path)             — structural overview of a code file
+  read_symbol(path, sym)       — one function / class body
+  read_for_edit(path, sym)     — exact text for Edit's old_string
+  outline(path)                — symbol list
+  find_usages(symbol)          — who calls / uses a symbol (INSTEAD of Grep)
+  smart_diff                   — git diff structurally (INSTEAD of raw git diff)
+  smart_log(path?)             — git log with symbol context (INSTEAD of raw git log)
+  test_summary(command)        — test runs without dumping full output
+  project_overview             — unfamiliar repo top-level map (first step)
 Batch variants (prefer over loops): read_symbols, smart_read_many, read_section.
-Raw Read allowed only with offset/limit or TOKEN_PILOT_BYPASS=1.`;
+Also available: read_range, read_diff, module_info, related_files, explore_area,
+code_audit, find_unused, session_snapshot, session_budget, session_analytics.
+Raw Read/Grep allowed only with offset/limit / narrow regex / non-code files,
+or TOKEN_PILOT_BYPASS=1.`;
 
 const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, use the Task tool:
   bug / stack trace      → tp-debugger

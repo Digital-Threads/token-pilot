@@ -1,6 +1,6 @@
 ---
 name: tp-debugger
-description: Bug diagnosis via call-tree traversal. Given a stack trace, error, or reproduction, finds the root cause path structurally before touching source. Use when debugging, not when writing new features.
+description: PROACTIVELY use this when the user reports a bug, stack trace, error message, failing behaviour, or asks "why does X break / fail / throw". Traces root cause via call-tree without reading whole files first. Do NOT use for writing new features or planning changes.
 tools:
   - mcp__token-pilot__read_symbol
   - mcp__token-pilot__find_usages

@@ -1,6 +1,6 @@
 ---
 name: tp-history-explorer
-description: Answers "why is this like this?" by tracing git history for a file / symbol / regression. Returns the minimum commit chain that explains the current state, not the full log. Use when the question is about origin or intent, not about current behaviour.
+description: PROACTIVELY use this when the user asks "why is this like this", "when was X added / changed", "who added Y", "what was the reason for this code". Returns the minimum commit chain that explains current state — no theorising beyond what commit messages say.
 tools:
   - mcp__token-pilot__smart_log
   - mcp__token-pilot__smart_diff

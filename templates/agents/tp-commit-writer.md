@@ -1,6 +1,6 @@
 ---
 name: tp-commit-writer
-description: Drafts one Conventional-Commit message from current staged changes. Verifies tests/lint pass first; blocks when they don't. Use BEFORE `git commit`, not to explain already-made commits.
+description: PROACTIVELY use this when the user is about to commit, asks "write a commit message", or says "commit this". Reads staged diff, verifies tests pass, drafts Conventional Commit. Refuses mixed diffs (asks to split), failing tests, or empty stage. Do NOT use to explain already-made commits.
 tools:
   - mcp__token-pilot__smart_diff
   - mcp__token-pilot__smart_log

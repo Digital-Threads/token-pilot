@@ -1,6 +1,6 @@
 ---
 name: tp-run
-description: MCP-first workhorse for general coding work — reading, editing, searching, exploring. Use PROACTIVELY when no specialised tp-* agent fits the task.
+description: PROACTIVELY use this general-purpose token-pilot workhorse for ANY coding task (read / edit / search / explore) when no other tp-* specialist matches. Prefer token-pilot MCP tools over raw Read / Grep / git. Invoke when the user asks to touch code and no more specific specialist fits.
 tools:
   - mcp__token-pilot__smart_read
   - mcp__token-pilot__read_symbol
