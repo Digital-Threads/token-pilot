@@ -599,7 +599,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "session_budget",
     description:
-      "Report current session burn: savedTokens so far, configured budget, burn fraction (0..1), and the effective denyThreshold the adaptive curve would apply right now. Use to decide whether to tighten up before a big read.",
+      "Report Read-hook pressure for this session: suppressed tokens so far, reference budget, burn fraction (0..1), and the effective denyThreshold the adaptive curve would apply right now. NOTE: burnFraction measures hook activity, not actual context-window occupancy. Useful to decide when to tighten further before a big read.",
     inputSchema: {
       type: "object" as const,
       properties: {

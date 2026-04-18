@@ -1,17 +1,21 @@
 /**
- * Adaptive threshold: lower the effective denyThreshold as session budget
- * drains, so large-file reads become stricter the deeper a session runs.
+ * Adaptive threshold: lower the effective denyThreshold as the Read-hook
+ * sees more suppressed-token activity in this session, so large-file reads
+ * become stricter the chattier the agent has been with big files.
  *
  * Piecewise curve, opt-in only:
- *   burned <  30% of budget → base threshold unchanged
- *   burned ≥  30%, < 60%    → base × 0.75
- *   burned ≥  60%, < 80%    → base × 0.5
- *   burned ≥  80%           → base × 0.3 (minimum 50 lines)
+ *   pressure <  30% of budget → base threshold unchanged
+ *   pressure ≥  30%, < 60%    → base × 0.75
+ *   pressure ≥  60%, < 80%    → base × 0.5
+ *   pressure ≥  80%           → base × 0.3 (minimum 50 lines)
  *
- * Burn fraction = sessionSavedTokens / sessionBudgetTokens.
- * Here sessionSavedTokens is the accumulated "would-be cost if nothing was
- * suppressed" proxy taken from hook-events.jsonl; it stands in for attention
- * pressure inside the model's context window.
+ * Burn fraction = sessionSavedTokens / sessionBudgetTokens, where
+ * `sessionSavedTokens` is the sum of `savedTokens` entries in
+ * hook-events.jsonl for the current session_id. This is a PROXY for how
+ * aggressively the agent has been trying to pull large files, not a
+ * measurement of Claude Code's actual context-window occupancy — Token
+ * Pilot has no visibility into that. If the agent reads many files with
+ * bounded `offset/limit`, none of that contributes to the burn signal.
  */
 
 export interface AdaptiveThresholdInput {

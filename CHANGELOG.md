@@ -11,9 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`session_snapshot` auto-persist + SessionStart resume pointer (TP-340)** — calling `session_snapshot` now writes the rendered block to `.token-pilot/snapshots/<iso>.md` and `latest.md` (opt-out via `persist: false`). SessionStart hook surfaces a one-line pointer when the latest snapshot is fresh (<24h), so a new window after `/clear`, compaction, or a fresh process can pick up the thread without re-hydrating context by hand. Retention keeps the last 10 archived snapshots.
 - **`session_budget` MCP tool (TP-hsz batch A)** — new tool reports the live session's saved tokens, configured budget, burn fraction (clamped 0..1), base threshold, and the effective threshold the adaptive curve would apply right now. Small payload (~80 tokens) — the agent can poll cheaply before a big read to decide whether to tighten up.
 - **Context-mode auto-suggest in Bash advisor (TP-hsz batch A)** — when `.mcp.json` advertises context-mode, the large-Bash-output advisory now mentions `mcp__context-mode__execute` as an option (sandbox keeps stdout out of the window). Sync detector — no async plumbing added to the hook.
+- **Time-to-compact projection in `session_budget` (TP-hsz batch B)** — payload now includes `eventCount`, `avgSavedPerEvent`, `eventsUntilExhaustion`, `firstEventMs`, `lastEventMs`. Agent can see how many more same-shape turns the adaptive budget will tolerate at the current burn rate.
+
+### Changed
+- **Snapshot resume pointer is tighter and more informative** — SessionStart "fresh snapshot" window narrowed from 24h to 2h (an unrelated next-day task shouldn't inherit yesterday's thread) and now surfaces the snapshot's `Goal:` extract inline so the agent can eyeball relevance before reading `latest.md`.
+- **Clarified adaptive-threshold / `session_budget` semantics** — `burnFraction` is Read-hook suppression pressure, NOT context-window occupancy. Token Pilot has no visibility into actual window state; the new docstrings and tool descriptions say so explicitly, and the `session_budget` payload carries a `semantics:` hint. No behaviour change; naming-only clarification before TP-69m builds on the same signal.
 
 ### Numbers
-- 872 tests green, `tsc --noEmit` clean.
+- 873 tests green, `tsc --noEmit` clean.
 
 ## [0.21.1] - 2026-04-18
 

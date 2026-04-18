@@ -1,10 +1,18 @@
 /**
  * TP-hsz — `session_budget` MCP tool.
  *
- * Lets the agent interrogate its own session state: how much budget has
- * been burned so far, what denyThreshold would be applied right now, and
- * whether adaptive mode is on. Cheap single-line JSON payload — under
- * 100 tokens — so the agent can poll between long-running operations.
+ * Reports *hook pressure* for the current session: the total tokens the
+ * Read-hook has suppressed so far (`savedTokens` in hook-events.jsonl)
+ * divided by a configurable reference budget. This is a proxy for "how
+ * chatty is the agent being with big files", not a measurement of the
+ * Claude Code context window itself — Token Pilot has no visibility into
+ * what the model actually has in context.
+ *
+ * The adaptive threshold curve uses this same signal to tighten when
+ * pressure is high, so `burnFraction` here matches what the hook sees.
+ * An agent that Reads many files with bounded `offset/limit` will see a
+ * low `burnFraction` even if its context is nearly full — the budget is
+ * about Token Pilot interventions, not total window occupancy.
  */
 
 import { loadSessionStats } from "../core/session-savings.js";
@@ -56,6 +64,8 @@ export async function handleSessionBudget(
   }
 
   const payload = {
+    semantics:
+      "burnFraction is hook-suppression pressure, NOT context-window occupancy. See session-budget.ts docs.",
     sessionId,
     savedTokens,
     budgetTokens: budget,

@@ -12,7 +12,12 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
 
-const SNAPSHOT_FRESH_MS = 24 * 3600 * 1000; // 24h
+const SNAPSHOT_FRESH_MS = 2 * 3600 * 1000; // 2h — enough to cover compaction/restart, tight enough that a new day's unrelated work doesn't inherit yesterday's thread
+
+function extractSnapshotGoal(body: string): string | null {
+  const m = body.match(/\*\*Goal:\*\*\s*(.+?)(?:\n|$)/);
+  return m ? m[1].trim().slice(0, 100) : null;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -205,7 +210,9 @@ export async function handleSessionStart(
       const minutes = Math.round(snap.ageMs / 60000);
       const age =
         minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
-      message += `\n\n[token-pilot] session_snapshot available — saved ${age}. Read .token-pilot/snapshots/latest.md to resume.`;
+      const goal = extractSnapshotGoal(snap.body);
+      const goalClause = goal ? ` (goal: "${goal}")` : "";
+      message += `\n\n[token-pilot] session_snapshot from ${age}${goalClause}. Read .token-pilot/snapshots/latest.md to resume — or ignore if unrelated.`;
     }
 
     const output = {
