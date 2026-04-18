@@ -25,6 +25,7 @@ import { computeEffectiveThreshold } from "./hooks/adaptive-threshold.js";
 import { loadSessionSavedTokens } from "./core/session-savings.js";
 import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
 import { checkForTypo } from "./cli/typo-guard.js";
+import { processPostTask } from "./hooks/post-task.js";
 import { isContextModeInstalledSync } from "./integration/context-mode-detector.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
@@ -145,6 +146,27 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         });
         const rendered = renderPostBashHookOutput(advice);
         if (rendered) process.stdout.write(rendered);
+      } catch {
+        /* silent — hook must not break */
+      }
+      process.exit(0);
+      return;
+    }
+    case "hook-post-task": {
+      try {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const message = await processPostTask(process.cwd(), homedir(), input);
+        if (message) {
+          process.stdout.write(
+            JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: "PostToolUse",
+                additionalContext: `[token-pilot] ${message}`,
+              },
+            }),
+          );
+        }
       } catch {
         /* silent — hook must not break */
       }

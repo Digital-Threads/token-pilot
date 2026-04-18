@@ -24,6 +24,7 @@ export const KNOWN_COMMANDS = [
   "hook-read",
   "hook-edit",
   "hook-post-bash",
+  "hook-post-task",
   "hook-session-start",
   "install-hook",
   "uninstall-hook",
