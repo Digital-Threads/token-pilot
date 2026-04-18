@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-04-18
+
+### Added — Tier 3 combo-agents (TP-z64 delivered)
+
+Five new `tp-*` specialists that each pair novel combinations of MCP tools for niche workflows. Roster is now **19 agents** (6 Tier 1 + 8 Tier 2 + 5 Tier 3).
+
+- **`tp-review-impact`** — pre-merge blast-radius review. Combines `smart_diff` × `find_usages` × `module_info` to answer *"will this PR break production"*. Verdict: safe / needs-review / blocking, with concrete dependents cited at `path:line`.
+- **`tp-test-coverage-gapper`** — *(haiku-4.5)* enumerates exported symbols, cross-checks against test-file references, returns a prioritised gap list grouped Critical / Important / Minor. Read-only, never writes tests itself.
+- **`tp-api-surface-tracker`** — compares current public surface with exported symbols at the last release tag, classifies each change MAJOR / MINOR / PATCH per semver. Verdict: suggested version bump.
+- **`tp-dep-health`** — dependency audit: outdated (from `npm outdated` etc.) × usage count (via `find_usages`) → priority groups (urgent / soon / remove-candidate / safe-skip). Does not run upgrades.
+- **`tp-incident-timeline`** — given an incident timestamp, builds a git timeline for the window and ranks commits by likely correlation with the reported failure. Refuses to blame commits outside the window.
+
+### Changed
+
+- **SessionStart reminder decision guide** extended with the 5 new task→agent rows. All 19 agents now covered.
+- **README** adds a new **Tier 3 — combo / workflow** table alongside Tier 1 / Tier 2.
+
+### Numbers
+- 910 tests green, `tsc --noEmit` clean. 19 agents built.
+
 ## [0.23.7] - 2026-04-18
 
 ### Changed — per-agent `model:` selection for cheap, format-bound work
