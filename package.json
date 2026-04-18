@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "Save up to 80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,7 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/agents/*.md",
+    "scripts/postinstall.mjs",
     "start.sh",
     ".claude-plugin/",
     ".mcp.json",
@@ -27,6 +28,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "bench:hook": "node scripts/bench-hook.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && node --input-type=module -e \"import { chmod } from 'node:fs/promises'; await chmod('dist/index.js', 0o755);\""
   },
@@ -64,6 +66,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@ast-index/cli": "^3.38.0",
     "chokidar": "^4.0.3"
   },
   "devDependencies": {
@@ -74,14 +77,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "peerDependencies": {
-    "ast-index": ">=0.1.0"
-  },
-  "peerDependenciesMeta": {
-    "ast-index": {
-      "optional": true
-    }
   },
   "optionalDependencies": {
     "@ast-grep/cli": "^0.41.0"
