@@ -35,6 +35,7 @@ import {
   type HookEvent,
 } from "./core/event-log.js";
 import { handleStats } from "./cli/stats.js";
+import { promptYesNo } from "./cli/install-agents.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -738,11 +739,44 @@ export async function handleInit(targetDir: string) {
 
   console.log(`\nConfigured MCP servers:`);
   console.log(
-    `  • token-pilot   — AST-aware code reading (60-80% token savings)`,
+    `  • token-pilot   — enforcement layer for token-efficient reads (hook + MCP + tp-* subagents)`,
   );
   console.log(
     `  • context-mode  — shell output & large data processing (BM25 sandbox)`,
   );
+
+  // Claude Code users benefit from six token-pilot-native subagents (tp-run,
+  // tp-onboard, …). Offer installation now so they don't have to discover
+  // `install-agents` from a stderr reminder later.
+  const offeredAgents =
+    added.includes("token-pilot") && process.stdin.isTTY === true;
+  if (offeredAgents) {
+    console.log("");
+    const yes = await promptYesNo(
+      "Install 6 tp-* subagents now (recommended for Claude Code)?",
+      true,
+    );
+    if (yes) {
+      // Delegate to the full install-agents flow: it will prompt scope,
+      // handle idempotence, and persist the choice to .token-pilot.json.
+      const code = await handleInstallAgents([], { projectRoot: targetDir });
+      if (code !== 0) {
+        console.log(
+          "\n(install-agents returned non-zero; you can retry with: npx token-pilot install-agents)",
+        );
+      }
+    } else {
+      console.log(
+        "\nSkipping agent install. Run later: npx token-pilot install-agents",
+      );
+    }
+  } else if (added.includes("token-pilot")) {
+    // Non-TTY path — at minimum surface the next step in the log.
+    console.log(
+      `\nNext step (Claude Code): npx token-pilot install-agents --scope=user|project`,
+    );
+  }
+
   console.log(`\nRestart your AI assistant to activate.`);
   process.exit(0);
 }

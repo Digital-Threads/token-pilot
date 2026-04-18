@@ -5,6 +5,12 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-04-18
+
+### Changed
+- **`token-pilot init` now offers to install tp-* subagents** — after writing `.mcp.json`, if a TTY is attached the command asks `Install 6 tp-* subagents now? [Y/n]`. If yes, delegates to the full `install-agents` flow (scope prompt, idempotence, persistence). In non-TTY the next-step hint is printed instead of asking. Closes the gap where first-time users left `init` thinking everything was ready and only learned about subagents from a later stderr reminder.
+- **Refreshed the init success message** — replaced the v0.13-era "AST-aware code reading (60-80% token savings)" line with a description of the v0.20 enforcement-layer scope.
+
 ## [0.20.1] - 2026-04-18
 
 ### Fixed

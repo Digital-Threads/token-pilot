@@ -231,6 +231,23 @@ async function promptLine(question: string): Promise<string> {
   });
 }
 
+/**
+ * Yes/no prompt used by other CLI entry points that want to offer
+ * an opt-in step (e.g. `token-pilot init` → "install agents now?").
+ * Returns false on non-TTY or ambiguous input; callers can pass a
+ * `defaultYes` to accept bare Enter as yes.
+ */
+export async function promptYesNo(
+  question: string,
+  defaultYes: boolean = true,
+): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;
+  const suffix = defaultYes ? " [Y/n] " : " [y/N] ";
+  const ans = (await promptLine(question + suffix)).toLowerCase();
+  if (ans === "") return defaultYes;
+  return ans === "y" || ans === "yes";
+}
+
 async function promptScope(): Promise<Scope> {
   process.stderr.write(
     "\nWhere should token-pilot agents be installed?\n" +
