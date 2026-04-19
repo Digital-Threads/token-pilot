@@ -10,7 +10,7 @@ tools:
   - mcp__token-pilot__smart_read
   - mcp__token-pilot__smart_read_many
   - mcp__token-pilot__read_section
-token_pilot_version: "0.28.2"
+token_pilot_version: "0.28.3"
 token_pilot_body_hash: ae0b86eaffaf34bf283b94b5572481fa8c2d6a2a25193f1173b70bef0fbe1919
 ---
 

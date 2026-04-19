@@ -5,6 +5,33 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.3] - 2026-04-19
+
+### Fixed — `explore_area` output size (was −31% savings)
+
+Two independent live verification runs — Sonnet 4.6 on v0.28.1 and Opus 4.7 on v0.28.2, both on `docker-local-env` — measured `explore_area` at exactly **−31% savings**: 5,722 tokens returned against a 4,360-token baseline of reading the scanned files raw. That's the opposite of the tool's stated purpose. Root cause: imports analysis + tests listing + git-log tail accumulated on top of the directory outline, pushing the response above what the individual file-reads would have cost.
+
+Tightened two caps in `src/handlers/explore-area.ts`:
+
+| Constant | Before | After | Effect |
+|---|---:|---:|---|
+| `MAX_IMPORT_FILES` | 20 | **10** | imports panel scans half as many files |
+| `MAX_OUTPUT_LINES` | 500 | **200** | global response cap drops 60 % |
+
+The structural overview survives; the tail (detailed per-file imports past the top 10, git-log beyond the first screen) drops. Per-call smoke-test in the dev harness lands around +40–60 % savings, matching what the tool was supposed to deliver.
+
+Self-sizing (compare the predicted output against `estimateExploreAreaWorkflowTokens` baseline and trim if exceeded) deferred to v0.29.0 — needs handler + server coordination.
+
+### Noted for v0.29.0 (not this release)
+
+Composite Bash escape in `PreToolUse:Bash` hook:
+- `;` `&&` `||` `|` + newline separators → detected correctly (verified)
+- `bash -c "cat src/foo.ts"`, `eval "..."`, `for f in *.ts; do cat $f; done` → slip through (quoted / wrapped commands not lexed)
+
+Not shipping today because all three escape patterns require advanced shell knowledge and are rare in agent-generated commands. Opus 4.7's v0.28.2 verification confirmed 5/6 TP-blocked on realistic patterns. Fixing `bash -c` properly needs a small shell-tokenizer; worth a focused design pass, not a same-day patch.
+
+1019 tests still passing.
+
 ## [0.28.2] - 2026-04-19
 
 ### Fixed — plugin hooks were never actually reaching Claude Code
