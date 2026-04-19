@@ -141,10 +141,7 @@ describe("Hook Installer", () => {
 
   it("keeps packaged hook config in sync with installer hooks", async () => {
     const packaged = JSON.parse(
-      await readFile(
-        join(process.cwd(), ".claude-plugin", "hooks", "hooks.json"),
-        "utf-8",
-      ),
+      await readFile(join(process.cwd(), "hooks", "hooks.json"), "utf-8"),
     );
 
     const preToolUse = packaged.hooks.PreToolUse;
