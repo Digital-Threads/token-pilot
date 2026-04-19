@@ -9,7 +9,7 @@ tools:
   - Bash
   - Read
 model: haiku
-token_pilot_version: "0.27.1"
+token_pilot_version: "0.28.0"
 token_pilot_body_hash: 6224d989835ea284985b474005b8b46052b7007c4610e661b10658286b5c6624
 ---
 

@@ -5,6 +5,40 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-04-19
+
+### Added — passive pre-intercept hooks for Grep and Bash
+
+Field observation from the author's own session: over 12 hours of work on token-pilot, the main-thread agent called **zero** MCP code-reading tools. Everything went through raw `Read`, `Bash` (`awk`/`grep`), and `Edit`. Advisory hooks (PostToolUse `additionalContext`) didn't change the behaviour — by the time they fire, the big output is already in the context.
+
+Fix: push enforcement upstream to `PreToolUse`. When the agent is about to invoke a heavy pattern, deny the call and suggest a cheaper MCP equivalent. This is the same lever the Read hook already uses — it's the one that actually works in production.
+
+**`PreToolUse:Grep` (new matcher)** — denies Grep when the pattern looks like a code identifier (camelCase, PascalCase, snake_case, CONSTANT_CASE, kebab-case; length ≥4; no regex metacharacters). Suggests `mcp__token-pilot__find_usages(symbol=...)` — semantic search, 5-10× cheaper than line-oriented grep output. Regex-shaped patterns, short generic terms (`id`, `err`, `db`), and patterns with spaces still pass through unchanged.
+
+**`PreToolUse:Bash` (new matcher)** — denies five heavy patterns and suggests the cheaper path:
+
+| Pattern | Redirect |
+|---|---|
+| `grep -r` without `-m N` | `find_usages` or bounded grep |
+| `find /` / `find ~` without `-maxdepth` | Glob tool or bounded find |
+| `cat <code-file>` (TypeScript/Python/etc) | `smart_read` or `Read` with offset/limit |
+| `git log` without `-n` / `--max-count` / `| head` | `smart_log` or bounded log |
+| Bare `git diff` (no path, no `--stat`) | `smart_diff` or scoped diff |
+
+Every deny message includes an explicit bypass instruction (`add -m N to re-run`, `use regex-shaped pattern`, etc.) so legitimate use-cases aren't blocked — just made deliberate.
+
+**Hook installer + plugin manifest** now register all four `PreToolUse` matchers (Read, Edit, Bash, Grep). Per-matcher idempotence from v0.25.0 means existing users who re-run `install-hook` or reinstall the plugin pick up the new matchers without duplicates. 43 new unit tests on the pure decision logic.
+
+### Why not truncate output post-factum
+
+Investigated for v0.27 but Claude Code's `PostToolUse` can't modify `tool_response` for Bash — the `updatedMCPToolOutput` field is MCP-only, documented in our existing `post-bash.ts` comment. Blocking upfront is the only mechanism that actually saves tokens on heavy Bash / Grep calls.
+
+### Noted
+
+The author's session that motivated this release will be re-measured after v0.28.0 is published and the plugin reinstalled. If `find_usages` and `smart_*` adoption rises from 0 to double digits per session, we keep the aggressive default. If agents bypass via regex or `-m 1` to escape the block, we soften back to advisory.
+
+1018 tests passing (+43 new).
+
 ## [0.27.1] - 2026-04-19
 
 ### Fixed — plugin install failed on v0.27.0 with "agents: Invalid input"

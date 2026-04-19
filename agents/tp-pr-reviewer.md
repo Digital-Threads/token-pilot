@@ -11,7 +11,7 @@ tools:
   - mcp__token-pilot__read_for_edit
   - Read
 model: sonnet
-token_pilot_version: "0.27.1"
+token_pilot_version: "0.28.0"
 token_pilot_body_hash: 73ba5844c8354088dcb10c671622daecc0e8589568de15a6001e1cf951eea586
 ---
 

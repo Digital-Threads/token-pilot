@@ -69,6 +69,8 @@ import {
   decidePostBashAdvice,
   renderPostBashHookOutput,
 } from "./hooks/post-bash.js";
+import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
+import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -162,6 +164,38 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           contextModeAvailable: isContextModeInstalledSync(process.cwd()),
         });
         const rendered = renderPostBashHookOutput(advice);
+        if (rendered) process.stdout.write(rendered);
+      } catch {
+        /* silent — hook must not break */
+      }
+      process.exit(0);
+      return;
+    }
+    case "hook-pre-bash": {
+      // v0.28.0 — passive pre-intercept for heavy Bash commands.
+      // PostToolUse can't truncate tool_response (API limit), so the only
+      // way to actually save tokens is to deny the call up front and
+      // nudge the agent to the cheaper MCP equivalent.
+      try {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const decision = decidePreBash(input);
+        const rendered = renderPreBashOutput(decision);
+        if (rendered) process.stdout.write(rendered);
+      } catch {
+        /* silent — hook must not break */
+      }
+      process.exit(0);
+      return;
+    }
+    case "hook-pre-grep": {
+      // v0.28.0 — passive pre-intercept for symbol-like Grep patterns.
+      // Redirects identifier searches to mcp__token-pilot__find_usages.
+      try {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const decision = decidePreGrep(input);
+        const rendered = renderPreGrepOutput(decision);
         if (rendered) process.stdout.write(rendered);
       } catch {
         /* silent — hook must not break */

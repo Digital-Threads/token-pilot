@@ -23,6 +23,8 @@ import { existsSync, statSync } from "node:fs";
 export const KNOWN_COMMANDS = [
   "hook-read",
   "hook-edit",
+  "hook-pre-bash",
+  "hook-pre-grep",
   "hook-post-bash",
   "hook-post-task",
   "hook-session-start",
