@@ -120,7 +120,7 @@ export async function installHook(
   options?: HookInstallOptions,
 ): Promise<HookInstallResult> {
   // Skip auto-install when running as a Claude Code plugin —
-  // the plugin system already registers hooks via .claude-plugin/hooks/hooks.json
+  // the plugin system already registers hooks via hooks/hooks.json
   if (process.env.CLAUDE_PLUGIN_ROOT) {
     return {
       installed: false,

@@ -5,6 +5,48 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2] - 2026-04-19
+
+### Fixed — plugin hooks were never actually reaching Claude Code
+
+**Critical: all our PreToolUse hooks (Read, Edit, Bash, Grep) in the plugin-install path have been silently non-functional since v0.1.0.**
+
+Live verification by Sonnet 4.6 on Windows surfaced the symptom: `grep -r`, `cat <code-file>`, and `bare git log` — documented as blocked in v0.28.0 — were not being blocked. Pattern-based deny from our hook-pre-bash / hook-pre-grep never fired. The tests passed because the pure decision logic is correct; the issue was that **Claude Code never called our hook at all**.
+
+Root cause, confirmed against the [official Anthropic plugin-dev skill](https://github.com/anthropics/claude-code/blob/main/plugins/plugin-dev/skills/hook-development/SKILL.md):
+
+> **For plugin hooks** in `hooks/hooks.json`, use wrapper format
+
+Canonical plugin hook location is **`<plugin-root>/hooks/hooks.json`**, not `<plugin-root>/.claude-plugin/hooks/hooks.json`. We'd been putting it inside `.claude-plugin/` since v0.1.0 based on a misreading — Claude Code's plugin loader never looked there.
+
+The fact that Read-hook blocking "seemed to work" earlier was because `npx token-pilot install-hook` copied the same hooks into `~/.claude/settings.json` directly (a separate code path that works). When I cleaned up duplicates via `uninstall-hook` in v0.28.0, the plugin-side fallback I thought existed turned out never to have existed — and *no one's hooks were firing at all*.
+
+Reference comparison — `claude-context-mode@0.7.2` ships hooks.json in both locations. The `hooks/hooks.json` copy is what actually works; the `.claude-plugin/hooks/hooks.json` is dead weight.
+
+### Change
+
+`git mv .claude-plugin/hooks/hooks.json hooks/hooks.json`. Also:
+
+- `package.json` `files` now includes `hooks/hooks.json`.
+- Regression test updated to read from the new canonical path.
+- Code comments in `src/hooks/installer.ts` and `src/index.ts` that referenced the old path corrected.
+
+### After upgrade — required user action
+
+Plugin users on 0.27.x / 0.28.0 / 0.28.1 need to reinstall the plugin so the hook files land in the correct location:
+
+```bash
+claude plugin marketplace update token-pilot
+claude plugin uninstall token-pilot@token-pilot
+claude plugin install token-pilot@token-pilot
+```
+
+Then restart Claude Code. PreToolUse hooks for all four matchers (Read / Edit / Bash / Grep) will fire in the new session. Verify with Sonnet's test: a `Grep(pattern="getUserById")` in a new session must now return a deny with the find_usages suggestion.
+
+npm-install users on `install-hook` are unaffected (their hooks live in `~/.claude/settings.json` and always worked).
+
+1019 tests still passing.
+
 ## [0.28.1] - 2026-04-19
 
 ### Fixed — `session_analytics` hidden in `nav` profile defeated the whole point of profiles

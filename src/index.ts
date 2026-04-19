@@ -692,14 +692,14 @@ export function handleHookEdit() {
 export async function handleInstallHook(projectRoot: string) {
   // v0.26.5 — plugin-aware early-return. If we're running as a Claude
   // Code plugin (CLAUDE_PLUGIN_ROOT set) the hooks are already declared
-  // in .claude-plugin/hooks/hooks.json and Claude Code wires them up
+  // in hooks/hooks.json and Claude Code wires them up
   // on install. Calling install-hook in that context would write a
   // duplicate entry to the user's settings.json and emit two hooks for
   // every event. Bail early.
   if (process.env.CLAUDE_PLUGIN_ROOT) {
     console.log(
       "token-pilot is running as a Claude Code plugin — hooks are already\n" +
-        "declared in .claude-plugin/hooks/hooks.json and registered by the\n" +
+        "declared in hooks/hooks.json and registered by the\n" +
         "plugin installer. `install-hook` is only needed for npm/npx setups.\n" +
         "Skipping to avoid duplicate hook entries.",
     );
@@ -765,7 +765,7 @@ export async function handleDoctor() {
   // ── Installation mode ──
   // v0.26.5 — tell the user HOW token-pilot is installed. Matters
   // because plugin users don't need `install-hook` (hooks come from
-  // .claude-plugin/hooks/hooks.json); npm users do. dev/worktree users
+  // hooks/hooks.json); npm users do. dev/worktree users
   // are usually contributors running from a local checkout.
   let installMode: string;
   if (process.env.CLAUDE_PLUGIN_ROOT) {
