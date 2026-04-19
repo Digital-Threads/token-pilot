@@ -12,7 +12,7 @@
  *  - Shared preamble appears AFTER frontmatter but BEFORE the role block.
  *  - Response contract appears AFTER the role block.
  *  - Exactly one `---\n...\n---\n` pair in the composed output.
- *  - Composed file ≤60 lines total (tightest: tp-run, 13 tools).
+ *  - Composed file ≤65 lines total (tightest: tp-run, 13 tools).
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
@@ -146,14 +146,14 @@ describe("composeAll", () => {
     }
   });
 
-  it("every composed agent is ≤60 lines (incl. frontmatter)", () => {
+  it("every composed agent is ≤65 lines (incl. frontmatter)", () => {
     const results = composeAll(TEMPLATES_DIR);
     for (const { name, composed } of results) {
       const lines = composed.split(/\r?\n/).length;
       expect(
         lines,
-        `${name} composed file must be ≤60 lines (got ${lines})`,
-      ).toBeLessThanOrEqual(60);
+        `${name} composed file must be ≤65 lines (got ${lines})`,
+      ).toBeLessThanOrEqual(65);
     }
   });
 

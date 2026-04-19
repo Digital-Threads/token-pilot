@@ -549,7 +549,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "smart_log",
     description:
-      "Use INSTEAD OF raw git log. Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref.",
+      "Use INSTEAD OF raw git log. Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref. HEADS UP: two verification runs measured this tool at ~39% token reduction (borderline — vs 95-99% for outline/smart_diff). Cumulative data being gathered — tool may be dropped or redesigned in v0.30.0 if numbers don't improve. Prefer scoping with `path` or `count` to tighten savings.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -636,7 +636,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "session_budget",
     description:
-      "Report Read-hook pressure for this session: suppressed tokens so far, reference budget, burn fraction (0..1), and the effective denyThreshold the adaptive curve would apply right now. NOTE: burnFraction measures hook activity, not actual context-window occupancy. Useful to decide when to tighten further before a big read.",
+      "META / info-only: reports Read-hook pressure for this session (suppressed tokens, reference budget, burn fraction, effective denyThreshold). Does NOT save tokens itself — this is diagnostic, use to decide when to tighten before a big read. NOTE: burnFraction measures hook activity, not actual context-window occupancy.",
     inputSchema: {
       type: "object" as const,
       properties: {
