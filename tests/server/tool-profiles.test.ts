@@ -27,7 +27,7 @@ describe("filterToolsByProfile", () => {
     expect(out).toEqual(input);
   });
 
-  it('profile="nav" keeps only navigation-class tools', () => {
+  it('profile="nav" keeps navigation-class tools + META tools', () => {
     const input = tools(
       "smart_read",
       "outline",
@@ -35,17 +35,37 @@ describe("filterToolsByProfile", () => {
       "read_for_edit", // edit-only
       "read_symbols", // edit-only (batch)
       "test_summary", // full-only
-      "session_analytics", // full-only
+      "session_analytics", // META — must stay
+      "session_budget", // META — must stay
     );
     const out = filterToolsByProfile(input, "nav");
     const names = out.map((t) => t.name);
     expect(names).toContain("smart_read");
     expect(names).toContain("outline");
     expect(names).toContain("find_usages");
+    // META tools are always visible — needed to verify the profile is
+    // actually saving anything
+    expect(names).toContain("session_analytics");
+    expect(names).toContain("session_budget");
+    // edit-only and full-only still excluded
     expect(names).not.toContain("read_for_edit");
     expect(names).not.toContain("read_symbols");
     expect(names).not.toContain("test_summary");
-    expect(names).not.toContain("session_analytics");
+  });
+
+  it("META_TOOLS always visible in every profile", () => {
+    const input = tools(
+      "smart_read",
+      "session_analytics",
+      "session_budget",
+      "session_snapshot",
+    );
+    for (const profile of ["nav", "edit", "full"] as const) {
+      const names = filterToolsByProfile(input, profile).map((t) => t.name);
+      expect(names, `profile=${profile}`).toContain("session_analytics");
+      expect(names, `profile=${profile}`).toContain("session_budget");
+      expect(names, `profile=${profile}`).toContain("session_snapshot");
+    }
   });
 
   it('profile="edit" keeps nav + edit-prep tools, still drops full-only', () => {

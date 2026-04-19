@@ -1,5 +1,5 @@
 /**
- * v0.26.3 — tool profiles.
+ * v0.26.3 — tool profiles. v0.28.1 — META_TOOLS always-available fix.
  *
  * Idea lifted honestly from Token Savior's TOKEN_SAVIOR_PROFILE. When an
  * MCP server advertises 22 tools, every tools/list response costs the
@@ -10,14 +10,13 @@
  * user in the same server can still reach the full set if they know
  * the name).
  *
- * Three profiles:
- *   - full  (default): everything, same as pre-v0.26.3.
- *   - nav  : read-only exploration. smart_read, outline, find_usages,
- *            read_symbol, project_overview, module_info, related_files,
- *            explore_area, smart_log, smart_diff.
- *   - edit : nav + batch reads + everything Edit needs to hit a symbol
- *            precisely. Adds read_symbols, read_range, read_section,
- *            read_diff, read_for_edit, smart_read_many.
+ * Three profiles, plus one always-on set:
+ *   - META (implicit): always advertised, every profile — meta-tools
+ *     the user needs to verify token-pilot is actually saving anything.
+ *     Excluding them contradicts the whole point of profiles.
+ *   - full (default): everything, same as pre-v0.26.3.
+ *   - nav : META + read-only exploration (10 tools + META).
+ *   - edit: META + nav + batch reads + edit-prep (16 tools + META).
  *
  * Selection: TOKEN_PILOT_PROFILE=nav|edit|full env var. Unknown values
  * fall back to full with a stderr warning. Silent on missing env.
@@ -30,6 +29,18 @@ export const PROFILE_NAMES: readonly ToolProfile[] = [
   "nav",
   "edit",
 ] as const;
+
+/**
+ * Meta-tools — diagnostic / self-observation tools that must be visible
+ * in EVERY profile. Excluding them defeats the profile feature's own
+ * purpose: if you can't check whether token-pilot is saving tokens, why
+ * would you trust the savings number?
+ */
+export const META_TOOLS: ReadonlySet<string> = new Set([
+  "session_analytics",
+  "session_budget",
+  "session_snapshot",
+]);
 
 /** Minimum nav profile — exploration only, no editing support. */
 export const NAV_TOOLS: ReadonlySet<string> = new Set([
@@ -67,9 +78,20 @@ export function filterToolsByProfile<T extends { name: string }>(
   profile: ToolProfile,
 ): T[] {
   if (profile === "full") return [...tools];
-  if (profile === "nav") return tools.filter((t) => NAV_TOOLS.has(t.name));
-  // edit = nav + extras
-  return tools.filter((t) => NAV_TOOLS.has(t.name) || EDIT_EXTRAS.has(t.name));
+  // META_TOOLS are ALWAYS visible — session_analytics, session_budget,
+  // session_snapshot are the instruments for verifying the profile is
+  // doing its job. Hiding them would turn "did this save tokens?" into
+  // a guess.
+  if (profile === "nav") {
+    return tools.filter((t) => NAV_TOOLS.has(t.name) || META_TOOLS.has(t.name));
+  }
+  // edit = nav + extras + meta
+  return tools.filter(
+    (t) =>
+      NAV_TOOLS.has(t.name) ||
+      EDIT_EXTRAS.has(t.name) ||
+      META_TOOLS.has(t.name),
+  );
 }
 
 /**
