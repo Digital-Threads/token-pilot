@@ -10,6 +10,7 @@ tools:
   - Bash
   - Grep
   - Read
+model: sonnet
 ---
 
 Role: safe dead-code detection.

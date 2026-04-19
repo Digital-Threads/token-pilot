@@ -50,7 +50,7 @@ Restart your AI assistant to activate. The Read hook auto-installs the first tim
 
 Not every capability works in every client. Subagents are a Claude Code concept; other clients still get the MCP tools + Read hook but won't auto-invoke `tp-*` agents.
 
-| Client          | MCP tools | Read hook (context-mode) | `tp-*` subagents (19) | `model:` frontmatter (haiku) | Budget watchdog |
+| Client          | MCP tools | Read hook (context-mode) | `tp-*` subagents (25) | `model:` frontmatter (haiku) | Budget watchdog |
 |-----------------|:---------:|:------------------------:|:---------------------:|:----------------------------:|:---------------:|
 | Claude Code     | ✅        | ✅                       | ✅                    | ✅                           | ✅              |
 | Cursor          | ✅        | ✅                       | ❌                    | ❌ (ignored)                 | ❌              |
@@ -106,7 +106,7 @@ claude mcp add --scope project token-pilot -- npx -y token-pilot
 }
 ```
 
-Then `npx token-pilot install-hook` to register the PreToolUse Read/Edit hooks and `npx token-pilot install-agents --scope=user` to install the 19 tp-* subagents.
+Then `npx token-pilot install-hook` to register the PreToolUse Read/Edit hooks and `npx token-pilot install-agents --scope=user` to install the 25 tp-* subagents.
 
 **C. One-liner `init`:** `npx -y token-pilot init` — writes path B config for you, then prompts about subagents.
 
@@ -245,6 +245,26 @@ Claude Code subagents guarantee MCP-first behaviour with tight response budgets 
 | `tp-api-surface-tracker` | Public API diff vs last release → MAJOR / MINOR / PATCH verdict | 600 |
 | `tp-dep-health` | Dep audit: stale × heavily-used × removable | 600 |
 | `tp-incident-timeline` | Correlate an incident window with commits, rank likely culprits | 700 |
+
+**Tier 4 — methodology (v0.27.0, inspired by @addyosmani/agent-skills):**
+
+| Agent | When to invoke | Budget |
+|-------|---------------|-------:|
+| `tp-context-engineer` | Audit / write CLAUDE.md / AGENTS.md rules files per project | 800 |
+| `tp-spec-writer` | Pre-code spec with gated workflow; surfaces assumptions before code | 900 |
+| `tp-performance-profiler` | Measure → identify → fix → verify → guard; refuses to optimize without data | 800 |
+| `tp-incremental-builder` | Multi-file feature work in thin vertical slices, test between each | 900 |
+| `tp-doc-writer` | ADRs + READMEs + API docs; documents *why* not *what* | 700 |
+| `tp-ship-coordinator` | 5-pillar pre-launch checklist (quality / security / observability / rollback / rollout) | 800 |
+
+### Model tiers
+
+Every agent carries an explicit `model:` field in its frontmatter. Default dispatch:
+- **haiku** (9 agents) — structured / format-bound output (commit messages, onboarding maps, ADRs, session briefings)
+- **sonnet** (15 agents) — reasoning tasks (review, debug, test, plan, audit, spec, profile, ship)
+- **inherit** (1 agent) — deep correlation needing whatever the main thread uses (`tp-incident-timeline`)
+
+Effect: under Opus 4.7's +35% tokenizer tax, keeping the majority of agent spawns on haiku / sonnet saves 5-10× model cost vs an all-Opus baseline.
 
 Every agent's budget is enforced post-response — overshoots beyond 10 % land in `.token-pilot/over-budget.log`.
 

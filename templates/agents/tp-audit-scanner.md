@@ -10,6 +10,7 @@ tools:
   - mcp__token-pilot__read_section
   - Grep
   - Read
+model: sonnet
 ---
 
 Role: audit scanner — surfaces risks, never fixes.

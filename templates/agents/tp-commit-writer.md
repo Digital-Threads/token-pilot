@@ -1,6 +1,6 @@
 ---
 name: tp-commit-writer
-model: claude-haiku-4-5-20251001
+model: haiku
 description: PROACTIVELY use this when the user is about to commit a NON-TRIVIAL change (new feature, fix, refactor) and asks "write a commit message". Reads staged diff, verifies tests pass, drafts Conventional Commit. Refuses mixed diffs (asks to split), failing tests, or empty stage. Do NOT use for docs-only, whitespace-only, or < 20-line diffs — the user can write those manually faster than a subagent spawn. Do NOT use to explain already-made commits.
 tools:
   - mcp__token-pilot__smart_diff

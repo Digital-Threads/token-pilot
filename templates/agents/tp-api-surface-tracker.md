@@ -8,6 +8,7 @@ tools:
   - mcp__token-pilot__smart_diff
   - mcp__token-pilot__read_symbol
   - Bash
+model: haiku
 ---
 
 Role: public-API diff with semver classification.

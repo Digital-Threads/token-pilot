@@ -5,6 +5,59 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-04-19
+
+Big release motivated by Opus 4.7's +35% tokenizer tax over 4.6 — token savings no longer optional. Two interlocking moves.
+
+### Multi-model strategy — all 25 tp-* agents have explicit model: field
+
+| Tier | Model | Count | Example agents |
+|---|---|---:|---|
+| Structured output | `haiku` | 9 | commit-writer, onboard, session-restorer, doc-writer, history-explorer, api-surface-tracker, dep-health |
+| Reasoning | `sonnet` | 15 | pr-reviewer, debugger, test-writer, refactor-planner, context-engineer, spec-writer, performance-profiler, ship-coordinator, incremental-builder |
+| Deepest correlation | `inherit` | 1 | incident-timeline |
+
+Effect: typical sessions that used to default to Opus-everywhere now dispatch to haiku/sonnet — **5-10× cheaper on the model side** when usage leans on the bottom tiers.
+
+### @addyosmani/agent-skills best practices baked into agent bodies
+
+17.6k-star MIT project. Checklists and methodologies adapted into our agent bodies — **not shipped as separate skill files**. No upstream dependency, no maintenance burden, no +5k overhead on `tools/list`.
+
+**Upgraded (4):**
+- `tp-pr-reviewer` ← five-axis review (correctness / readability / architecture / security / performance)
+- `tp-debugger` ← 6-step triage (reproduce / localize / reduce / root-cause / guard / verify) + symptom-vs-cause pattern
+- `tp-test-writer` ← TDD RED/GREEN/REFACTOR + Prove-It for bug fixes
+- `tp-refactor-planner` ← behaviour-preservation discipline
+
+**Added (6):**
+- `tp-context-engineer` (sonnet) — audits CLAUDE.md / AGENTS.md / rules files per project
+- `tp-spec-writer` (sonnet) — gated workflow (Specify → Plan → Tasks → Implement); surfaces assumptions BEFORE code
+- `tp-performance-profiler` (sonnet) — measure → identify → fix → verify → guard; refuses to optimize without data
+- `tp-incremental-builder` (sonnet) — thin vertical slices, test between each
+- `tp-doc-writer` (haiku) — ADRs + READMEs + API docs; documents *why* not *what*
+- `tp-ship-coordinator` (sonnet) — 5-pillar pre-launch checklist (quality / security / observability / rollback / rollout)
+
+Credits to @addyosmani/agent-skills in each upgraded agent body.
+
+### Fixed — plugin install now actually exposes skills + agents
+
+Before this release, `claude plugin install token-pilot@token-pilot` succeeded but the Customize panel showed "This plugin doesn't have any skills or agents". Root cause: `plugin.json` never declared the `skills` / `agents` paths, and `dist/agents/` was gitignored — so the plugin clone saw an empty directory.
+
+Fixed:
+- `plugin.json` now declares `"skills": "./skills/"` and `"agents": "./dist/agents/"`.
+- `.gitignore` exception added: `!dist/agents/` + `!dist/agents/**`. Composed agents are versioned so every plugin install sees them immediately.
+
+### Agent roster: 19 → 25
+
+19 pre-existing tp-* + 6 new = 25 subagents. All stay under ≤60 composed lines / ≤30 non-empty body lines.
+
+### Deferred to later releases
+
+- Adapting our global `CLAUDE.md` with principles from @multica-ai/andrej-karpathy-skills (think-before-code / simplicity-first / surgical-changes / goal-driven). Strong content, belongs in a focused follow-up, not bundled with an agent release.
+- Refreshing `/guide`, `/install`, `/stats` legacy commands in `skills/`.
+
+975 tests passing.
+
 ## [0.26.6] - 2026-04-18
 
 ### Fixed — EPIPE stacktrace when piping CLI to `head`/`less`/`grep`

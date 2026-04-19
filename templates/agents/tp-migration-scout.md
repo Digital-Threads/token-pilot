@@ -10,6 +10,7 @@ tools:
   - mcp__token-pilot__smart_read_many
   - Grep
   - Glob
+model: sonnet
 ---
 
 Role: migration impact mapping.

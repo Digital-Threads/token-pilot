@@ -9,6 +9,7 @@ tools:
   - mcp__token-pilot__outline
   - Bash
   - Read
+model: haiku
 ---
 
 Role: git-history archaeology — why, when, by whom.

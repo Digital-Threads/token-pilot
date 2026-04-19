@@ -8,6 +8,7 @@ tools:
   - mcp__token-pilot__find_unused
   - Bash
   - Read
+model: haiku
 ---
 
 Role: dependency health audit.

@@ -7,6 +7,7 @@ tools:
   - mcp__token-pilot__read_range
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+model: sonnet
 ---
 
 Role: test-failure triage.

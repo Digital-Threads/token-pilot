@@ -5,15 +5,15 @@
     "email": "shahinyanm@gmail.com"
   },
   "metadata": {
-    "description": "Token Pilot — save 60-90% tokens when AI reads code",
-    "version": "0.26.6"
+    "description": "Token Pilot \u2014 save 60-90% tokens when AI reads code",
+    "version": "0.27.0"
   },
   "plugins": [
     {
       "name": "token-pilot",
       "source": "./",
       "description": "Reduces token consumption by 60-90% via AST-aware lazy file reading, structural symbol navigation, and cross-session tool-usage analytics. 22 MCP tools + 19 subagents + budget watchdog hooks.",
-      "version": "0.26.6",
+      "version": "0.27.0",
       "author": {
         "name": "Digital-Threads"
       },
