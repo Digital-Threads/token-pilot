@@ -8,7 +8,7 @@ tools:
   - mcp__token-pilot__test_summary
   - mcp__token-pilot__outline
   - Bash
-token_pilot_version: "0.27.0"
+token_pilot_version: "0.27.1"
 token_pilot_body_hash: 559a0b61d20974bf33e35bc4c80dcf1b41d10d4df46cf9d05d3d5620713cd46f
 ---
 

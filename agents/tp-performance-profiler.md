@@ -11,7 +11,7 @@ tools:
   - Bash
   - Read
 model: sonnet
-token_pilot_version: "0.27.0"
+token_pilot_version: "0.27.1"
 token_pilot_body_hash: 14b6fb4423a839c119120c2ea12c9dd6ab6ad1aeb13df1e7c22807b290cf1f9c
 ---
 

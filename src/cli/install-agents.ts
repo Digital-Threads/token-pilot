@@ -217,16 +217,17 @@ export async function installAgents(
 // ─── CLI wrapper ─────────────────────────────────────────────────────────────
 
 /**
- * Resolve the dist/agents directory relative to the running `dist/index.js`
- * entry. Works for both `npm run start` (dist/) and `npm pack`-installed
- * users (node_modules/token-pilot/dist/agents/). Falls back to `templates/
- * agents` only when we are clearly running from source (tests, dev mode).
+ * Resolve the composed agents directory relative to the running
+ * `dist/index.js` entry. Works for both `npm run start` and `npm pack`-
+ * installed users. As of v0.27.1 the composed agents live at the repo-root
+ * `./agents/` (Claude Code plugin convention — see scripts/build-agents.mjs).
+ * The compiled JS lives at `dist/cli/install-agents.js`, so we walk two
+ * levels up to reach the repo/package root, then into `agents/`.
  */
 export function resolveDistAgentsDir(scriptUrl: string): string {
-  // Compiled layout: dist/cli/install-agents.js → dist/agents/.
-  // One level up from our own file, then into agents/.
+  // Compiled layout: dist/cli/install-agents.js → ../../agents/
   const here = dirname(fileURLToPath(scriptUrl));
-  return join(here, "..", "agents");
+  return join(here, "..", "..", "agents");
 }
 
 /** Read one line from an interactive TTY prompt. */
