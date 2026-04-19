@@ -1,6 +1,6 @@
 ---
 name: tp-session-restorer
-model: claude-haiku-4-5-20251001
+model: haiku
 description: PROACTIVELY use this as the FIRST step after /clear, compaction, or a fresh window when a recent session_snapshot exists on disk. Reads snapshot + git status + saved docs, returns a ≤200-token briefing. Do NOT use mid-task.
 tools:
   - mcp__token-pilot__smart_read

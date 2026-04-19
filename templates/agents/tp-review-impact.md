@@ -8,6 +8,7 @@ tools:
   - mcp__token-pilot__outline
   - mcp__token-pilot__module_info
   - Bash
+model: sonnet
 ---
 
 Role: pre-merge blast-radius review.

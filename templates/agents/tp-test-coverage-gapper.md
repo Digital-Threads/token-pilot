@@ -1,6 +1,6 @@
 ---
 name: tp-test-coverage-gapper
-model: claude-haiku-4-5-20251001
+model: haiku
 description: PROACTIVELY use this when the user asks "what's untested", "find coverage gaps", "which symbols have zero tests", or wants to plan a testing sprint. Enumerates exported symbols, cross-checks against test-file references, returns a prioritised gap list.
 tools:
   - mcp__token-pilot__outline

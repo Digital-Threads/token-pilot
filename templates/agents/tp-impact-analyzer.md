@@ -11,6 +11,7 @@ tools:
   - mcp__token-pilot__smart_read_many
   - mcp__token-pilot__read_symbols
   - Read
+model: sonnet
 ---
 
 Role: impact analysis.

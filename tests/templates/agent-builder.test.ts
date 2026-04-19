@@ -114,6 +114,7 @@ describe("composeAll", () => {
       "tp-api-surface-tracker",
       "tp-audit-scanner",
       "tp-commit-writer",
+      "tp-context-engineer",
       "tp-dead-code-finder",
       "tp-debugger",
       "tp-dep-health",

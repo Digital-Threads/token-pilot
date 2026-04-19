@@ -7,6 +7,7 @@ tools:
   - mcp__token-pilot__read_diff
   - mcp__token-pilot__outline
   - mcp__token-pilot__read_symbol
+model: sonnet
 ---
 
 Role: refactor planning.
