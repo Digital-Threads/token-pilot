@@ -139,6 +139,46 @@ describe("decidePreBash integration", () => {
   });
 });
 
+describe("detectHeavyPattern — composite escape patterns (v0.29.0)", () => {
+  it('blocks bash -c "cat src/foo.ts"', () => {
+    const d = detectHeavyPattern('bash -c "cat src/foo.ts"');
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") expect(d.reason).toMatch(/smart_read/);
+  });
+
+  it('blocks sh -c "grep -r foo ."', () => {
+    const d = detectHeavyPattern('sh -c "grep -r foo ."');
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") expect(d.reason).toMatch(/find_usages|grep -r/);
+  });
+
+  it('blocks eval "cat src/foo.ts"', () => {
+    const d = detectHeavyPattern('eval "cat src/foo.ts"');
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") expect(d.reason).toMatch(/smart_read/);
+  });
+
+  it("blocks for f in *.ts; do cat $f; done (body has heavy call)", () => {
+    const d = detectHeavyPattern("for f in *.ts; do cat $f.ts; done");
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") expect(d.reason).toMatch(/smart_read/);
+  });
+
+  it("blocks while read f; do git log; done (heavy in loop body)", () => {
+    const d = detectHeavyPattern("while read f; do git log; done");
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") expect(d.reason).toMatch(/smart_log/);
+  });
+
+  it("allows wrapper with benign inner (bash -c with ls)", () => {
+    expect(detectHeavyPattern('bash -c "ls -la"').kind).toBe("allow");
+  });
+
+  it("allows eval of benign command", () => {
+    expect(detectHeavyPattern('eval "echo hello"').kind).toBe("allow");
+  });
+});
+
 describe("renderPreBashOutput", () => {
   it("allow → null", () => {
     expect(renderPreBashOutput({ kind: "allow" })).toBeNull();

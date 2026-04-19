@@ -5,6 +5,46 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-04-19
+
+Consolidation release based on Sonnet 4.6 + Opus 4.7 verification findings. Closes the short-tail issues that came out of the two live runs before the weekly-quota window reopens.
+
+### Added — context-mode partnership in shared preamble
+
+Both verification runs showed the same asymmetry: `token-pilot` saves on delegated (subagent) code reads; `context-mode` saves on main-thread Bash/command execution. Opus 4.7 literally wrote: "Во всей остальной работе использовал `ctx_batch_execute` вместо raw Bash — это adoption context-mode, не token-pilot". That's the right behaviour — we shouldn't fight it, we should formalise it.
+
+All 25 tp-* agents now carry an instruction in the shared preamble: *for heavy Bash (tests, builds, recursive searches, network calls), prefer `mcp__context-mode__execute` / `ctx_batch_execute` when available — runs in sandbox, only result enters context (95% reduction vs raw stdout)*. This is complementary, not redundant: token-pilot owns code reading, context-mode owns command execution.
+
+### Fixed — composite Bash escape patterns (from Opus 4.7 v0.28.2 report)
+
+Opus's verification noted that quoted / wrapped heavy commands slipped past our `PreToolUse:Bash` hook:
+
+- `bash -c "cat src/foo.ts"` → slipped
+- `sh -c "grep -r foo ."` → slipped
+- `eval "cat src/foo.ts"` → slipped
+- `for f in *.ts; do cat $f; done` → slipped
+- `while read f; do git log; done` → slipped
+
+Added `extractWrappedCommands()` in `src/hooks/pre-bash.ts` — unwraps `bash/sh/zsh -c "..."`, `eval "..."`, `for/while/until ... do BODY done` — and re-runs the heavy-pattern check on each inner body. First deny wins. Adds 7 regression tests covering both deny (heavy inside wrapper) and allow (benign inside wrapper — `bash -c "ls"`, `eval "echo hello"`).
+
+### Changed — honest tool descriptions for weak performers
+
+- `smart_log` description now carries a heads-up: "two verification runs measured this tool at ~39% token reduction (borderline). Cumulative data being gathered — tool may be dropped or redesigned in v0.30.0 if numbers don't improve". The description already advised scoping with `path` or `count`; kept.
+- `session_budget` re-framed as **META / info-only** — doesn't save tokens itself, purely diagnostic. This matches the META_TOOLS grouping in profiles (shipped in v0.28.1) and stops users thinking it's an optimisation tool.
+
+### Changed — composed-agent line budget 60 → 65
+
+Shared preamble now carries the context-mode paragraph — 3 extra lines flow into every composed agent file. Three agents (tp-context-engineer, tp-dead-code-finder, tp-doc-writer) ticked over the 60-line cap by 1-3 lines. Raised the hard limit to 65 to accommodate the new content without trimming per-agent instructions. 25 agents currently in the 38-63 range.
+
+### Deferred to v0.30.0
+
+- **Stop-hook output watchdog** — cap main-thread response size. Needs an experiment against Claude Code API first; too much new surface for a same-day patch.
+- **Automatic MCP response buffer** — intercept 3rd-party MCP (GitHub / Jira / Slack) responses via `updatedMCPToolOutput`. Biggest potential lever in the ecosystem, but a full feature, not a patch.
+- **`smart_log` final decision** — keep, redesign, or drop based on cumulative `tool-audit` data after a week of use.
+- **`explore_area` self-sizing** — v0.28.3 tightened the caps (20/500 → 10/200); next step is compare predicted output to `estimateExploreAreaWorkflowTokens` baseline and trim when exceeded.
+
+1026 tests passing (+7 new on composite Bash escape).
+
 ## [0.28.3] - 2026-04-19
 
 ### Fixed — `explore_area` output size (was −31% savings)

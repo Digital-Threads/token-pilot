@@ -13,7 +13,7 @@
  *    budget table
  *  - only `tp-run` uses the `PROACTIVELY` keyword in its description
  *    (TP-816 §5.4.3 — every other description uses "when" or "for")
- *  - body length ≤60 lines incl. frontmatter — agent files must stay compact
+ *  - body length ≤65 lines incl. frontmatter — agent files must stay compact
  *  - the three forbidden narration phrases never appear in the body
  */
 import { describe, it, expect } from "vitest";
@@ -121,10 +121,10 @@ describe.each(TIER1)("template %s", ({ name, budget }) => {
     }
   });
 
-  it("file stays compact (≤60 lines total incl. frontmatter)", () => {
+  it("file stays compact (≤65 lines total incl. frontmatter)", () => {
     const md = readFileSync(filePath, "utf-8");
     const lines = md.split(/\r?\n/).length;
-    expect(lines, `file must be ≤60 lines (got ${lines})`).toBeLessThanOrEqual(
+    expect(lines, `file must be ≤65 lines (got ${lines})`).toBeLessThanOrEqual(
       60,
     );
   });

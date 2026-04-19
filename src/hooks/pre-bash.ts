@@ -48,7 +48,64 @@ function invokes(command: string, utility: string): boolean {
   return re.test(command);
 }
 
+/**
+ * v0.29.0 — expose wrapped commands. Opus 4.7's v0.28.2 verification
+ * report showed escape patterns: `bash -c "cat src/foo.ts"`,
+ * `eval "..."`, `for f in *.ts; do cat $f; done` all slipped through
+ * our heuristics because the dangerous call sat inside quotes / a loop
+ * body. Unwrap those before matching.
+ *
+ * Returns the original command PLUS the extracted inner body for each
+ * wrapper found. Duplication is fine — detectHeavyPattern is pure.
+ */
+export function extractWrappedCommands(command: string): string[] {
+  const out = [command];
+
+  // bash -c "..." / sh -c "..." / zsh -c "..."
+  for (const shell of ["bash", "sh", "zsh"]) {
+    const re = new RegExp(`\\b${shell}\\s+-c\\s+(?:"([^"]+)"|'([^']+)')`, "g");
+    for (const m of command.matchAll(re)) {
+      const inner = m[1] ?? m[2];
+      if (inner) out.push(inner);
+    }
+  }
+
+  // eval "..." / eval '...'
+  for (const m of command.matchAll(/\beval\s+(?:"([^"]+)"|'([^']+)')/g)) {
+    const inner = m[1] ?? m[2];
+    if (inner) out.push(inner);
+  }
+
+  // for LOOP with body: `for X in Y; do BODY; done` — extract BODY
+  // Also covers `while COND; do BODY; done` and `until COND; do BODY; done`
+  for (const m of command.matchAll(
+    /\b(?:for|while|until)\b[^;]*;\s*do\s+(.+?)\s*;?\s*done\b/gs,
+  )) {
+    const body = m[1];
+    if (body) out.push(body);
+  }
+
+  return out;
+}
+
 export function detectHeavyPattern(command: string): PreBashDecision {
+  const cmd = command.trim();
+  if (!cmd) return { kind: "allow" };
+
+  // v0.29.0: check each of the original + any unwrapped inner commands.
+  // First deny wins.
+  const candidates = extractWrappedCommands(cmd);
+  if (candidates.length > 1) {
+    // Check only the unwrapped inners; the original is handled below.
+    for (let i = 1; i < candidates.length; i++) {
+      const inner = detectHeavyPatternSingle(candidates[i]);
+      if (inner.kind === "deny") return inner;
+    }
+  }
+  return detectHeavyPatternSingle(cmd);
+}
+
+function detectHeavyPatternSingle(command: string): PreBashDecision {
   const cmd = command.trim();
   if (!cmd) return { kind: "allow" };
 

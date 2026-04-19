@@ -4,4 +4,6 @@ For every file in a programming language, you MUST use the token-pilot MCP tools
 
 If any MCP tool fails, fall back sensibly (another MCP tool → bounded Read → pass-through) and note the fallback in your output. Never silently abandon the contract.
 
+For heavy Bash operations (test runs, builds, recursive searches, network calls, any command with potentially large stdout): when `mcp__context-mode__execute` or `ctx_batch_execute` is available, use it instead of raw Bash. Context-mode runs commands in a sandbox and only the result enters your context — typically 95% token reduction vs raw stdout dump. This is complementary to token-pilot: we own code reading, context-mode owns command execution.
+
 Your specific role is defined below.
