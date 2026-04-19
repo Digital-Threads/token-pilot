@@ -5,6 +5,27 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-04-19
+
+### Fixed — `session_analytics` hidden in `nav` profile defeated the whole point of profiles
+
+Field report from Opus 4.7 running our own verification prompt against v0.28.0 on Windows: user had `TOKEN_PILOT_PROFILE=nav` set, Opus tried `mcp__plugin_token-pilot_token-pilot__session_analytics` for the pre-flight baseline and got "No matching deferred tools found". The whole verification stalled — the tool that measures whether the profile saves tokens wasn't in the profile.
+
+Root cause: in v0.26.3 I bucketed `session_analytics` / `session_budget` / `session_snapshot` as "full-only" along with `test_summary`, `code_audit`, `find_unused`. That was a mistake — those three are **diagnostic meta-tools**, not workflow tools. Hiding them from `nav` and `edit` contradicts the profile feature's own purpose: if you can't verify the savings, why would you trust the profile?
+
+Fix: new `META_TOOLS` set in `src/server/tool-profiles.ts`. META is **always visible** regardless of profile. Contents:
+- `session_analytics` — self-measurement (verifies the profile is working)
+- `session_budget` — remaining budget view
+- `session_snapshot` — state capture for /clear recovery
+
+`filterToolsByProfile` now does `NAV_TOOLS ∪ META_TOOLS` for nav and `NAV_TOOLS ∪ EDIT_EXTRAS ∪ META_TOOLS` for edit. New regression test asserts META is present in every profile.
+
+### Impact
+
+Users on `nav` / `edit` profiles get **3 extra tools** in their `tools/list` (~400 additional tokens at session start) but retain the ability to verify savings. The math: if a profile saves 2200 tokens on the original 22-tool list but hides the observability tools, the user mentally pads the savings with uncertainty and eventually switches back to `full`. The 400-token tax for keeping visibility is cheaper than that.
+
+1019 tests passing (+1 new — META_TOOLS cross-profile visibility).
+
 ## [0.28.0] - 2026-04-19
 
 ### Added — passive pre-intercept hooks for Grep and Bash
