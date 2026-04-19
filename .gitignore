@@ -3,6 +3,12 @@ node_modules/
 
 # Build output
 dist/
+# Exceptions: agents + skills are plugin-loaded (see .claude-plugin/plugin.json
+# "agents" / "skills" fields), so they must be versioned. dist/agents/ holds
+# the composed tp-* .md files with shared preamble; without them, Claude Code
+# plugin install reads an empty agents/ dir and shows "no skills or agents".
+!dist/agents/
+!dist/agents/**
 coverage/
 
 # OS files
