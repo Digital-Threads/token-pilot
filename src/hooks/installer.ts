@@ -58,6 +58,24 @@ function createHookConfig(options?: HookInstallOptions) {
             },
           ],
         },
+        {
+          matcher: "Bash",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-pre-bash", options),
+            },
+          ],
+        },
+        {
+          matcher: "Grep",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-pre-grep", options),
+            },
+          ],
+        },
       ],
       SessionStart: [
         {
