@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * Phase 5 subtask 5.1 — render tp-* templates into dist/agents/.
+ * Phase 5 subtask 5.1 — render tp-* templates into agents/.
  *
  * Plain Node (ESM). Mirrors src/templates/agent-builder.ts composeAll
  * logic deliberately: this script runs before TypeScript compilation, so
  * it cannot import from src/. Drift between the two is caught by
  * tests/scripts/build-agents-parity.test.ts.
  *
+ * Output location is the canonical Claude Code plugin convention:
+ * `<repo-root>/agents/*.md`. Claude Code looks there by default on
+ * plugin install (no `"agents"` field needed in plugin.json — the field
+ * isn't part of the schema and was rejected by the validator in v0.27.0).
+ *
  * Usage:
- *   node scripts/build-agents.mjs              # writes dist/agents/*.md
+ *   node scripts/build-agents.mjs              # writes agents/*.md
  *   node scripts/build-agents.mjs --out=<dir>  # writes into <dir>/
  */
 
@@ -21,7 +26,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
 
 const TEMPLATES_DIR = join(REPO_ROOT, "templates", "agents");
-const DEFAULT_OUT_DIR = join(REPO_ROOT, "dist", "agents");
+const DEFAULT_OUT_DIR = join(REPO_ROOT, "agents");
 
 const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n)([\s\S]*)$/;
 

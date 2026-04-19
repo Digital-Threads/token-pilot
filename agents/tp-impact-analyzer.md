@@ -12,7 +12,7 @@ tools:
   - mcp__token-pilot__read_symbols
   - Read
 model: sonnet
-token_pilot_version: "0.27.0"
+token_pilot_version: "0.27.1"
 token_pilot_body_hash: 0be2620ce0303f912f6b3334f261d169f064970c0d16602fa1e76db4cb2ea441
 ---
 

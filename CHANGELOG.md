@@ -5,6 +5,24 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-04-19
+
+### Fixed — plugin install failed on v0.27.0 with "agents: Invalid input"
+
+First field report after v0.27.0 hit npm: `claude plugin install token-pilot@token-pilot` failed with a schema validation error because `plugin.json` declared `"agents": "./dist/agents/"` — but `agents` is not a valid field in the Claude Code plugin-manifest schema. Agents are discovered by convention from `./agents/` at the repo root (the same way addyosmani/agent-skills ships 3 of them).
+
+Fixed:
+- Removed `"agents"` field from `plugin.json`. Only `"skills"` stays as an explicit path.
+- Moved composed tp-* files from `dist/agents/` to repo-root `agents/` (Claude Code convention).
+- Updated `scripts/build-agents.mjs` to write to `./agents/` by default.
+- Updated `package.json` `files` to ship `agents/*.md` instead of `dist/agents/*.md`.
+- Updated `src/cli/install-agents.ts` `resolveDistAgentsDir` to walk `dist/cli/../../agents/` for npm-installed users.
+- `.gitignore`: removed the `!dist/agents/` exceptions; `agents/` at root is now versioned directly.
+
+No behaviour change to agents themselves or any MCP tool. Pure path/schema fix so the plugin path actually works.
+
+975 tests still passing.
+
 ## [0.27.0] - 2026-04-19
 
 Big release motivated by Opus 4.7's +35% tokenizer tax over 4.6 — token savings no longer optional. Two interlocking moves.
