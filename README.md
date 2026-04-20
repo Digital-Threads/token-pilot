@@ -93,21 +93,27 @@ TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, C#, C/C++, PHP, Ruby. No
 
 ## Update / New Machine
 
-**New machine (first time):**
+**Claude Code (plugin — recommended):**
 ```bash
+# Install on a new machine:
+claude plugin marketplace add https://github.com/Digital-Threads/token-pilot
+claude plugin install token-pilot@token-pilot
+
+# Update to latest:
+claude plugin update token-pilot
+```
+
+**Other clients (Cursor, Codex, Cline, …):**
+```bash
+# Install on a new machine:
 npx -y token-pilot init
-# then restart your AI assistant
-```
 
-**Update to latest:**
-```bash
+# Update to latest — npx always pulls fresh, just restart your client.
+# Or if installed globally:
 npm i -g token-pilot@latest
-npx token-pilot install-hook                        # re-register hooks
-npx token-pilot install-agents --scope=user --force # update tp-* agents
-# then restart your AI assistant
+npx token-pilot install-hook
+npx token-pilot install-agents --scope=user --force
 ```
-
-> Using `npx` without `-g`? Just restart — `npx -y token-pilot` always pulls the latest version automatically.
 
 ## Troubleshooting
 
