@@ -1,6 +1,26 @@
 # Installation Guide
 
-## Quickest path
+## TL;DR
+
+**New machine:**
+```bash
+npx -y token-pilot init
+# restart your AI assistant
+```
+
+**Update existing install:**
+```bash
+npm i -g token-pilot@latest
+npx token-pilot install-hook                        # re-register hooks
+npx token-pilot install-agents --scope=user --force # update tp-* agents
+# restart your AI assistant
+```
+
+**Using `npx` without global install?** Just restart — `npx -y token-pilot` always pulls the latest version automatically. No update command needed.
+
+---
+
+## First-time setup (full walkthrough)
 
 ```bash
 npx -y token-pilot init

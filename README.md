@@ -91,6 +91,24 @@ Rules of thumb: read code → `smart_read`/`read_symbol`; execute code with big 
 
 TypeScript, JavaScript, Python, Go, Rust, Java, Kotlin, C#, C/C++, PHP, Ruby. Non-code (JSON/YAML/Markdown/TOML) gets structural summaries. Regex fallback handles most other languages.
 
+## Update / New Machine
+
+**New machine (first time):**
+```bash
+npx -y token-pilot init
+# then restart your AI assistant
+```
+
+**Update to latest:**
+```bash
+npm i -g token-pilot@latest
+npx token-pilot install-hook                        # re-register hooks
+npx token-pilot install-agents --scope=user --force # update tp-* agents
+# then restart your AI assistant
+```
+
+> Using `npx` without `-g`? Just restart — `npx -y token-pilot` always pulls the latest version automatically.
+
 ## Troubleshooting
 
 ```bash
