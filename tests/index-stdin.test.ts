@@ -279,6 +279,7 @@ describe("index stdin hooks", () => {
       await loadIndexFresh();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(mockDeps.createServer).toHaveBeenCalledWith(tempDir, {
+        enforcementMode: "deny",
         skipAstIndex: false,
       });
 

@@ -62,6 +62,11 @@ import {
   filterToolsByProfile,
   parseProfileEnv,
 } from "./server/tool-profiles.js";
+import {
+  type EnforcementMode,
+  STRICT_SMART_READ_MAX_TOKENS,
+  STRICT_EXPLORE_AREA_INCLUDE,
+} from "./server/enforcement-mode.js";
 import { createTokenEstimates } from "./server/token-estimates.js";
 import {
   validateSmartReadArgs,
@@ -87,8 +92,9 @@ import {
 
 export async function createServer(
   projectRoot: string,
-  options?: { skipAstIndex?: boolean },
+  options?: { skipAstIndex?: boolean; enforcementMode?: EnforcementMode },
 ) {
+  const mode: EnforcementMode = options?.enforcementMode ?? "deny";
   const config = await loadConfig(projectRoot);
   const astIndex = new AstIndexClient(projectRoot, config.astIndex.timeout, {
     binaryPath: config.astIndex.binaryPath,
@@ -460,6 +466,14 @@ export async function createServer(
       switch (name) {
         case "smart_read": {
           const validArgs = validateSmartReadArgs(args);
+          // v0.30.0 strict mode: cap max_tokens when caller didn't set it.
+          let strictReadCapNote: string | undefined;
+          if (mode === "strict" && validArgs.max_tokens === undefined) {
+            validArgs.max_tokens = STRICT_SMART_READ_MAX_TOKENS;
+            strictReadCapNote =
+              `\n\n[token-pilot strict] Output capped at ${STRICT_SMART_READ_MAX_TOKENS} tokens ` +
+              `(TOKEN_PILOT_MODE=strict). Pass max_tokens explicitly to override.`;
+          }
           const picked = pickRegistry(args);
 
           // Try non-code handler for JSON/YAML/MD etc.
@@ -518,8 +532,9 @@ export async function createServer(
             absPath: resolve(projectRoot, validArgs.path),
             args: validArgs,
           });
-          if (policyAdv)
-            result.content[0] = { type: "text", text: text + policyAdv };
+          const srSuffix = (policyAdv ?? "") + (strictReadCapNote ?? "");
+          if (srSuffix)
+            result.content[0] = { type: "text", text: text + srSuffix };
           return result;
         }
 
@@ -1113,6 +1128,15 @@ export async function createServer(
 
         case "explore_area": {
           const eaArgs = validateExploreAreaArgs(args);
+          // v0.30.0 strict mode: default include to outline-only when caller didn't set it.
+          // Injected before cache lookup so the key matches strict-mode cached results.
+          let strictEaCapNote: string | undefined;
+          if (mode === "strict" && eaArgs.include === undefined) {
+            eaArgs.include = STRICT_EXPLORE_AREA_INCLUDE;
+            strictEaCapNote =
+              `\n\n[token-pilot strict] include defaulted to ["outline"] ` +
+              `(TOKEN_PILOT_MODE=strict). Pass include explicitly to override.`;
+          }
           const cachedEa = sessionCache?.get("explore_area", eaArgs);
           if (cachedEa) {
             recordWithTrace({
@@ -1158,6 +1182,12 @@ export async function createServer(
             savingsCategory: "compression",
             args: eaArgs,
           });
+          if (strictEaCapNote && eaResult.content[0]) {
+            eaResult.content[0] = {
+              type: "text",
+              text: eaText + strictEaCapNote,
+            };
+          }
           return eaResult;
         }
 

@@ -106,6 +106,31 @@ describe("decidePreGrep", () => {
       decidePreGrep({ tool_name: "Grep", tool_input: { pattern: "id" } }).kind,
     ).toBe("allow");
   });
+
+  it("advisory mode: symbol-like pattern → allow (no blocking)", () => {
+    // In advisory mode every Grep is let through regardless of pattern shape.
+    const d = decidePreGrep(
+      { tool_name: "Grep", tool_input: { pattern: "getUserById" } },
+      "advisory",
+    );
+    expect(d.kind).toBe("allow");
+  });
+
+  it("deny mode (default): symbol-like pattern → deny", () => {
+    const d = decidePreGrep(
+      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      "deny",
+    );
+    expect(d.kind).toBe("deny");
+  });
+
+  it("strict mode: symbol-like pattern → deny (same as deny)", () => {
+    const d = decidePreGrep(
+      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      "strict",
+    );
+    expect(d.kind).toBe("deny");
+  });
 });
 
 describe("renderPreGrepOutput", () => {

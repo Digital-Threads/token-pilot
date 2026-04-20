@@ -71,6 +71,7 @@ import {
 } from "./hooks/post-bash.js";
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
+import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -179,7 +180,10 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       try {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
-        const decision = decidePreBash(input);
+        const decision = decidePreBash(
+          input,
+          parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+        );
         const rendered = renderPreBashOutput(decision);
         if (rendered) process.stdout.write(rendered);
       } catch {
@@ -194,7 +198,10 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       try {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
-        const decision = decidePreGrep(input);
+        const decision = decidePreGrep(
+          input,
+          parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+        );
         const rendered = renderPreGrepOutput(decision);
         if (rendered) process.stdout.write(rendered);
       } catch {
@@ -430,6 +437,7 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
 
   const server = await createServer(projectRoot, {
     skipAstIndex: isDangerousRoot(projectRoot),
+    enforcementMode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
   });
   const transport = new StdioServerTransport();
   await server.connect(transport);

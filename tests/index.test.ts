@@ -147,6 +147,7 @@ describe("index CLI helpers", () => {
 
     await indexModule.main([tempDir]);
     expect(mockDeps.createServer).toHaveBeenCalledWith(tempDir, {
+      enforcementMode: "deny",
       skipAstIndex: false,
     });
   });
@@ -385,6 +386,7 @@ describe("index CLI helpers", () => {
 
     await indexModule.startServer([tempDir]);
     expect(mockDeps.createServer).toHaveBeenCalledWith(tempDir, {
+      enforcementMode: "deny",
       skipAstIndex: false,
     });
     expect(server.connect).toHaveBeenCalled();
@@ -400,6 +402,7 @@ describe("index CLI helpers", () => {
       errorSpy.mock.calls.some((call) => String(call[0]).includes("too broad")),
     ).toBe(true);
     expect(mockDeps.createServer).toHaveBeenCalledWith("/", {
+      enforcementMode: "deny",
       skipAstIndex: true,
     });
   });
@@ -425,6 +428,7 @@ describe("index CLI helpers", () => {
       ),
     ).toBe(true);
     expect(mockDeps.createServer).toHaveBeenCalledWith(repoDir, {
+      enforcementMode: "deny",
       skipAstIndex: false,
     });
 
@@ -456,6 +460,7 @@ describe("index CLI helpers", () => {
       ),
     ).toBe(true);
     expect(mockDeps.createServer).toHaveBeenCalledWith(fallbackDir, {
+      enforcementMode: "deny",
       skipAstIndex: false,
     });
 

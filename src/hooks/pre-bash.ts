@@ -25,6 +25,8 @@
  * v0.28.0; tighten only if tool-audit shows repeated escapes.
  */
 
+import type { EnforcementMode } from "../server/enforcement-mode.js";
+
 export interface PreBashInput {
   tool_name?: string;
   tool_input?: {
@@ -178,7 +180,11 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
   return { kind: "allow" };
 }
 
-export function decidePreBash(input: PreBashInput): PreBashDecision {
+export function decidePreBash(
+  input: PreBashInput,
+  mode: EnforcementMode = "deny",
+): PreBashDecision {
+  if (mode === "advisory") return { kind: "allow" };
   if (input.tool_name !== "Bash") return { kind: "allow" };
   const cmd = input.tool_input?.command;
   if (typeof cmd !== "string") return { kind: "allow" };

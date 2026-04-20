@@ -21,6 +21,8 @@
  * raw shell, we soften to advisory.
  */
 
+import type { EnforcementMode } from "../server/enforcement-mode.js";
+
 export interface PreGrepInput {
   tool_name?: string;
   tool_input?: {
@@ -83,7 +85,11 @@ export function isSymbolLikePattern(pattern: string): boolean {
  * Pure decision function. Given a PreToolUse hook input for Grep,
  * return whether to allow or deny (with a suggestion).
  */
-export function decidePreGrep(input: PreGrepInput): PreGrepDecision {
+export function decidePreGrep(
+  input: PreGrepInput,
+  mode: EnforcementMode = "deny",
+): PreGrepDecision {
+  if (mode === "advisory") return { kind: "allow" };
   if (input.tool_name !== "Grep") return { kind: "allow" };
   const pattern = input.tool_input?.pattern;
   if (typeof pattern !== "string" || pattern.length === 0) {

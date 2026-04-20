@@ -179,6 +179,45 @@ describe("detectHeavyPattern — composite escape patterns (v0.29.0)", () => {
   });
 });
 
+describe("decidePreBash — enforcement mode", () => {
+  it("advisory mode: heavy grep -r → allow (no blocking)", () => {
+    const d = decidePreBash(
+      { tool_name: "Bash", tool_input: { command: "grep -r foo src/" } },
+      "advisory",
+    );
+    expect(d.kind).toBe("allow");
+  });
+
+  it("advisory mode: unbounded git log → allow (no blocking)", () => {
+    const d = decidePreBash(
+      { tool_name: "Bash", tool_input: { command: "git log" } },
+      "advisory",
+    );
+    expect(d.kind).toBe("allow");
+  });
+
+  it("deny mode (default): heavy grep -r → deny", () => {
+    const d = decidePreBash(
+      { tool_name: "Bash", tool_input: { command: "grep -r foo src/" } },
+      "deny",
+    );
+    expect(d.kind).toBe("deny");
+  });
+
+  it("strict mode: heavy grep -r → deny (same as deny)", () => {
+    const d = decidePreBash(
+      { tool_name: "Bash", tool_input: { command: "grep -r foo src/" } },
+      "strict",
+    );
+    expect(d.kind).toBe("deny");
+  });
+
+  it("advisory mode: non-Bash tool → allow (unchanged)", () => {
+    const d = decidePreBash({ tool_name: "Read" }, "advisory");
+    expect(d.kind).toBe("allow");
+  });
+});
+
 describe("renderPreBashOutput", () => {
   it("allow → null", () => {
     expect(renderPreBashOutput({ kind: "allow" })).toBeNull();
