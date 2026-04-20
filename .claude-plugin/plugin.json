@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "description": "Saves 60-90% tokens when AI reads code. AST-aware lazy reading, symbol navigation, cross-session tool-usage analytics, 22 subagents (haiku/sonnet/opus-tiered) with budget watchdog.",
   "author": {
     "name": "Digital-Threads",
@@ -21,9 +21,7 @@
   "mcpServers": {
     "token-pilot": {
       "command": "sh",
-      "args": [
-        "${CLAUDE_PLUGIN_ROOT}/start.sh"
-      ]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/start.sh"]
     }
   },
   "skills": "./skills/"
