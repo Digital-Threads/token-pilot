@@ -68,6 +68,7 @@ export const NAV_TOOLS: ReadonlySet<string> = new Set([
   "explore_area",
   "smart_log",
   "smart_diff",
+  "read_section", // v0.30.0: section reading is nav-class (read-only, no edit prep)
 ]);
 
 /** Edit profile adds batch reads + edit-preparation tools. */

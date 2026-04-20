@@ -35,6 +35,9 @@ describe("getMcpInstructions", () => {
     expect(txt).toContain("find_usages");
     expect(txt).toContain("explore_area");
     expect(txt).toContain("smart_log");
+    // v0.30.0: read_section is nav-class (read-only section extraction for
+    // YAML/JSON/CSV/Markdown) — must appear in nav instructions
+    expect(txt).toContain("read_section");
     // edit-prep tools must NOT appear
     expect(txt).not.toContain("read_for_edit");
     expect(txt).not.toContain("read_symbols");
@@ -43,6 +46,19 @@ describe("getMcpInstructions", () => {
     expect(txt).not.toContain("code_audit");
     expect(txt).not.toContain("find_unused");
     expect(txt).not.toContain("test_summary");
+  });
+
+  it("nav and edit fallback lines do not direct to Read/Grep for JSON/YAML/Markdown (v0.30.0)", () => {
+    // read_section now handles YAML/JSON/CSV/Markdown — the fallback must not
+    // contradict the decision rules by listing these types as "use Read/Grep".
+    for (const profile of ["nav", "edit", "full"] as const) {
+      const txt = getMcpInstructions(profile);
+      // The fallback line should not re-direct the agent to use Read for
+      // file types that read_section handles.
+      expect(txt, `profile=${profile}`).not.toMatch(
+        /USE Read\/Grep ONLY for:.*(?:JSON|YAML|Markdown|markdown|yaml|json)/,
+      );
+    }
   });
 
   it("edit instructions mention edit tools but not audit tools", () => {
