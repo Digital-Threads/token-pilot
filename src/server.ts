@@ -743,6 +743,15 @@ export async function createServer(
 
         case "find_usages": {
           const usagesArgs = validateFindUsagesArgs(args);
+          // v0.30.0 strict mode: default mode to "list" when caller didn't set it.
+          // Injected before cache lookup so the key matches strict-mode cached results.
+          let strictFuNote: string | undefined;
+          if (mode === "strict" && usagesArgs.mode === undefined) {
+            usagesArgs.mode = "list";
+            strictFuNote =
+              `\n\n[token-pilot strict] find_usages mode defaulted to "list" ` +
+              `(TOKEN_PILOT_MODE=strict). Pass mode explicitly to override.`;
+          }
           const cachedUsages = sessionCache?.get("find_usages", usagesArgs);
           if (cachedUsages) {
             recordWithTrace({
@@ -790,6 +799,12 @@ export async function createServer(
             savingsCategory: "compression",
             args: usagesArgs,
           });
+          if (strictFuNote && usagesResult.content[0]) {
+            usagesResult.content[0] = {
+              type: "text",
+              text: usagesText + strictFuNote,
+            };
+          }
           return usagesResult;
         }
 
@@ -1193,6 +1208,14 @@ export async function createServer(
 
         case "smart_log": {
           const slArgs = validateSmartLogArgs(args);
+          // v0.30.0 strict mode: bound count to 20 when caller didn't set it.
+          let strictSlNote: string | undefined;
+          if (mode === "strict" && slArgs.count === undefined) {
+            slArgs.count = 20;
+            strictSlNote =
+              `\n\n[token-pilot strict] smart_log count defaulted to 20 ` +
+              `(TOKEN_PILOT_MODE=strict). Pass count explicitly to override.`;
+          }
           const slResult = await handleSmartLog(slArgs, projectRoot);
           const slText = slResult.content[0]?.text ?? "";
           const slTokens = estimateTokens(slText);
@@ -1205,6 +1228,12 @@ export async function createServer(
             savingsCategory: "compression",
             args: slArgs,
           });
+          if (strictSlNote && slResult.content[0]) {
+            slResult.content[0] = {
+              type: "text",
+              text: slText + strictSlNote,
+            };
+          }
           return { content: slResult.content };
         }
 
