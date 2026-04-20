@@ -102,6 +102,25 @@ describe("aggregateToolCalls (pure)", () => {
     expect(rows[0].reductionPct).toBe(0);
     expect(rows[0].saved).toBe(0);
   });
+
+  it("tracks cacheHitCalls separately from total count", () => {
+    const events = [
+      mk({ tool: "smart_read", sessionCacheHit: true }),
+      mk({ tool: "smart_read", sessionCacheHit: true }),
+      mk({ tool: "smart_read", sessionCacheHit: false }),
+      mk({ tool: "smart_read" }), // undefined → not a cache hit
+    ];
+    const rows = aggregateToolCalls(events);
+    const row = rows.find((r) => r.tool === "smart_read")!;
+    expect(row.count).toBe(4);
+    expect(row.cacheHitCalls).toBe(2);
+  });
+
+  it("cacheHitCalls defaults to 0 when no sessionCacheHit events", () => {
+    const events = [mk({ tool: "find_usages" }), mk({ tool: "find_usages" })];
+    const rows = aggregateToolCalls(events);
+    expect(rows[0].cacheHitCalls).toBe(0);
+  });
 });
 
 describe("formatTable (pure)", () => {
@@ -124,6 +143,20 @@ describe("formatTable (pure)", () => {
     expect(out).toMatch(/great/);
     expect(out).toMatch(/low-value/); // flagged line
     expect(out).toMatch(/Low-value tools/); // footer explanation
+  });
+
+  it("column header says Est.Saved* (not just Saved)", () => {
+    const rows = aggregateToolCalls([mk({ tool: "smart_read" })]);
+    const out = formatTable(rows, { totalEvents: 1 });
+    expect(out).toMatch(/Est\.Saved\*/);
+    expect(out).not.toMatch(/^\s+Saved\s/m); // bare "Saved" must not appear as column header
+  });
+
+  it("always emits the Est.Saved* disclaimer footer", () => {
+    const rows = aggregateToolCalls([mk({ tool: "smart_read" })]);
+    const out = formatTable(rows, { totalEvents: 1 });
+    expect(out).toMatch(/Est\.Saved is estimated/);
+    expect(out).toMatch(/cacheHitCalls/);
   });
 });
 
@@ -149,7 +182,10 @@ describe("runToolAudit (e2e)", () => {
   });
 
   it("--json mode emits parseable JSON with totalEvents + tools", async () => {
-    await appendToolCall(tempDir, mk({ tool: "smart_read" }));
+    await appendToolCall(
+      tempDir,
+      mk({ tool: "smart_read", sessionCacheHit: true }),
+    );
     const { stdout } = await runToolAudit({
       projectRoot: tempDir,
       json: true,
@@ -157,6 +193,8 @@ describe("runToolAudit (e2e)", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.totalEvents).toBe(1);
     expect(parsed.tools[0].tool).toBe("smart_read");
+    // cacheHitCalls must be serialised in JSON output
+    expect(parsed.tools[0].cacheHitCalls).toBe(1);
   });
 
   it("empty project: no crash, returns the helpful hint", async () => {

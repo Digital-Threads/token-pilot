@@ -24,6 +24,11 @@ export interface ToolAuditRow {
   /** Calls where the recorder claimed NO savings (pass-through) — separate so
    *  they don't poison the reduction average. */
   noneCalls: number;
+  /** Calls where the MCP response was served from the session cache (the model
+   *  replayed cached tokens).  These contribute to `saved` but the mechanism
+   *  is token re-use, not structural compression — useful to split out so the
+   *  "Est.Saved*" column is understood correctly. */
+  cacheHitCalls: number;
   /** True when reduction is below the low-value threshold AND we have enough
    *  samples (≥5) to make a claim — avoids flagging tools after 1 bad run. */
   lowValue: boolean;
@@ -45,6 +50,7 @@ export function aggregateToolCalls(
       tokensReturned: number;
       tokensWouldBe: number;
       noneCalls: number;
+      cacheHitCalls: number;
     }
   >();
 
@@ -54,11 +60,13 @@ export function aggregateToolCalls(
       tokensReturned: 0,
       tokensWouldBe: 0,
       noneCalls: 0,
+      cacheHitCalls: 0,
     };
     row.count++;
     row.tokensReturned += e.tokensReturned;
     row.tokensWouldBe += e.tokensWouldBe;
     if (e.savingsCategory === "none") row.noneCalls++;
+    if (e.sessionCacheHit) row.cacheHitCalls++;
     byTool.set(e.tool, row);
   }
 
@@ -78,6 +86,7 @@ export function aggregateToolCalls(
       saved,
       reductionPct,
       noneCalls: r.noneCalls,
+      cacheHitCalls: r.cacheHitCalls,
       lowValue,
     });
   }
@@ -112,7 +121,7 @@ Run a few MCP tool calls from your AI client, then re-run \`npx token-pilot tool
   );
   lines.push("");
   lines.push(
-    "  Tool                     Calls      Saved   Returned  Reduction",
+    "  Tool                     Calls  Est.Saved*   Returned  Reduction",
   );
   lines.push(
     "  ─────────────────────────────────────────────────────────────────",
@@ -137,6 +146,15 @@ Run a few MCP tool calls from your AI client, then re-run \`npx token-pilot tool
       "Consider: check their `none` passthrough count, or whether a cheaper alternative (Grep, Read) would do the job.",
     );
   }
+
+  lines.push("");
+  lines.push(
+    "* Est.Saved is estimated against a full-file read baseline. Actual prompt",
+  );
+  lines.push(
+    "  savings depend on client caching — use `cacheHitCalls` in --json output",
+  );
+  lines.push("  to distinguish structural compression from cache re-use.");
 
   return lines.join("\n");
 }
