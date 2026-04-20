@@ -1,9 +1,106 @@
 /**
  * MCP tool definitions and system instructions.
  * Pure static data — no runtime dependencies.
+ *
+ * v0.30.0 — Profile-specific instructions. Each profile advertises only
+ * the tools it includes; instructions are trimmed to match so the agent
+ * doesn't hallucinate tools that aren't in tools/list.
+ *
+ *   minimal — 5 core tools, minimal context overhead
+ *   nav     — 10 exploration tools, no editing
+ *   edit    — nav + 6 edit-prep tools (DEFAULT)
+ *   full    — everything including audit tools
  */
+import type { ToolProfile } from "./tool-profiles.js";
 
-export const MCP_INSTRUCTIONS = [
+// ---------------------------------------------------------------------------
+// Minimal profile — 5 essential tools, near-zero instructions overhead
+// ---------------------------------------------------------------------------
+const MCP_INSTRUCTIONS_MINIMAL = [
+  "Token Pilot — token-efficient code reading. ALWAYS prefer these tools over Read/cat/grep.",
+  "",
+  "TOOLS:",
+  "• smart_read(path) — read a code file (NOT cat/Read — returns structure, 60-80% fewer tokens)",
+  "• read_symbol(path, symbol) — read ONE function/class body (NOT the whole file)",
+  "• find_usages(symbol) — find where a symbol is defined, imported, or used",
+  "• smart_diff — review git changes mapped to functions/classes (NOT git diff)",
+  "• smart_log — structured commit history (NOT git log)",
+  "",
+  "USE Read/Grep ONLY for: non-code configs (JSON, YAML, markdown), regex patterns.",
+].join("\n");
+
+// ---------------------------------------------------------------------------
+// Nav profile — exploration only, no edit-prep tools
+// ---------------------------------------------------------------------------
+const MCP_INSTRUCTIONS_NAV = [
+  "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
+  "",
+  "DECISION RULES — pick the first match:",
+  "1. New codebase / unfamiliar project → project_overview",
+  "2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)",
+  "3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)",
+  '   - For navigation/browsing: smart_read(scope="nav") — names + lines only, 2-3x smaller',
+  '   - For public API overview: smart_read(scope="exports")',
+  "4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)",
+  "5. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)",
+  '   - For initial discovery: find_usages(mode="list") — file:line only, 5-10x smaller',
+  "6. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)",
+  "7. List all symbols in a directory → outline (classes, functions, methods in one call)",
+  "8. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)",
+  "9. Commit history → smart_log (NOT git log — structured with categories)",
+  "10. Module architecture → module_info (deps, dependents, public API)",
+  "11. Long session / before compaction → session_snapshot (<200 token state capture)",
+  "",
+  "USE Read/Grep ONLY for: non-code files (JSON, YAML, markdown), regex patterns.",
+  "",
+  "WORKFLOW:",
+  "• Explore: project_overview → explore_area → smart_read → read_symbol",
+].join("\n");
+
+// ---------------------------------------------------------------------------
+// Edit profile — nav + batch reads + edit-prep (DEFAULT)
+// ---------------------------------------------------------------------------
+const MCP_INSTRUCTIONS_EDIT = [
+  "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
+  "",
+  "DECISION RULES — pick the first match:",
+  "1. New codebase / unfamiliar project → project_overview",
+  "2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)",
+  "3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)",
+  '   - For navigation/browsing: smart_read(scope="nav") — names + lines only, 2-3x smaller',
+  '   - For public API overview: smart_read(scope="exports")',
+  "4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)",
+  "   - Preparing edit? Add include_edit_context=true to skip separate read_for_edit call",
+  "5. Need MULTIPLE function/class bodies from same file → read_symbols (batch — one call instead of N)",
+  "6. Preparing an edit → read_for_edit (returns exact text for Edit old_string)",
+  "7. Verify edits after editing → read_diff (only changed hunks — REQUIRES smart_read BEFORE editing)",
+  "8. Multiple files at once → smart_read_many (batch up to 20 files)",
+  "9. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)",
+  '   - For initial discovery: find_usages(mode="list") — file:line only, 5-10x smaller',
+  "10. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)",
+  "11. List all symbols in a directory → outline (classes, functions, methods in one call)",
+  "12. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)",
+  "13. Commit history → smart_log (NOT git log — structured with categories)",
+  "14. Module architecture → module_info (deps, dependents, public API)",
+  "15. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)",
+  '    - For editing sections: read_for_edit(path, section="Section Name")',
+  "16. Long session / before compaction → session_snapshot (capture goal, decisions, confirmed facts, files, next step as <200 token block)",
+  "    - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size",
+  "",
+  "USE Read/Grep ONLY for: non-code files (JSON, YAML, markdown), regex patterns.",
+  "",
+  "WORKFLOWS:",
+  "• Explore: project_overview → explore_area → smart_read → read_symbol",
+  "• Edit: smart_read → read_symbol(include_edit_context=true) → Edit → read_diff",
+  "• Docs: smart_read (outline) → read_section → read_for_edit(section=) → Edit → read_diff",
+  "• Refactor: find_usages → read_symbols → read_for_edit → Edit",
+  "• Long session: session_snapshot → compact context → continue with minimal state",
+].join("\n");
+
+// ---------------------------------------------------------------------------
+// Full profile — all tools including audit (code_audit, find_unused, test_summary)
+// ---------------------------------------------------------------------------
+const MCP_INSTRUCTIONS_FULL = [
   "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
   "",
   "DECISION RULES — pick the first match:",
@@ -29,11 +126,11 @@ export const MCP_INSTRUCTIONS = [
   "16. Dead code → find_unused (unreferenced symbols across project)",
   "17. Module architecture → module_info (deps, dependents, public API)",
   "18. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)",
-  '   - For editing sections: read_for_edit(path, section="Section Name")',
+  '    - For editing sections: read_for_edit(path, section="Section Name")',
   "19. Long session / before compaction → session_snapshot (capture goal, decisions, confirmed facts, files, next step as <200 token block)",
-  "   - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size",
+  "    - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size",
   "",
-  "USE DEFAULT TOOLS ONLY FOR: regex text search → Grep | exact raw content → Read | non-code configs → Read",
+  "USE Read/Grep ONLY for: regex text search → Grep | exact raw content → Read | non-code configs → Read",
   "",
   "WORKFLOWS:",
   "• Explore: project_overview → explore_area → smart_read → read_symbol",
@@ -43,6 +140,30 @@ export const MCP_INSTRUCTIONS = [
   "• Audit: code_audit + find_unused + Grep (for regex patterns)",
   "• Long session: session_snapshot → compact context → continue with minimal state",
 ].join("\n");
+
+/**
+ * Select MCP instructions for the given tool profile.
+ * Each profile only mentions tools that are actually advertised in its
+ * tools/list — prevents the agent from calling tools it can't see.
+ */
+export function getMcpInstructions(profile: ToolProfile): string {
+  switch (profile) {
+    case "minimal":
+      return MCP_INSTRUCTIONS_MINIMAL;
+    case "nav":
+      return MCP_INSTRUCTIONS_NAV;
+    case "edit":
+      return MCP_INSTRUCTIONS_EDIT;
+    case "full":
+      return MCP_INSTRUCTIONS_FULL;
+  }
+}
+
+/**
+ * @deprecated Use getMcpInstructions(profile) instead.
+ * Kept for backward-compat — resolves to the full profile instructions.
+ */
+export const MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_FULL;
 
 export const TOOL_DEFINITIONS = [
   // --- Core reading tools ---

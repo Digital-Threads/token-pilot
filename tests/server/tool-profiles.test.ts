@@ -53,7 +53,31 @@ describe("filterToolsByProfile", () => {
     expect(names).not.toContain("test_summary");
   });
 
-  it("META_TOOLS always visible in every profile", () => {
+  it('profile="minimal" keeps only the 5 core tools, no META', () => {
+    const input = tools(
+      "smart_read",
+      "read_symbol",
+      "find_usages",
+      "smart_diff",
+      "smart_log",
+      "outline", // nav-only, excluded from minimal
+      "read_for_edit", // edit-only, excluded
+      "session_analytics", // META — excluded in minimal to keep footprint tiny
+    );
+    const out = filterToolsByProfile(input, "minimal");
+    const names = out.map((t) => t.name);
+    expect(names).toContain("smart_read");
+    expect(names).toContain("read_symbol");
+    expect(names).toContain("find_usages");
+    expect(names).toContain("smart_diff");
+    expect(names).toContain("smart_log");
+    expect(names).not.toContain("outline");
+    expect(names).not.toContain("read_for_edit");
+    // META excluded from minimal — the whole point is minimal footprint
+    expect(names).not.toContain("session_analytics");
+  });
+
+  it("META_TOOLS always visible in nav/edit/full profiles", () => {
     const input = tools(
       "smart_read",
       "session_analytics",
@@ -66,6 +90,11 @@ describe("filterToolsByProfile", () => {
       expect(names, `profile=${profile}`).toContain("session_budget");
       expect(names, `profile=${profile}`).toContain("session_snapshot");
     }
+    // minimal intentionally excludes META for context-budget reasons
+    const minimalNames = filterToolsByProfile(input, "minimal").map(
+      (t) => t.name,
+    );
+    expect(minimalNames).not.toContain("session_analytics");
   });
 
   it('profile="edit" keeps nav + edit-prep tools, still drops full-only', () => {
@@ -129,27 +158,28 @@ describe("filterToolsByProfile", () => {
 });
 
 describe("parseProfileEnv", () => {
-  it("undefined env → full (no warning)", () => {
+  it("undefined env → edit (default since v0.30.0, no warning)", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv(undefined, warn)).toBe("full");
+    expect(parseProfileEnv(undefined, warn)).toBe("edit");
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("empty string env → full (no warning)", () => {
+  it("empty string env → edit (default since v0.30.0, no warning)", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv("", warn)).toBe("full");
+    expect(parseProfileEnv("", warn)).toBe("edit");
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("case-insensitive: NAV, Edit, FULL all work", () => {
+  it("case-insensitive: NAV, Edit, FULL, MINIMAL all work", () => {
     expect(parseProfileEnv("NAV")).toBe("nav");
     expect(parseProfileEnv("Edit")).toBe("edit");
     expect(parseProfileEnv("FULL")).toBe("full");
+    expect(parseProfileEnv("MINIMAL")).toBe("minimal");
   });
 
-  it("unknown value falls back to full AND emits a warning", () => {
+  it("unknown value falls back to edit AND emits a warning", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv("readonly", warn)).toBe("full");
+    expect(parseProfileEnv("readonly", warn)).toBe("edit");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/TOKEN_PILOT_PROFILE="readonly"/);
   });
@@ -158,8 +188,8 @@ describe("parseProfileEnv", () => {
     expect(parseProfileEnv("  nav  ")).toBe("nav");
   });
 
-  it("PROFILE_NAMES constant lists all three profiles", () => {
+  it("PROFILE_NAMES constant lists all four profiles", () => {
     const names: readonly ToolProfile[] = PROFILE_NAMES;
-    expect([...names].sort()).toEqual(["edit", "full", "nav"]);
+    expect([...names].sort()).toEqual(["edit", "full", "minimal", "nav"]);
   });
 });

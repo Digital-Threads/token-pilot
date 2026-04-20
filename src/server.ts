@@ -55,7 +55,7 @@ import { estimateTokens } from "./core/token-estimator.js";
 import { checkPolicy, isFullReadTool } from "./core/policy-engine.js";
 import { appendToolCall } from "./core/tool-call-log.js";
 import {
-  MCP_INSTRUCTIONS,
+  getMcpInstructions,
   TOOL_DEFINITIONS,
 } from "./server/tool-definitions.js";
 import {
@@ -261,7 +261,6 @@ export async function createServer(
   let fullFileReadsCount = 0;
   let totalCallCount = 0;
   let totalTokensReturned = 0;
-  const readForEditCalled = new Set<string>();
 
   // Detect context-mode companion
   const cmEnabled = config.contextMode.enabled;
@@ -330,25 +329,28 @@ export async function createServer(
     /* fallback to hardcoded */
   }
 
+  // v0.26.3 — tool profiles. TOKEN_PILOT_PROFILE=nav|edit|full|minimal
+  // (default: edit since v0.30.0) trims the advertised tools/list payload.
+  // Handlers stay live, so a subagent that explicitly names a filtered-out
+  // tool still gets a response — we just don't brag about every tool upfront.
+  // v0.30.0 — profile also selects matching MCP instructions so the agent
+  // doesn't see rules for tools that aren't in its tools/list.
+  const activeProfile = parseProfileEnv(process.env.TOKEN_PILOT_PROFILE, (m) =>
+    process.stderr.write(m + "\n"),
+  );
+
   const server = new Server(
     { name: "token-pilot", version: pkgVersion },
     {
       capabilities: { tools: {} },
-      instructions: MCP_INSTRUCTIONS,
+      instructions: getMcpInstructions(activeProfile),
     },
   );
 
-  // v0.26.3 — tool profiles. TOKEN_PILOT_PROFILE=nav|edit|full (default
-  // full) trims the advertised tools/list payload. Handlers stay live,
-  // so a subagent that explicitly names a filtered-out tool still gets
-  // a response — we just don't brag about every tool upfront.
-  const activeProfile = parseProfileEnv(process.env.TOKEN_PILOT_PROFILE, (m) =>
-    process.stderr.write(m + "\n"),
-  );
   const advertisedTools = filterToolsByProfile(TOOL_DEFINITIONS, activeProfile);
-  if (activeProfile !== "full") {
+  if (activeProfile !== "edit") {
     process.stderr.write(
-      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools. Unset TOKEN_PILOT_PROFILE for the full set.\n`,
+      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools. Set TOKEN_PILOT_PROFILE=edit for the default set.\n`,
     );
   }
   server.setRequestHandler(ListToolsRequestSchema, () => ({
@@ -415,15 +417,10 @@ export async function createServer(
     if (isFullReadTool(rest.tool)) {
       fullFileReadsCount++;
     }
-    if (rest.tool === "read_for_edit" && call.path) {
-      readForEditCalled.add(call.path);
-    }
-
     // Policy check
     const advisory = checkPolicy(config.policies, rest.tool, {
       fullFileReadsCount,
       tokensReturned: rest.tokensReturned,
-      readForEditCalled,
       totalCallCount,
       totalTokensReturned,
     });

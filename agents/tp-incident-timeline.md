@@ -8,7 +8,7 @@ tools:
   - mcp__token-pilot__read_symbol
   - Bash
 model: inherit
-token_pilot_version: "0.29.0"
+token_pilot_version: "0.30.0"
 token_pilot_body_hash: 213746bab7acb6730a6edb16e1ff7b2c56572c3adf4f94990799f1c168cfa2ad
 ---
 

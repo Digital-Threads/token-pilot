@@ -7,8 +7,6 @@
 export interface PolicyConfig {
   /** Advisory hints when an expensive tool is used where a cheaper alternative exists */
   preferCheapReads: boolean;
-  /** Track if read_for_edit was called before edit (advisory) */
-  requireReadForEditBeforeEdit: boolean;
   /** Always cache project overview in session cache */
   cacheProjectOverview: boolean;
   /** Warn after N full-file reads in a session */
@@ -25,7 +23,6 @@ export interface PolicyConfig {
 
 export const DEFAULT_POLICIES: PolicyConfig = {
   preferCheapReads: true,
-  requireReadForEditBeforeEdit: true,
   cacheProjectOverview: true,
   maxFullFileReads: 10,
   warnOnLargeReads: true,
@@ -35,28 +32,23 @@ export const DEFAULT_POLICIES: PolicyConfig = {
 };
 
 /** Full-file read tools that count toward maxFullFileReads */
-const FULL_READ_TOOLS = new Set([
-  'smart_read',
-  'smart_read_many',
-]);
+const FULL_READ_TOOLS = new Set(["smart_read", "smart_read_many"]);
 
 /** Tools that indicate a cheaper alternative may exist */
 const EXPENSIVE_TOOLS: Record<string, string> = {
-  smart_read: 'Consider read_symbol() or read_range() for targeted reads',
-  smart_read_many: 'Consider reading files individually with read_symbol()',
+  smart_read: "Consider read_symbol() or read_range() for targeted reads",
+  smart_read_many: "Consider reading files individually with read_symbol()",
 };
 
 export interface PolicyCheckContext {
   fullFileReadsCount: number;
   tokensReturned: number;
-  readForEditCalled?: Set<string>;
-  editTargetPath?: string;
   totalCallCount?: number;
   totalTokensReturned?: number;
 }
 
 export interface PolicyAdvisory {
-  level: 'info' | 'warn';
+  level: "info" | "warn";
   message: string;
 }
 
@@ -76,7 +68,7 @@ export function checkPolicy(
     context.fullFileReadsCount >= policy.maxFullFileReads
   ) {
     return {
-      level: 'warn',
+      level: "warn",
       message: `POLICY: ${context.fullFileReadsCount} full-file reads this session (limit: ${policy.maxFullFileReads}). Consider read_symbol() or read_range() for targeted access.`,
     };
   }
@@ -87,7 +79,7 @@ export function checkPolicy(
     context.tokensReturned > policy.largeReadThreshold
   ) {
     return {
-      level: 'info',
+      level: "info",
       message: `POLICY: Large response (~${context.tokensReturned} tokens). Future reads on this file: use read_symbol() or read_range() for targeted access.`,
     };
   }
@@ -97,27 +89,13 @@ export function checkPolicy(
     // Only advise when token count is high enough to matter
     if (context.tokensReturned > 500) {
       return {
-        level: 'info',
+        level: "info",
         message: `POLICY: ${EXPENSIVE_TOOLS[tool]}`,
       };
     }
   }
 
-  // 4. Require read_for_edit before edit
-  if (
-    policy.requireReadForEditBeforeEdit &&
-    tool === 'edit' &&
-    context.editTargetPath &&
-    context.readForEditCalled &&
-    !context.readForEditCalled.has(context.editTargetPath)
-  ) {
-    return {
-      level: 'info',
-      message: `POLICY: Consider using read_for_edit("${context.editTargetPath}") before editing to get precise edit context.`,
-    };
-  }
-
-  // 5. Session compaction advisory — by call count
+  // 4. Session compaction advisory — by call count
   if (
     policy.compactionCallThreshold > 0 &&
     context.totalCallCount !== undefined &&
@@ -125,7 +103,7 @@ export function checkPolicy(
     context.totalCallCount % policy.compactionCallThreshold === 0
   ) {
     return {
-      level: 'info',
+      level: "info",
       message: `COMPACTION: ${context.totalCallCount} tool calls this session. Consider calling session_snapshot() to capture state, then compact context.`,
     };
   }
@@ -139,7 +117,7 @@ export function checkPolicy(
     context.totalCallCount % 5 === 0 // don't spam every call, check every 5th
   ) {
     return {
-      level: 'info',
+      level: "info",
       message: `COMPACTION: ~${context.totalTokensReturned} tokens returned this session. Consider calling session_snapshot() to capture state, then compact context.`,
     };
   }

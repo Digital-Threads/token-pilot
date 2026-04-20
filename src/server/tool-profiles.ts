@@ -22,12 +22,13 @@
  * fall back to full with a stderr warning. Silent on missing env.
  */
 
-export type ToolProfile = "full" | "nav" | "edit";
+export type ToolProfile = "full" | "nav" | "edit" | "minimal";
 
 export const PROFILE_NAMES: readonly ToolProfile[] = [
   "full",
   "nav",
   "edit",
+  "minimal",
 ] as const;
 
 /**
@@ -40,6 +41,19 @@ export const META_TOOLS: ReadonlySet<string> = new Set([
   "session_analytics",
   "session_budget",
   "session_snapshot",
+]);
+
+/**
+ * Minimal profile — 5 core tools for emergency / context-constrained sessions.
+ * Token overhead: tools/list is tiny; instructions are ~80 tokens vs ~350 for full.
+ * Use TOKEN_PILOT_PROFILE=minimal when the agent's context budget is nearly full.
+ */
+export const MINIMAL_TOOLS: ReadonlySet<string> = new Set([
+  "smart_read",
+  "read_symbol",
+  "find_usages",
+  "smart_diff",
+  "smart_log",
 ]);
 
 /** Minimum nav profile — exploration only, no editing support. */
@@ -82,6 +96,11 @@ export function filterToolsByProfile<T extends { name: string }>(
   // session_snapshot are the instruments for verifying the profile is
   // doing its job. Hiding them would turn "did this save tokens?" into
   // a guess.
+  if (profile === "minimal") {
+    // Minimal: 5 core tools only. META excluded — keep the footprint tiny.
+    // The agent can still call session_analytics by name if it knows it.
+    return tools.filter((t) => MINIMAL_TOOLS.has(t.name));
+  }
   if (profile === "nav") {
     return tools.filter((t) => NAV_TOOLS.has(t.name) || META_TOOLS.has(t.name));
   }
@@ -98,17 +117,34 @@ export function filterToolsByProfile<T extends { name: string }>(
  * Parse the TOKEN_PILOT_PROFILE env value. Unknown values get a warning
  * and fall back to full — we never silently apply a guess.
  */
+/**
+ * Parse the TOKEN_PILOT_PROFILE env value.
+ *
+ * Default changed in v0.30.0: full → edit.
+ * Rationale: 'full' was exposing 22 tools + full instruction set on every
+ * session, burning ~3 k tokens before any work. 'edit' covers 99% of
+ * development workflows (reading + writing code). Switch to 'full' only
+ * when you need audit tools (code_audit, find_unused, test_summary).
+ *
+ * Unknown values fall back to 'edit' with a stderr warning — we never
+ * silently apply a guess.
+ */
 export function parseProfileEnv(
   envValue: string | undefined,
   warn: (msg: string) => void = () => {},
 ): ToolProfile {
-  if (!envValue) return "full";
+  if (!envValue) return "edit";
   const lower = envValue.trim().toLowerCase();
-  if (lower === "full" || lower === "nav" || lower === "edit") {
+  if (
+    lower === "full" ||
+    lower === "nav" ||
+    lower === "edit" ||
+    lower === "minimal"
+  ) {
     return lower;
   }
   warn(
-    `[token-pilot] Unknown TOKEN_PILOT_PROFILE="${envValue}". Expected full|nav|edit. Falling back to full.`,
+    `[token-pilot] Unknown TOKEN_PILOT_PROFILE="${envValue}". Expected full|nav|edit|minimal. Falling back to edit.`,
   );
-  return "full";
+  return "edit";
 }

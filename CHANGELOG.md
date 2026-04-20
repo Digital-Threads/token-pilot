@@ -5,6 +5,41 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-04-19
+
+### Added — `minimal` profile (5 tools, near-zero overhead)
+
+New `TOKEN_PILOT_PROFILE=minimal` for context-budget-constrained sessions. Advertises only 5 core tools (`smart_read`, `read_symbol`, `find_usages`, `smart_diff`, `smart_log`) — no META tools, no editing extras. Instructions are ~80 tokens vs ~350 for `full`. Use when the agent's context window is nearly full and you only need to navigate code.
+
+### Added — profile-specific MCP instructions (PR #1)
+
+Each profile now receives instructions that only mention its own advertised tools. Previously, a `nav` session received `read_for_edit` and `code_audit` instructions even though those tools weren't in `tools/list` — causing hallucinated tool calls. Now:
+
+- `minimal` → 80-token instruction block, 5 tools only
+- `nav` → exploration-only rules, no edit-prep or audit mentions  
+- `edit` → full read+write workflow (DEFAULT since v0.30.0)
+- `full` → all 22 tools including audit tools
+
+Added `getMcpInstructions(profile)` export in `tool-definitions.ts`. The deprecated `MCP_INSTRUCTIONS` constant is kept as a `full`-alias for backward compatibility.
+
+### Changed — default profile `full` → `edit` (PR #2)
+
+`TOKEN_PILOT_PROFILE` now defaults to `edit` instead of `full`. Rationale: the `full` profile was advertising 22 tools + ~350-token instructions on every session, costing ~3 k context tokens before any work. `edit` (16 tools) covers 99% of development workflows. Switch to `full` explicitly only when audit tools (`code_audit`, `find_unused`, `test_summary`) are needed.
+
+Unknown `TOKEN_PILOT_PROFILE` values now fall back to `edit` (was `full`).
+
+### Fixed — removed dead code in policy-engine (PR #7)
+
+`requireReadForEditBeforeEdit` in `PolicyConfig` was permanently dead: `editTargetPath` was never set in the `PolicyCheckContext` passed by `server.ts`, so the advisory could never fire. Removed:
+
+- `PolicyConfig.requireReadForEditBeforeEdit` field
+- `PolicyCheckContext.editTargetPath` field  
+- `PolicyCheckContext.readForEditCalled` field
+- The corresponding `checkPolicy` branch (case 4)
+- Dead `readForEditCalled` Set tracking in `server.ts`
+
+---
+
 ## [0.29.0] - 2026-04-19
 
 Consolidation release based on Sonnet 4.6 + Opus 4.7 verification findings. Closes the short-tail issues that came out of the two live runs before the weekly-quota window reopens.
