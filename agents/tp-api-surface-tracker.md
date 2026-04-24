@@ -9,7 +9,7 @@ tools:
   - mcp__token-pilot__read_symbol
   - Bash
 model: haiku
-token_pilot_version: "0.30.4"
+token_pilot_version: "0.30.5"
 token_pilot_body_hash: c9d33476fdf70c8a7a493ec8720f54792eda2f81585996246e94c130ff3ec356
 ---
 

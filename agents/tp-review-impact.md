@@ -9,7 +9,7 @@ tools:
   - mcp__token-pilot__module_info
   - Bash
 model: sonnet
-token_pilot_version: "0.30.4"
+token_pilot_version: "0.30.5"
 token_pilot_body_hash: 3c1c66f952ac63a5936bec86fefda8c842fb9713bca81e48ca5bb568ccb5f367
 ---
 

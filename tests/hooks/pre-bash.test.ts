@@ -68,6 +68,25 @@ describe("detectHeavyPattern — cat on code files", () => {
   it("allows cat in a pipeline (likely piping to head/grep)", () => {
     expect(detectHeavyPattern("cat src/foo.ts | head -20").kind).toBe("allow");
   });
+
+  // v0.30.4 — regressions from real use. `cat >` / `cat >>` / `cat <<`
+  // are all WRITE patterns, not reads. Heredoc body that includes a
+  // path ending in `.sh` used to trip the code-file heuristic.
+  it("allows cat > file (redirect-out, not a read)", () => {
+    expect(detectHeavyPattern("cat > /tmp/out.txt").kind).toBe("allow");
+    expect(detectHeavyPattern("cat > ~/.claude/settings.json").kind).toBe(
+      "allow",
+    );
+  });
+
+  it("allows cat << TAG heredoc where body mentions a code-file path", () => {
+    const heredoc = `cat > ~/.claude/settings.json << 'JSONEOF'\n{ "path": "/x/caveman-statusline.sh 2>/dev/null" }\nJSONEOF`;
+    expect(detectHeavyPattern(heredoc).kind).toBe("allow");
+  });
+
+  it("allows cat >> file (append)", () => {
+    expect(detectHeavyPattern("cat >> /var/log/app.log").kind).toBe("allow");
+  });
 });
 
 describe("detectHeavyPattern — git log", () => {

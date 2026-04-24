@@ -135,8 +135,18 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
     };
   }
 
-  // 3. cat <code-file> at top level
-  if (invokes(cmd, "cat") && CODE_EXT_RE.test(cmd) && !cmd.includes("|")) {
+  // 3. cat <code-file> at top level — simple read-to-stdout pattern only.
+  // v0.30.4: skip when cat is writing, not reading: `cat > file`,
+  // `cat >> file`, `cat << TAG` (heredoc). A heredoc body that happens to
+  // contain a `.sh` / `.ts` path was tripping the old rule. Pipes stay
+  // exempt as before (pipes mean user is processing, not just dumping).
+  if (
+    invokes(cmd, "cat") &&
+    CODE_EXT_RE.test(cmd) &&
+    !cmd.includes("|") &&
+    !/>/.test(cmd) &&
+    !/<</.test(cmd)
+  ) {
     return {
       kind: "deny",
       reason:
