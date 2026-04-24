@@ -15,7 +15,7 @@
  * on every invocation.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -166,4 +166,153 @@ export function formatEcosystemBlock(
   }
 
   return lines.join("\n");
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Statusline badge — optional Claude Code status-bar indicator
+// ───────────────────────────────────────────────────────────────────
+
+export type StatuslineStatus =
+  | "configured-chain" // points at our chain wrapper — best
+  | "configured-tp-only" // points at tp-statusline.sh directly
+  | "configured-caveman-only" // points at caveman-statusline.sh — our TP badge missing
+  | "configured-other" // some third-party statusLine — we leave it alone
+  | "not-configured" // no statusLine block at all
+  | "unknown"; // settings.json unreadable / not JSON
+
+export interface StatuslineCheckResult {
+  status: StatuslineStatus;
+  configPath: string;
+  currentCommand: string | null;
+}
+
+/**
+ * Parse `~/.claude/settings.json` and report whether a statusline is
+ * wired to token-pilot's own script. Used by `doctor` to nudge toward
+ * the chain wrapper when appropriate. Never throws.
+ */
+export function checkStatusline(): StatuslineCheckResult {
+  const configPath = join(homedir(), ".claude", "settings.json");
+  const empty = {
+    status: "not-configured" as const,
+    configPath,
+    currentCommand: null,
+  };
+  if (!existsSync(configPath)) return empty;
+
+  let text: string;
+  try {
+    text = readFileSync(configPath, "utf-8");
+  } catch {
+    return { status: "unknown", configPath, currentCommand: null };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { status: "unknown", configPath, currentCommand: null };
+  }
+
+  const sl = (parsed as { statusLine?: { command?: string } } | null)
+    ?.statusLine;
+  if (!sl || typeof sl.command !== "string") return empty;
+
+  const cmd = sl.command;
+  if (cmd.includes("statusline-chain.sh")) {
+    return { status: "configured-chain", configPath, currentCommand: cmd };
+  }
+  if (cmd.includes("tp-statusline.sh")) {
+    return { status: "configured-tp-only", configPath, currentCommand: cmd };
+  }
+  if (cmd.includes("caveman-statusline.sh")) {
+    return {
+      status: "configured-caveman-only",
+      configPath,
+      currentCommand: cmd,
+    };
+  }
+  return { status: "configured-other", configPath, currentCommand: cmd };
+}
+
+/**
+ * Render a doctor hint for the statusline badge. Returns null when the
+ * user either already has the best config (chain) or has a custom
+ * statusLine we don't want to touch.
+ */
+export function formatStatuslineHint(
+  result: StatuslineCheckResult,
+  ecosystemStatuses: EcosystemToolStatus[],
+): string | null {
+  const lines: string[] = ["── statusline badge ──"];
+  const hasCaveman = ecosystemStatuses.some(
+    (s) => s.id === "caveman" && s.status === "installed",
+  );
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+
+  switch (result.status) {
+    case "configured-chain":
+      // User is already on the best config — stay silent.
+      return null;
+
+    case "configured-tp-only":
+      if (!hasCaveman) return null;
+      lines.push(
+        `  ⚠ statusline points at tp-statusline.sh directly but caveman is`,
+      );
+      lines.push(
+        `    installed — switch to statusline-chain.sh so both badges show.`,
+      );
+      if (pluginRoot) {
+        lines.push(
+          `    command: bash "${pluginRoot}/hooks/statusline-chain.sh"`,
+        );
+      }
+      return lines.join("\n");
+
+    case "configured-caveman-only":
+      // Caveman's own statusline is already live. Suggest swapping to our
+      // chain wrapper so the `[TP]` badge joins in side-by-side.
+      lines.push(
+        `  ⚠ statusline renders caveman's badge only. Switch to token-pilot's`,
+      );
+      lines.push(
+        `    chain wrapper to also show [TP] with enforcement mode + saved tokens.`,
+      );
+      if (pluginRoot) {
+        lines.push(
+          `    command: bash "${pluginRoot}/hooks/statusline-chain.sh"`,
+        );
+      } else {
+        lines.push(
+          `    command: bash "$(ls -t ~/.claude/plugins/cache/token-pilot/token-pilot/*/hooks/statusline-chain.sh 2>/dev/null | head -1)"`,
+        );
+      }
+      return lines.join("\n");
+
+    case "configured-other":
+      // Custom statusLine — respect it, never overwrite.
+      return null;
+
+    case "unknown":
+      return null;
+
+    case "not-configured": {
+      lines.push(
+        `  ○ no statusline badge configured — add one to see token-pilot`,
+      );
+      lines.push(`    state (enforcement mode + cumulative saved tokens) in`);
+      lines.push(`    Claude Code's status bar.`);
+      lines.push("");
+      const command = pluginRoot
+        ? `bash "${pluginRoot}/hooks/statusline-chain.sh"`
+        : `bash "$(ls -t ~/.claude/plugins/cache/token-pilot/token-pilot/*/hooks/statusline-chain.sh 2>/dev/null | head -1)"`;
+      lines.push(`    Add to ${result.configPath}:`);
+      lines.push(`      "statusLine": {`);
+      lines.push(`        "type": "command",`);
+      lines.push(`        "command": "${command.replace(/"/g, '\\"')}"`);
+      lines.push(`      }`);
+      return lines.join("\n");
+    }
+  }
 }

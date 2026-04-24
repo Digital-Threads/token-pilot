@@ -83,6 +83,7 @@ import {
   type PreEditInput,
 } from "./hooks/pre-edit.js";
 import { isEditPrepared as isEditPreparedFn } from "./core/edit-prep-state.js";
+import { maybeEmitEcosystemReminder } from "./cli/ecosystem-reminder.js";
 import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
 const execFileAsync = promisify(execFile);
@@ -450,6 +451,16 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   }).catch(() => {
     /* ignore */
   });
+
+  // v0.30.x ecosystem nudge — one-time stderr tip suggesting caveman for
+  // output compression. Fires at most once per MCP process, stays silent
+  // when caveman is already detected or TOKEN_PILOT_NO_ECOSYSTEM_TIPS=1.
+  // Static import + synchronous call so nothing ever blocks startServer.
+  try {
+    maybeEmitEcosystemReminder();
+  } catch {
+    /* ecosystem reminder must never block startup */
+  }
 
   // Phase 6 subtask 6.2 — age + size retention on hook-events archives.
   // Fire-and-forget: retention failures must never block startup.
@@ -1021,11 +1032,26 @@ export async function handleDoctor() {
   // installed and prints gaps. Purely advisory — we never install anything.
   // See docs/ecosystem.md for the rationale behind the whitelist.
   try {
-    const { checkEcosystem, formatEcosystemBlock } =
-      await import("./cli/ecosystem-check.js");
-    const block = formatEcosystemBlock(checkEcosystem());
+    const {
+      checkEcosystem,
+      formatEcosystemBlock,
+      checkStatusline,
+      formatStatuslineHint,
+    } = await import("./cli/ecosystem-check.js");
+    const ecosystemStatuses = checkEcosystem();
+    const block = formatEcosystemBlock(ecosystemStatuses);
     if (block) {
       console.log(block);
+      console.log("");
+    }
+    // Statusline hint — only prints when actionable (missing, or mid-upgrade
+    // when caveman is present but chain wrapper isn't used).
+    const statuslineHint = formatStatuslineHint(
+      checkStatusline(),
+      ecosystemStatuses,
+    );
+    if (statuslineHint) {
+      console.log(statuslineHint);
       console.log("");
     }
   } catch {

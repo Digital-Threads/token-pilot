@@ -145,3 +145,220 @@ describe("checkEcosystem — detection through a fake HOME", () => {
     }
   });
 });
+
+// ────────────────────────────────────────────────────────────────────
+// Statusline badge checks
+// ────────────────────────────────────────────────────────────────────
+
+describe("checkStatusline + formatStatuslineHint", () => {
+  const originalHome = process.env.HOME;
+  const originalUserprofile = process.env.USERPROFILE;
+  const originalPluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  let fakeHome: string;
+
+  beforeEach(async () => {
+    fakeHome = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}`);
+    await mkdir(fakeHome, { recursive: true });
+    await mkdir(join(fakeHome, ".claude"), { recursive: true });
+    process.env.HOME = fakeHome;
+    process.env.USERPROFILE = fakeHome;
+    // Unset plugin root so the hint uses the fallback command form
+    delete process.env.CLAUDE_PLUGIN_ROOT;
+  });
+
+  afterEach(async () => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserprofile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserprofile;
+    if (originalPluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+    else process.env.CLAUDE_PLUGIN_ROOT = originalPluginRoot;
+    await rm(fakeHome, { recursive: true, force: true });
+  });
+
+  async function writeSettings(json: Record<string, unknown>) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      join(fakeHome, ".claude", "settings.json"),
+      JSON.stringify(json),
+    );
+  }
+
+  it("reports not-configured when settings.json missing", async () => {
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("not-configured");
+  });
+
+  it("reports not-configured when settings.json has no statusLine block", async () => {
+    await writeSettings({ model: "opus" });
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("not-configured");
+  });
+
+  it("reports unknown when settings.json is not valid JSON", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(fakeHome, ".claude", "settings.json"), "{ bad json");
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("unknown");
+  });
+
+  it("classifies chain wrapper as configured-chain", async () => {
+    await writeSettings({
+      statusLine: {
+        type: "command",
+        command: "bash /some/path/statusline-chain.sh",
+      },
+    });
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("configured-chain");
+  });
+
+  it("classifies tp-statusline.sh alone as configured-tp-only", async () => {
+    await writeSettings({
+      statusLine: {
+        type: "command",
+        command: "bash /some/path/tp-statusline.sh",
+      },
+    });
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("configured-tp-only");
+  });
+
+  it("classifies a third-party command as configured-other", async () => {
+    await writeSettings({
+      statusLine: { type: "command", command: "my-custom-script" },
+    });
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("configured-other");
+  });
+
+  it("classifies caveman-only command as configured-caveman-only", async () => {
+    await writeSettings({
+      statusLine: {
+        type: "command",
+        command: "bash /some/path/caveman-statusline.sh",
+      },
+    });
+    const { checkStatusline } =
+      await import("../../src/cli/ecosystem-check.ts");
+    expect(checkStatusline().status).toBe("configured-caveman-only");
+  });
+
+  it("formatStatuslineHint: nudges chain when caveman-only is active", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "configured-caveman-only",
+        configPath: "/fake",
+        currentCommand: "bash .../caveman-statusline.sh",
+      },
+      [],
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("chain wrapper");
+    expect(hint).toContain("[TP]");
+  });
+
+  it("formatStatuslineHint: returns install recipe when not-configured", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "not-configured",
+        configPath: "/fake/settings.json",
+        currentCommand: null,
+      },
+      [],
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("statusline badge");
+    expect(hint).toContain("/fake/settings.json");
+    expect(hint).toContain("statusline-chain.sh");
+    expect(hint).toContain('"type": "command"');
+  });
+
+  it("formatStatuslineHint: silent when chain wrapper already active", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "configured-chain",
+        configPath: "/fake",
+        currentCommand: "bash x/statusline-chain.sh",
+      },
+      [],
+    );
+    expect(hint).toBeNull();
+  });
+
+  it("formatStatuslineHint: silent on custom statusLine we don't own", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "configured-other",
+        configPath: "/fake",
+        currentCommand: "custom",
+      },
+      [],
+    );
+    expect(hint).toBeNull();
+  });
+
+  it("formatStatuslineHint: silent on tp-only when caveman NOT installed", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "configured-tp-only",
+        configPath: "/fake",
+        currentCommand: "bash x/tp-statusline.sh",
+      },
+      // Caveman missing → tp-only is actually the right config, no nudge
+      [
+        {
+          id: "caveman",
+          name: "caveman",
+          role: "output",
+          status: "not-installed",
+          detectedAt: null,
+          installHint: "install",
+          repo: "https://x",
+        },
+      ],
+    );
+    expect(hint).toBeNull();
+  });
+
+  it("formatStatuslineHint: nudges chain-upgrade when caveman installed but tp-only active", async () => {
+    const { formatStatuslineHint } =
+      await import("../../src/cli/ecosystem-check.ts");
+    const hint = formatStatuslineHint(
+      {
+        status: "configured-tp-only",
+        configPath: "/fake",
+        currentCommand: "bash x/tp-statusline.sh",
+      },
+      [
+        {
+          id: "caveman",
+          name: "caveman",
+          role: "output",
+          status: "installed",
+          detectedAt: "/real/path",
+          installHint: "install",
+          repo: "https://x",
+        },
+      ],
+    );
+    expect(hint).not.toBeNull();
+    expect(hint).toContain("statusline-chain.sh");
+  });
+});
