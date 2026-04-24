@@ -210,25 +210,25 @@ describe("index stdin hooks", () => {
     await rm(fixtureRoot, { recursive: true, force: true });
   });
 
-  it("adds edit guidance for code files and skips non-code or malformed input", async () => {
+  it("edit hook: silent on non-existent code files (hook falls through to Claude Code's own error)", async () => {
+    // v0.30.0 — the old behaviour always emitted an allow+TIP. New
+    // behaviour only emits when there is enforcement work to do: denying
+    // an unprepared edit on an existing file, or routing an advisory
+    // hint. A non-existent path is out of scope — Claude Code's Edit
+    // tool produces a clearer error itself.
     const codeEditRead = vi.fn(() =>
       JSON.stringify({
         tool_input: {
-          file_path: "/repo/file.ts",
+          file_path: "/repo/does-not-exist/file.ts",
         },
       }),
     );
     const codeModule = await loadIndexWithReadFile(codeEditRead);
     expect(() => codeModule.handleHookEdit()).toThrow("EXIT:0");
-    expect(writeSpy).toHaveBeenCalledTimes(1);
-    expect(String(writeSpy.mock.calls[0][0])).toContain(
-      '"permissionDecision":"allow"',
-    );
-    expect(String(writeSpy.mock.calls[0][0])).toContain(
-      'read_for_edit(\\"/repo/file.ts\\"',
-    );
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
 
-    writeSpy.mockClear();
+  it("edit hook: skips non-code files (configs, docs, JSON)", async () => {
     const docEditRead = vi.fn(() =>
       JSON.stringify({
         tool_input: {
@@ -239,11 +239,40 @@ describe("index stdin hooks", () => {
     const docModule = await loadIndexWithReadFile(docEditRead);
     expect(() => docModule.handleHookEdit()).toThrow("EXIT:0");
     expect(writeSpy).not.toHaveBeenCalled();
+  });
 
+  it("edit hook: silently passes malformed stdin through", async () => {
     const invalidRead = vi.fn(() => "{bad json");
     const invalidModule = await loadIndexWithReadFile(invalidRead);
     expect(() => invalidModule.handleHookEdit()).toThrow("EXIT:0");
     expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it("edit hook: denies Edit on an existing un-prepared code file (TOKEN_PILOT_MODE=deny)", async () => {
+    // Concrete on-disk fixture: the new hook calls existsSync, so we need
+    // a real file. A separate prep-state roundtrip is covered by the
+    // edit-prep-state unit suite; here we only exercise the hook wrapper
+    // and the deny render path.
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "token-pilot-edit-hook-"));
+    try {
+      const filePath = join(fixtureRoot, "app.ts");
+      await writeFile(filePath, "export const x = 1;\n");
+      const read = vi.fn(() =>
+        JSON.stringify({
+          tool_name: "Edit",
+          tool_input: { file_path: filePath },
+        }),
+      );
+      const mod = await loadIndexWithReadFile(read);
+      // Default mode is "deny" when TOKEN_PILOT_MODE is unset.
+      expect(() => mod.handleHookEdit()).toThrow("EXIT:0");
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const payload = String(writeSpy.mock.calls[0][0]);
+      expect(payload).toContain('"permissionDecision":"deny"');
+      expect(payload).toContain("read_for_edit");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   it("auto-runs main when imported directly and reports fatal startup failures", async () => {

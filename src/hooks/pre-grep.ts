@@ -35,7 +35,22 @@ export interface PreGrepInput {
 
 export type PreGrepDecision =
   | { kind: "allow" }
+  | { kind: "advise"; reason: string }
   | { kind: "deny"; reason: string };
+
+/**
+ * Shapes that look like TODO / FIXME / HACK / XXX / BUG tag scans —
+ * route these to `code_audit` which returns deduplicated, categorised
+ * results instead of N raw grep hits. Zero code_audit calls across three
+ * projects (tool-audit 2026-04-24) = agents reach for Grep every time.
+ */
+export function isTodoScanPattern(pattern: string): boolean {
+  // Strip common grep-alternation syntax to compare the symbol cores
+  const normalised = pattern.replace(/[()\s]/g, "").toUpperCase();
+  const tagRe =
+    /^(TODO|FIXME|HACK|XXX|BUG|NOTE|OPTIMIZE|REFACTOR)(\|(TODO|FIXME|HACK|XXX|BUG|NOTE|OPTIMIZE|REFACTOR))*$/;
+  return tagRe.test(normalised);
+}
 
 /**
  * Heuristic: does `pattern` look like a code identifier worth sending
@@ -89,12 +104,31 @@ export function decidePreGrep(
   input: PreGrepInput,
   mode: EnforcementMode = "deny",
 ): PreGrepDecision {
-  if (mode === "advisory") return { kind: "allow" };
   if (input.tool_name !== "Grep") return { kind: "allow" };
   const pattern = input.tool_input?.pattern;
   if (typeof pattern !== "string" || pattern.length === 0) {
     return { kind: "allow" };
   }
+
+  // TODO / FIXME / HACK tag scan → route to code_audit. Emitted as an
+  // advisory ("allow" + hint) regardless of enforcement mode: blocking
+  // would frustrate a legitimate one-off scan, but nudging the agent
+  // toward code_audit compounds the benefit across a session.
+  if (isTodoScanPattern(pattern)) {
+    return {
+      kind: "advise",
+      reason:
+        `Grep pattern "${pattern}" is a TODO / FIXME / HACK scan. ` +
+        `Prefer mcp__token-pilot__code_audit — it returns deduplicated, ` +
+        `categorised tags across the project with file/line references, ` +
+        `typically 3-5× fewer tokens than raw Grep and ignores generated/` +
+        `vendored code automatically.`,
+    };
+  }
+
+  // Advisory mode disables the symbol-like deny (legacy behaviour).
+  if (mode === "advisory") return { kind: "allow" };
+
   if (!isSymbolLikePattern(pattern)) return { kind: "allow" };
 
   const reason =
@@ -112,6 +146,15 @@ export function decidePreGrep(
  */
 export function renderPreGrepOutput(decision: PreGrepDecision): string | null {
   if (decision.kind === "allow") return null;
+  if (decision.kind === "advise") {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        additionalContext: decision.reason,
+      },
+    });
+  }
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

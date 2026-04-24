@@ -59,6 +59,24 @@ function createHookConfig(options?: HookInstallOptions) {
           ],
         },
         {
+          matcher: "MultiEdit",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-edit", options),
+            },
+          ],
+        },
+        {
+          matcher: "Write",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-edit", options),
+            },
+          ],
+        },
+        {
           matcher: "Bash",
           hooks: [
             {

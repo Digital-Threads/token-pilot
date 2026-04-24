@@ -16,7 +16,13 @@ process.stderr.on("error", (err) => {
 });
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { readFileSync, realpathSync, appendFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  appendFileSync,
+  mkdirSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { execFile } from "node:child_process";
@@ -71,6 +77,12 @@ import {
 } from "./hooks/post-bash.js";
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
+import {
+  decidePreEdit,
+  renderPreEditOutput,
+  type PreEditInput,
+} from "./hooks/pre-edit.js";
+import { isEditPrepared as isEditPreparedFn } from "./core/edit-prep-state.js";
 import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
 const execFileAsync = promisify(execFile);
@@ -693,39 +705,68 @@ async function runHookReadDispatchImpl(
   });
 }
 
+/**
+ * PreToolUse:Edit / MultiEdit / Write enforcement.
+ *
+ * v0.30.0 upgraded this from a passive advisory hint into a real gate.
+ * The previous implementation always returned `allow` + a TIP; Claude
+ * ignored the TIP and kept building Edit's old_string from smart_read
+ * snippets (tool-audit 2026-04-24: read_for_edit = 0-1% of Claude calls
+ * vs 33% for Codex, which gets explicit prompt-level enforcement).
+ *
+ * New behaviour driven by TOKEN_PILOT_MODE:
+ *   - advisory → allow + non-blocking hint when the file wasn't prepped
+ *   - deny     → block when the file wasn't prepped (the default)
+ *   - strict   → same as deny, plus event log for telemetry
+ *
+ * Pure decision logic lives in src/hooks/pre-edit.ts — this wrapper is
+ * responsible only for stdin parsing and I/O-bound context resolution
+ * (file existence, prep-state lookup, env vars).
+ */
 export function handleHookEdit() {
-  // Parse stdin for Edit tool_input
-  let filePath: string | undefined;
-
+  let input: PreEditInput;
   try {
     const stdin = readFileSync(0, "utf-8");
-    const input = JSON.parse(stdin);
-    filePath = input?.tool_input?.file_path;
+    input = JSON.parse(stdin);
   } catch {
     process.exit(0);
   }
 
-  if (!filePath) {
+  const filePath = input.tool_input?.file_path;
+  if (typeof filePath !== "string" || filePath.length === 0) {
     process.exit(0);
   }
 
+  const projectRoot = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const isCodeFile = CODE_EXTENSIONS.has(ext);
+  const mode = parseEnforcementMode(process.env.TOKEN_PILOT_MODE);
+  const bypassed = process.env.TOKEN_PILOT_BYPASS === "1";
 
-  // Only add context for code files
-  if (!CODE_EXTENSIONS.has(ext)) {
-    process.exit(0);
+  // Existence check must be sync + cheap — the hook is on the request hot path.
+  let fileExists = false;
+  try {
+    fileExists = existsSync(filePath);
+  } catch {
+    // If we can't even stat it, fall back to "does not exist" so Write-on-new
+    // still flows through; Edit on a missing file would error anyway.
+    fileExists = false;
   }
 
-  // Add additionalContext suggesting read_for_edit — doesn't block Edit
-  const context = JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "allow",
-      additionalContext: `TIP: Use read_for_edit("${filePath}", symbol="<name>") to get minimal raw code for Edit's old_string — 97% fewer tokens than Read.`,
-    },
+  const isPrepared = isCodeFile
+    ? isEditPreparedFn(projectRoot, filePath)
+    : false;
+
+  const decision = decidePreEdit(input, {
+    mode,
+    isCodeFile,
+    fileExists,
+    isPrepared,
+    bypassed,
   });
 
-  process.stdout.write(context);
+  const rendered = renderPreEditOutput(decision);
+  if (rendered) process.stdout.write(rendered);
   process.exit(0);
 }
 

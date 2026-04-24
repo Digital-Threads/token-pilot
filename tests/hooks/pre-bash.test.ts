@@ -229,4 +229,65 @@ describe("renderPreBashOutput", () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("stop");
   });
+
+  // v0.30.0 — advisory kind (used for test-runner nudge toward test_summary)
+  it("advise → permissionDecision=allow + additionalContext", () => {
+    const json = renderPreBashOutput({ kind: "advise", reason: "hint" })!;
+    const parsed = JSON.parse(json);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("hint");
+  });
+});
+
+// v0.30.0 — redirect common test runners to test_summary. Tool-audit
+// 2026-04-24 showed test_summary=0 calls across three projects; every
+// agent runs `npm test` or `pytest` directly and lets raw output flood
+// the context.
+describe("test-runner → test_summary (pre-bash advisory)", () => {
+  const cases: Array<{ cmd: string; label: string }> = [
+    { cmd: "npm test", label: "bare npm test" },
+    { cmd: "npm run test", label: "npm run test" },
+    { cmd: "npm run test:unit", label: "npm run test:unit (suite variant)" },
+    { cmd: "yarn test", label: "yarn test" },
+    { cmd: "pnpm test", label: "pnpm test" },
+    { cmd: "pnpm run test:api", label: "pnpm run test:api" },
+    { cmd: "yarn workspace @x/api test", label: "yarn workspace test" },
+    { cmd: "npx vitest run", label: "npx vitest" },
+    { cmd: "pnpx jest", label: "pnpx jest" },
+    { cmd: "vitest", label: "bare vitest" },
+    { cmd: "jest --coverage", label: "bare jest with flag" },
+    { cmd: "pytest tests/", label: "pytest with path" },
+    { cmd: "phpunit", label: "bare phpunit" },
+    { cmd: "go test ./...", label: "go test" },
+    { cmd: "cargo test --release", label: "cargo test" },
+  ];
+  for (const { cmd, label } of cases) {
+    it(`advises on: ${label}`, () => {
+      const decision = decidePreBash(
+        { tool_name: "Bash", tool_input: { command: cmd } },
+        "deny",
+      );
+      expect(decision.kind, `cmd="${cmd}"`).toBe("advise");
+      if (decision.kind === "advise") {
+        expect(decision.reason).toContain("test_summary");
+      }
+    });
+  }
+
+  const negatives = [
+    "echo test",
+    "node test-helper.js",
+    "mkdir test-fixtures",
+    "ls tests/",
+    "cat test.json",
+  ];
+  for (const cmd of negatives) {
+    it(`does NOT advise on innocuous command: ${cmd}`, () => {
+      const decision = decidePreBash(
+        { tool_name: "Bash", tool_input: { command: cmd } },
+        "deny",
+      );
+      expect(decision.kind, `cmd="${cmd}"`).toBe("allow");
+    });
+  }
 });

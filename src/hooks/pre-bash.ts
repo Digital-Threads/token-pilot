@@ -37,6 +37,7 @@ export interface PreBashInput {
 
 export type PreBashDecision =
   | { kind: "allow" }
+  | { kind: "advise"; reason: string }
   | { kind: "deny"; reason: string };
 
 const CODE_EXT_RE =
@@ -177,7 +178,49 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
     };
   }
 
+  // 6. Test runners — suggest test_summary. Advisory only (allow + hint):
+  //    tests are legitimate to run; we just want the token-lean summary by
+  //    default. Tool-audit 2026-04-24 showed test_summary = 0 calls across
+  //    three real projects — agents always go straight to the raw runner.
+  if (isTestRunnerCommand(cmd)) {
+    return {
+      kind: "advise",
+      reason:
+        "Running tests via raw command dumps stdout into context. " +
+        'Prefer mcp__token-pilot__test_summary(command="<your runner>") — ' +
+        "returns structured pass/fail/flaky counts and only the failing output, " +
+        "typically 70-90% fewer tokens than raw runner output.",
+    };
+  }
+
   return { kind: "allow" };
+}
+
+/**
+ * Detect common test-runner invocations. Returns true for anything we'd
+ * route through `test_summary`. Kept as a pure string test so it's unit-
+ * testable without spinning up child processes.
+ */
+export function isTestRunnerCommand(cmd: string): boolean {
+  const trimmed = cmd.trim();
+  if (!trimmed) return false;
+  // npm/yarn/pnpm run test[:suite], yarn workspace <x> test, etc.
+  if (/\b(?:npm|yarn|pnpm)\s+(?:run\s+)?test(?:[:\s]|$)/.test(trimmed)) {
+    return true;
+  }
+  if (/\byarn\s+workspace\s+\S+\s+test\b/.test(trimmed)) return true;
+  // Direct runner invocations (bare or via npx / pnpx / dlx wrappers)
+  if (
+    /\b(?:npx|pnpx|pnpm dlx|yarn dlx)?\s*(?:vitest|jest|mocha|phpunit|rspec|pytest)\b/.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+  // Go / Cargo native test drivers
+  if (/\bgo\s+test\b/.test(trimmed)) return true;
+  if (/\bcargo\s+test\b/.test(trimmed)) return true;
+  return false;
 }
 
 export function decidePreBash(
@@ -193,6 +236,15 @@ export function decidePreBash(
 
 export function renderPreBashOutput(decision: PreBashDecision): string | null {
   if (decision.kind === "allow") return null;
+  if (decision.kind === "advise") {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        additionalContext: decision.reason,
+      },
+    });
+  }
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

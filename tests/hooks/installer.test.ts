@@ -23,11 +23,14 @@ describe("Hook Installer", () => {
     const settings = JSON.parse(
       await readFile(join(tempDir, ".claude", "settings.json"), "utf-8"),
     );
-    expect(settings.hooks.PreToolUse).toHaveLength(4);
+    // v0.30.0 — 6 PreToolUse matchers: Read, Edit, MultiEdit, Write, Bash, Grep
+    expect(settings.hooks.PreToolUse).toHaveLength(6);
     expect(settings.hooks.PreToolUse[0].matcher).toBe("Read");
     expect(settings.hooks.PreToolUse[1].matcher).toBe("Edit");
-    expect(settings.hooks.PreToolUse[2].matcher).toBe("Bash");
-    expect(settings.hooks.PreToolUse[3].matcher).toBe("Grep");
+    expect(settings.hooks.PreToolUse[2].matcher).toBe("MultiEdit");
+    expect(settings.hooks.PreToolUse[3].matcher).toBe("Write");
+    expect(settings.hooks.PreToolUse[4].matcher).toBe("Bash");
+    expect(settings.hooks.PreToolUse[5].matcher).toBe("Grep");
   });
 
   it("installs hook alongside existing settings", async () => {
@@ -44,7 +47,7 @@ describe("Hook Installer", () => {
       await readFile(join(tempDir, ".claude", "settings.json"), "utf-8"),
     );
     expect(settings.someOtherSetting).toBe(true);
-    expect(settings.hooks.PreToolUse).toHaveLength(4);
+    expect(settings.hooks.PreToolUse).toHaveLength(6);
   });
 
   it("does not double-install", async () => {
@@ -145,14 +148,19 @@ describe("Hook Installer", () => {
     );
 
     const preToolUse = packaged.hooks.PreToolUse;
-    expect(preToolUse).toHaveLength(4);
+    // v0.30.0 — MultiEdit and Write share the same hook-edit enforcement
+    // as Edit. Each gets its own matcher entry because Claude Code hook
+    // matchers are exact tool names; a single entry would miss MultiEdit.
+    expect(preToolUse).toHaveLength(6);
     expect(preToolUse.map((hook: { matcher: string }) => hook.matcher)).toEqual(
-      ["Read", "Edit", "Bash", "Grep"],
+      ["Read", "Edit", "MultiEdit", "Write", "Bash", "Grep"],
     );
     expect(preToolUse[0].hooks[0].command).toContain("hook-read");
     expect(preToolUse[1].hooks[0].command).toContain("hook-edit");
-    expect(preToolUse[2].hooks[0].command).toContain("hook-pre-bash");
-    expect(preToolUse[3].hooks[0].command).toContain("hook-pre-grep");
+    expect(preToolUse[2].hooks[0].command).toContain("hook-edit");
+    expect(preToolUse[3].hooks[0].command).toContain("hook-edit");
+    expect(preToolUse[4].hooks[0].command).toContain("hook-pre-bash");
+    expect(preToolUse[5].hooks[0].command).toContain("hook-pre-grep");
   });
 
   it("uses absolute paths when scriptPath is provided", async () => {

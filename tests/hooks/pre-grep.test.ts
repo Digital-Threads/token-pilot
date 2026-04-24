@@ -145,4 +145,69 @@ describe("renderPreGrepOutput", () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("use X");
   });
+
+  // v0.30.0 — advisory kind for TODO-like scans routed to code_audit
+  it("advise decision → permissionDecision=allow + additionalContext", () => {
+    const json = renderPreGrepOutput({ kind: "advise", reason: "use Y" })!;
+    const parsed = JSON.parse(json);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("use Y");
+  });
+});
+
+// v0.30.0 — TODO / FIXME / HACK grep scans should get nudged to
+// code_audit. Tool-audit 2026-04-24: code_audit=0 calls across three
+// projects, agents always reach for Grep first.
+describe("TODO → code_audit (pre-grep advisory)", () => {
+  const positive = [
+    "TODO",
+    "FIXME",
+    "HACK",
+    "XXX",
+    "BUG",
+    "TODO|FIXME",
+    "TODO|FIXME|HACK",
+    "todo|fixme",
+    "(TODO|FIXME)",
+  ];
+  for (const pattern of positive) {
+    it(`advises code_audit for pattern "${pattern}"`, () => {
+      const d = decidePreGrep(
+        { tool_name: "Grep", tool_input: { pattern } },
+        "deny",
+      );
+      expect(d.kind, `pattern="${pattern}"`).toBe("advise");
+      if (d.kind === "advise") {
+        expect(d.reason).toContain("code_audit");
+      }
+    });
+  }
+
+  // Advisory routing should fire even in advisory mode — the previous
+  // symbol-like deny respects mode, but code_audit is always a strict
+  // upgrade over grep for tag scans.
+  it("fires even in advisory mode", () => {
+    const d = decidePreGrep(
+      { tool_name: "Grep", tool_input: { pattern: "TODO" } },
+      "advisory",
+    );
+    expect(d.kind).toBe("advise");
+  });
+
+  const negative = [
+    "UserService", // camelCase symbol — other branch
+    "use_effect", // snake_case — other branch
+    "error", // generic lowercase prose
+    "log", // too short / prose
+    "TODO.*urgent", // regex — user explicitly wants pattern search
+  ];
+  for (const pattern of negative) {
+    it(`does NOT advise code_audit for "${pattern}"`, () => {
+      const d = decidePreGrep(
+        { tool_name: "Grep", tool_input: { pattern } },
+        "deny",
+      );
+      expect(d.kind, `pattern="${pattern}"`).not.toBe("advise");
+    });
+  }
 });
