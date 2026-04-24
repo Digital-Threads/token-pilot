@@ -558,6 +558,26 @@ export const TOOL_DEFINITIONS = [
   },
   // --- Analysis ---
   {
+    name: "call_tree",
+    description:
+      "Recursive depth-N call hierarchy for a function. Shows who calls who transitively — complements find_usages (flat one-level refs) by revealing full chains from leaf helpers to entry points. Use for debugging, refactor impact, and verifying reachability.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        symbol: {
+          type: "string",
+          description:
+            "Function / method name, unqualified (e.g. `fetchUser`).",
+        },
+        depth: {
+          type: "number",
+          description: "Walk-up depth. Default 3, max 6.",
+        },
+      },
+      required: ["symbol"],
+    },
+  },
+  {
     name: "find_unused",
     description:
       "Find dead code — functions, classes, and variables with no references across the project. Use for cleanup and refactoring.",

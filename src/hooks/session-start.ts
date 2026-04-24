@@ -11,8 +11,59 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
+import { loadEvents, type HookEvent } from "../core/event-log.js";
 
 const SNAPSHOT_FRESH_MS = 2 * 3600 * 1000; // 2h — enough to cover compaction/restart, tight enough that a new day's unrelated work doesn't inherit yesterday's thread
+
+// ─── subagent adoption nudge (v0.32.0) ──────────────────────────────
+// Pure function: takes the event log + current time, returns either a
+// one-liner nudge string or null when there's nothing useful to say.
+// Thresholds are module-level constants so tests can reference them.
+
+const NUDGE_WINDOW_DAYS = 7;
+/** Minimum Task events in window before we consider the sample big enough. */
+const NUDGE_MIN_SAMPLE = 5;
+/** Miss-rate (routable general-purpose dispatches / total) above which we nudge. */
+const NUDGE_THRESHOLD = 0.5;
+
+export function buildSubagentAdoptionNudge(
+  events: HookEvent[],
+  now: number,
+  windowDays: number = NUDGE_WINDOW_DAYS,
+  minSample: number = NUDGE_MIN_SAMPLE,
+  threshold: number = NUDGE_THRESHOLD,
+): string | null {
+  const cutoff = now - windowDays * 86_400_000;
+  const tasks = events.filter((e) => e.event === "task" && e.ts >= cutoff);
+  if (tasks.length < minSample) return null;
+
+  const misses = tasks.filter(
+    (e) =>
+      typeof e.matched_tp_agent === "string" &&
+      e.matched_tp_agent.length > 0 &&
+      e.subagent_type !== e.matched_tp_agent,
+  );
+  if (misses.length === 0) return null;
+
+  const rate = misses.length / tasks.length;
+  if (rate < threshold) return null;
+
+  const pct = Math.round(rate * 100);
+  // Surface the top routing miss pair so the nudge is concrete, not abstract.
+  const pairCounts = new Map<string, number>();
+  for (const m of misses) {
+    const key = `${m.subagent_type} → ${m.matched_tp_agent}`;
+    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+  }
+  const topPair = [...pairCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const pairClause = topPair ? ` Top miss: ${topPair}.` : "";
+  return (
+    `[token-pilot] subagent miss-rate ${pct}% over last ${windowDays}d ` +
+    `(${misses.length}/${tasks.length} Task calls could have used a tp-* specialist).${pairClause} ` +
+    `Run \`token-pilot stats --tasks\` for details, or set TOKEN_PILOT_FORCE_SUBAGENTS=1 to hard-block.`
+  );
+}
 
 function extractSnapshotGoal(body: string): string | null {
   const m = body.match(/\*\*Goal:\*\*\s*(.+?)(?:\n|$)/);
@@ -267,6 +318,18 @@ export async function handleSessionStart(
       const goal = extractSnapshotGoal(snap.body);
       const goalClause = goal ? ` (goal: "${goal}")` : "";
       message += `\n\n[token-pilot] session_snapshot from ${age}${goalClause}. Read .token-pilot/snapshots/latest.md to resume — or ignore if unrelated.`;
+    }
+
+    // v0.32.0 — subagent adoption nudge. Reads recent Task telemetry
+    // from hook-events.jsonl; when the main thread is picking
+    // general-purpose on routable work, surface a one-liner so the
+    // user / agent sees the miss rate without needing `stats --tasks`.
+    try {
+      const events = await loadEvents(opts.projectRoot);
+      const nudge = buildSubagentAdoptionNudge(events, Date.now());
+      if (nudge) message += `\n\n${nudge}`;
+    } catch {
+      /* silent — telemetry nudge is strictly opt-in */
     }
 
     const output = {

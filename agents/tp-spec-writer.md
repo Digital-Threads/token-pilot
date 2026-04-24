@@ -9,7 +9,7 @@ tools:
   - Read
   - Write
 model: sonnet
-token_pilot_version: "0.31.0"
+token_pilot_version: "0.32.0"
 token_pilot_body_hash: c7a4e8b39228fd5158528f389c924c5ff2d98c4b9b05ee0106d54a26c5dc1350
 ---
 

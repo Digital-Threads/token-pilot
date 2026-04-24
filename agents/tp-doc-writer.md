@@ -13,7 +13,7 @@ tools:
   - Edit
   - Glob
 model: haiku
-token_pilot_version: "0.31.0"
+token_pilot_version: "0.32.0"
 token_pilot_body_hash: 57d741794ab40e31a7ac49c68ea39a9088f5827cdef866ce81bfca1b7c9180cf
 ---
 

@@ -13,7 +13,7 @@ tools:
   - Edit
   - Glob
 model: sonnet
-token_pilot_version: "0.31.0"
+token_pilot_version: "0.32.0"
 token_pilot_body_hash: 68b32af2dacd82ebe52c4eec93edb903d452688274c3065218270627c564d8b0
 ---
 

@@ -36,6 +36,7 @@ import { handleSmartReadMany } from "./handlers/smart-read-many.js";
 import { handleProjectOverview } from "./handlers/project-overview.js";
 import { handleNonCodeRead, isNonCodeStructured } from "./handlers/non-code.js";
 import { handleFindUnused } from "./handlers/find-unused.js";
+import { handleCallTree } from "./handlers/call-tree.js";
 import { handleReadForEdit } from "./handlers/read-for-edit.js";
 import { handleRelatedFiles } from "./handlers/related-files.js";
 import { handleOutline } from "./handlers/outline.js";
@@ -80,6 +81,7 @@ import {
   validateRelatedFilesArgs,
   validateOutlineArgs,
   validateFindUnusedArgs,
+  validateCallTreeArgs,
   validateCodeAuditArgs,
   validateProjectOverviewArgs,
   validateModuleInfoArgs,
@@ -1002,6 +1004,49 @@ export async function createServer(
               },
             ],
           };
+        }
+
+        case "call_tree": {
+          const callTreeArgs = validateCallTreeArgs(args);
+          const cachedTree = sessionCache?.get("call_tree", callTreeArgs);
+          if (cachedTree) {
+            recordWithTrace({
+              tool: "call_tree",
+              path: callTreeArgs.symbol,
+              tokensReturned: cachedTree.tokenEstimate,
+              tokensWouldBe:
+                cachedTree.tokensWouldBe ?? cachedTree.tokenEstimate,
+              timestamp: Date.now(),
+              sessionCacheHit: true,
+              savingsCategory: "cache",
+              args: callTreeArgs,
+            });
+            return cachedTree.result;
+          }
+          const treeResult = await handleCallTree(callTreeArgs, astIndex);
+          const treeText = treeResult.content[0]?.text ?? "";
+          const treeTokens = estimateTokens(treeText);
+          // No good "wouldBe" baseline for call_tree (you'd otherwise
+          // run find_usages in a loop). Use a conservative N× multiplier.
+          const treeWouldBe = treeTokens * 3;
+          sessionCache?.set(
+            "call_tree",
+            callTreeArgs,
+            treeResult,
+            { dependsOnAst: true },
+            treeTokens,
+            treeWouldBe,
+          );
+          recordWithTrace({
+            tool: "call_tree",
+            path: callTreeArgs.symbol,
+            tokensReturned: treeTokens,
+            tokensWouldBe: treeWouldBe,
+            timestamp: Date.now(),
+            savingsCategory: "compression",
+            args: callTreeArgs,
+          });
+          return treeResult;
         }
 
         case "find_unused": {
