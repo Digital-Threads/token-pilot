@@ -22,6 +22,8 @@ export interface StatsOptions {
    */
   session?: boolean | string;
   byAgent?: boolean;
+  /** v0.31.0 — Task-routing view: subagent_type usage + miss-rate. */
+  tasks?: boolean;
 }
 
 function sumSaved(events: HookEvent[]): number {
@@ -88,7 +90,62 @@ export function formatStats(events: HookEvent[], opts: StatsOptions): string {
     `token-pilot stats${sessionSuffix} — ${scope.length} event${scope.length === 1 ? "" : "s"}, ~${total} tokens saved`,
   );
 
-  if (opts.byAgent) {
+  if (opts.tasks) {
+    // v0.31.0 — Task-routing view. Scope to event:"task" records only.
+    const taskEvents = scope.filter((e) => e.event === "task");
+    if (taskEvents.length === 0) {
+      return lines[0] + "\n\nNo Task events yet.";
+    }
+    const totalTasks = taskEvents.length;
+    const misses = taskEvents.filter(
+      (e) =>
+        typeof e.matched_tp_agent === "string" &&
+        e.matched_tp_agent.length > 0 &&
+        e.subagent_type !== e.matched_tp_agent,
+    );
+    const missRate =
+      totalTasks > 0 ? Math.round((misses.length / totalTasks) * 100) : 0;
+
+    // Group by subagent_type (what Claude actually picked).
+    const pickGroups = groupBy(
+      taskEvents,
+      (e) =>
+        (e.subagent_type && e.subagent_type.length > 0
+          ? e.subagent_type
+          : "(unknown)") as string,
+    );
+    const picks = [...pickGroups.entries()]
+      .map(([agent, evs]) => ({ agent, count: evs.length }))
+      .sort((a, b) => b.count - a.count);
+
+    // Top missed routings: (picked → suggested) pairs with counts.
+    const missCounts = new Map<string, number>();
+    for (const e of misses) {
+      const key = `${e.subagent_type} → ${e.matched_tp_agent}`;
+      missCounts.set(key, (missCounts.get(key) ?? 0) + 1);
+    }
+    const topMisses = [...missCounts.entries()]
+      .map(([pair, count]) => ({ pair, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // Rewrite header for the task view (replace savings number with miss-rate).
+    lines[0] = `token-pilot stats — ${totalTasks} Task call${totalTasks === 1 ? "" : "s"}, miss-rate ${missRate}% (${misses.length}/${totalTasks})${sessionSuffix}`;
+    lines.push("");
+    lines.push("Picked subagents:");
+    for (const p of picks) {
+      lines.push(
+        `  ${pad(p.agent, 24)}  ${p.count.toString().padStart(4)}× events`,
+      );
+    }
+    if (topMisses.length > 0) {
+      lines.push("");
+      lines.push("Top routing misses (picked → suggested tp-*):");
+      for (const m of topMisses) {
+        lines.push(`  ${pad(m.pair, 48)}  ${m.count.toString().padStart(4)}×`);
+      }
+    }
+  } else if (opts.byAgent) {
     // Group by agent_type (null → "main").
     const groups = groupBy(scope, (e) => (e.agent_type ?? "main") as string);
     const rows = [...groups.entries()]
@@ -151,10 +208,12 @@ export async function handleStats(
 
   const session = parseFlag(argv, "session");
   const byAgent = parseFlag(argv, "by-agent");
+  const tasks = parseFlag(argv, "tasks");
 
   const rendered = formatStats(events, {
     session: session === undefined ? undefined : session,
     byAgent: byAgent === true,
+    tasks: tasks === true,
   });
   process.stdout.write(rendered + "\n");
   return 0;

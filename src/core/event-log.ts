@@ -36,7 +36,7 @@ export interface HookEvent {
   /** null for top-level session; agent_type string inside a subagent. */
   agent_type: string | null;
   agent_id: string | null;
-  event: "denied" | "allowed" | "bypass" | "pass-through" | string;
+  event: "denied" | "allowed" | "bypass" | "pass-through" | "task" | string;
   file: string;
   lines: number;
   estTokens: number;
@@ -44,6 +44,24 @@ export interface HookEvent {
   summaryTokens: number;
   /** estTokens - summaryTokens; 0 for allow/bypass. */
   savedTokens: number;
+
+  // ─── task-specific (v0.31.0) ─────────────────────────────────────
+  // These are populated only on `event: "task"` records emitted by
+  // `processPostTask`. They are optional on the interface so the rest
+  // of the pipeline (existing Read/Bash events) stays unchanged.
+  /** The subagent_type Claude Code dispatched (`tp-*` or `general-purpose`…). */
+  subagent_type?: string;
+  /**
+   * Heuristic match against `tp-*` agent frontmatter. Set only when
+   * `subagent_type` is NOT already a tp-*. null when no match fires.
+   */
+  matched_tp_agent?: string | null;
+  /** Confidence of the heuristic match (omitted when matched_tp_agent=null). */
+  match_confidence?: "high" | "low";
+  /** Response budget declared in the agent markdown body, or null. */
+  budget?: number | null;
+  /** actualTokens > budget × (1 + tolerance). */
+  overBudget?: boolean;
 }
 
 export function eventLogDir(projectRoot: string): string {

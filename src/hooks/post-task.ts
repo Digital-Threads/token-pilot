@@ -15,7 +15,14 @@
  */
 
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  buildAgentIndex,
+  matchTpAgent,
+  type AgentIndex,
+} from "../core/agent-matcher.js";
+import { appendEvent } from "../core/event-log.js";
 
 export const OVER_BUDGET_LOG = "over-budget.log";
 /** Ratio above which we flag — 0.1 = 10 % grace. */
@@ -138,8 +145,55 @@ export async function loadAgentBody(
 
 export interface PostTaskHookInput {
   tool_name?: string;
-  tool_input?: { subagent_type?: string };
+  tool_input?: { subagent_type?: string; description?: string };
   tool_response?: unknown;
+  // Claude Code enriches every hook stdin with these top-level fields.
+  // Null-safe downstream so old fixtures without them keep working.
+  session_id?: string;
+  agent_type?: string;
+  agent_id?: string;
+}
+
+// ─── Cached tp-* agent index ─────────────────────────────────────────
+// The hook subprocess is cold-started per Task post-event, but within
+// that process we parse the agents directory once. Lookup cost is ~1 FS
+// listing + 24 file reads, ~5-15 ms — below the noise floor of the hook
+// round-trip. Kept as a process-level cache anyway for Pack 2 when the
+// pre-task hook re-uses the same index on hot paths.
+
+let _agentIndexCache: AgentIndex | null = null;
+
+/**
+ * Resolve the plugin's own `agents/` directory. The hook binary lives
+ * at `<plugin>/dist/index.js`, so agents/ is `../agents` from here.
+ * Allow an override for tests that want an isolated fixture dir.
+ */
+export function defaultAgentsDir(): string {
+  // `import.meta.url` resolves to the bundled dist location, which is
+  // already one step below the repo root (`dist/hooks/post-task.js`).
+  // Walk up twice: `hooks` → `dist` → plugin root, then join `agents`.
+  try {
+    const here = fileURLToPath(import.meta.url);
+    return resolve(dirname(here), "..", "..", "agents");
+  } catch {
+    // Not running as a bundled module (eg. vitest in-source) — fall
+    // back to CWD/agents. Production path uses the URL resolver above.
+    return resolve(process.cwd(), "agents");
+  }
+}
+
+/** Resolve (and cache) the tp-* agent index. Safe to call repeatedly. */
+export async function getAgentIndex(
+  dir: string = defaultAgentsDir(),
+): Promise<AgentIndex> {
+  if (_agentIndexCache) return _agentIndexCache;
+  _agentIndexCache = await buildAgentIndex(dir);
+  return _agentIndexCache;
+}
+
+/** Test-only: clear the module-level cache between fixtures. */
+export function _resetAgentIndexCache(): void {
+  _agentIndexCache = null;
 }
 
 /**
@@ -153,30 +207,77 @@ export async function processPostTask(
   input: PostTaskHookInput,
 ): Promise<string | null> {
   if (input.tool_name !== "Task") return null;
-  const agentName = input.tool_input?.subagent_type;
-  if (typeof agentName !== "string" || !agentName.startsWith("tp-")) {
-    return null;
-  }
-  const actualTokens = extractSubagentTokens(input);
-  if (actualTokens == null) return null;
 
-  const body = await loadAgentBody(projectRoot, homeDir, agentName);
-  const budget = body ? parseAgentBudget(body) : null;
+  const subagentType = input.tool_input?.subagent_type;
+  const description = input.tool_input?.description ?? "";
+  const actualTokens = extractSubagentTokens(input) ?? 0;
+  const isTpAgent =
+    typeof subagentType === "string" && subagentType.startsWith("tp-");
 
-  const decision = decideBudgetAdvice({
-    agentName,
-    budget,
-    actualTokens,
-  });
+  // ─── existing tp-* budget logic (unchanged) ─────────────────────
+  let budget: number | null = null;
+  let decision: BudgetDecisionResult = {
+    overBudget: false,
+    overByRatio: 0,
+    message: null,
+  };
 
-  if (decision.overBudget && budget != null) {
-    await appendOverBudgetLog(projectRoot, {
-      ts: Date.now(),
-      agent: agentName,
+  if (isTpAgent && actualTokens > 0) {
+    const body = await loadAgentBody(projectRoot, homeDir, subagentType!);
+    budget = body ? parseAgentBudget(body) : null;
+    decision = decideBudgetAdvice({
+      agentName: subagentType!,
       budget,
       actualTokens,
-      overByRatio: decision.overByRatio,
     });
+    if (decision.overBudget && budget != null) {
+      await appendOverBudgetLog(projectRoot, {
+        ts: Date.now(),
+        agent: subagentType!,
+        budget,
+        actualTokens,
+        overByRatio: decision.overByRatio,
+      });
+    }
+  }
+
+  // ─── v0.31.0 Task telemetry ────────────────────────────────────
+  // One event per Task call, regardless of tp-*. For non-tp agents we
+  // run the heuristic matcher so `stats --tasks` can surface routing
+  // misses (general-purpose picked when a tp-* would have fit).
+  // Silent on any error — telemetry must never break hook dispatch.
+  try {
+    let matched: string | null = null;
+    let matchConfidence: "high" | "low" | undefined;
+
+    if (!isTpAgent && description.length > 0) {
+      const index = await getAgentIndex();
+      const hit = matchTpAgent(description, index);
+      if (hit) {
+        matched = hit.agent;
+        matchConfidence = hit.confidence;
+      }
+    }
+
+    await appendEvent(projectRoot, {
+      ts: Date.now(),
+      session_id: input.session_id ?? "",
+      agent_type: input.agent_type ?? null,
+      agent_id: input.agent_id ?? null,
+      event: "task",
+      file: "",
+      lines: 0,
+      estTokens: actualTokens,
+      summaryTokens: 0,
+      savedTokens: 0,
+      subagent_type: typeof subagentType === "string" ? subagentType : "",
+      matched_tp_agent: matched,
+      ...(matchConfidence ? { match_confidence: matchConfidence } : {}),
+      budget,
+      overBudget: decision.overBudget,
+    });
+  } catch {
+    /* silent */
   }
 
   return decision.message;

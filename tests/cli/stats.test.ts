@@ -116,6 +116,78 @@ describe("formatStats — --by-agent view", () => {
   });
 });
 
+describe("formatStats — --tasks view (v0.31.0)", () => {
+  function taskEv(overrides: Partial<HookEvent>): HookEvent {
+    return ev({
+      event: "task",
+      file: "",
+      lines: 0,
+      savedTokens: 0,
+      ...overrides,
+    });
+  }
+
+  it("reports total Task calls, picked subagents, and miss-rate", () => {
+    const events: HookEvent[] = [
+      taskEv({
+        subagent_type: "general-purpose",
+        matched_tp_agent: "tp-pr-reviewer",
+      }),
+      taskEv({
+        subagent_type: "general-purpose",
+        matched_tp_agent: "tp-test-writer",
+      }),
+      taskEv({
+        subagent_type: "tp-pr-reviewer",
+        matched_tp_agent: null,
+      }),
+      taskEv({
+        subagent_type: "general-purpose",
+        matched_tp_agent: null, // no heuristic hit → not a miss
+      }),
+    ];
+    const out = formatStats(events, { tasks: true });
+    // 4 Task calls total, 2 misses (general-purpose → tp-*) = 50%.
+    expect(out).toMatch(/4 Task call/);
+    expect(out).toMatch(/miss-rate 50%/);
+    expect(out).toMatch(/general-purpose.*3/);
+    expect(out).toMatch(/tp-pr-reviewer.*1/);
+    expect(out).toMatch(/general-purpose → tp-pr-reviewer/);
+    expect(out).toMatch(/general-purpose → tp-test-writer/);
+  });
+
+  it("returns a friendly notice when no Task events are present", () => {
+    const events: HookEvent[] = [
+      ev({ event: "denied", file: "foo.ts", savedTokens: 10 }),
+    ];
+    const out = formatStats(events, { tasks: true });
+    expect(out).toMatch(/no Task events/i);
+  });
+
+  it("ignores non-Task events even when mixed in", () => {
+    const events: HookEvent[] = [
+      ev({ event: "denied", file: "a.ts", savedTokens: 900 }),
+      taskEv({
+        subagent_type: "general-purpose",
+        matched_tp_agent: "tp-debugger",
+      }),
+    ];
+    const out = formatStats(events, { tasks: true });
+    expect(out).toMatch(/1 Task call/);
+    expect(out).toMatch(/miss-rate 100%/);
+    expect(out).not.toMatch(/a\.ts/);
+  });
+
+  it("0% miss-rate when all Task calls already use tp-*", () => {
+    const events: HookEvent[] = [
+      taskEv({ subagent_type: "tp-pr-reviewer", matched_tp_agent: null }),
+      taskEv({ subagent_type: "tp-test-writer", matched_tp_agent: null }),
+    ];
+    const out = formatStats(events, { tasks: true });
+    expect(out).toMatch(/miss-rate 0%/);
+  });
+});
+
 // ─── integration via event-log ───────────────────────────────────────────────
 
 describe("stats reads from event-log", () => {
