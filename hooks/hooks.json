@@ -45,6 +45,15 @@
             "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-grep"
           }
         ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-task"
+          }
+        ]
       }
     ],
     "SessionStart": [

@@ -77,6 +77,8 @@ import {
 } from "./hooks/post-bash.js";
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
+import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
+import { getAgentIndex } from "./hooks/post-task.js";
 import {
   decidePreEdit,
   renderPreEditOutput,
@@ -216,6 +218,31 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
         );
         const rendered = renderPreGrepOutput(decision);
+        if (rendered) process.stdout.write(rendered);
+      } catch {
+        /* silent — hook must not break */
+      }
+      process.exit(0);
+      return;
+    }
+    case "hook-pre-task": {
+      // v0.31.0 Pack 2 — route general-purpose Task dispatches to a
+      // `tp-*` specialist when the description clearly matches. Default
+      // (deny / advisory mode) is a non-blocking advise; strict mode or
+      // TOKEN_PILOT_FORCE_SUBAGENTS=1 hard-denies on a high-confidence
+      // match. The matcher is lenient by design (false deny is much
+      // worse than a missed nudge — see pre-edit v0.30.4 rollback).
+      try {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const agentIndex = await getAgentIndex();
+        const force = process.env.TOKEN_PILOT_FORCE_SUBAGENTS === "1";
+        const decision = decidePreTask(input, {
+          mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+          agentIndex,
+          force,
+        });
+        const rendered = renderPreTaskOutput(decision);
         if (rendered) process.stdout.write(rendered);
       } catch {
         /* silent — hook must not break */

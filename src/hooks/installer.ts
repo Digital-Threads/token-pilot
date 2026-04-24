@@ -85,6 +85,15 @@ function createHookConfig(options?: HookInstallOptions) {
             },
           ],
         },
+        {
+          matcher: "Task",
+          hooks: [
+            {
+              type: "command" as const,
+              command: buildHookCommand("hook-pre-task", options),
+            },
+          ],
+        },
       ],
       SessionStart: [
         {
