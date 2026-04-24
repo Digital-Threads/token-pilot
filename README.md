@@ -79,13 +79,20 @@ TOKEN_PILOT_MODE=strict npx token-pilot
 
 ## Ecosystem
 
-| Tool | Role |
-|------|------|
-| **Token Pilot** | Enforcement layer — hooks, MCP structural reads, subagents |
-| **[ast-index](https://github.com/defendend/Claude-ast-index-search)** | Structural indexer. Auto-installed by Token Pilot; also a standalone CLI for bash-only agents |
-| **[context-mode](https://github.com/mksglu/claude-context-mode)** | Sandbox executor — runs shell/python/js, only stdout enters the context window |
+Token Pilot owns **input** tokens — the stuff Claude reads from files, git, search. The other half of a session (what Claude *writes* back, how it executes code, how it remembers state across days) is owned by separate tools. They compose cleanly:
 
-Rules of thumb: read code → `smart_read`/`read_symbol`; execute code with big output → context-mode `execute`; bash-only agent → `ast-index` CLI. Never copy all three into `CLAUDE.md` — Token Pilot's `doctor` warns when `CLAUDE.md` exceeds 60 lines.
+| Tool | Owns | Typical savings |
+|------|------|----------------:|
+| **Token Pilot** | code reads, git, search | 60-90% input |
+| **[caveman](https://github.com/JuliusBrussee/caveman)** | Claude's response prose (terse-speak skill) | ~75% output |
+| **[ast-index](https://github.com/defendend/Claude-ast-index-search)** | the structural indexer Token Pilot rides on | foundation |
+| **[context-mode](https://github.com/mksglu/claude-context-mode)** | sandboxed shell / python / js execution | 90%+ on big stdout |
+
+A session that pairs `token-pilot` + `caveman` typically hits **~85-90% total reduction** — each cuts a different half, no overlap. Install what you need; none of them assume the others are present.
+
+→ [full ecosystem map](docs/ecosystem.md)
+
+Rules of thumb: read code → `smart_read`/`read_symbol`; execute code with big output → context-mode `execute`; bash-only agent → `ast-index` CLI. Never copy the whole stack into `CLAUDE.md` — Token Pilot's `doctor` warns when `CLAUDE.md` exceeds 60 lines.
 
 ## Supported Languages
 

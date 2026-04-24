@@ -1016,6 +1016,22 @@ export async function handleDoctor() {
     /* ignore */
   }
 
+  // ── Ecosystem coverage ──
+  // Checks which complementary tools (caveman, context-mode, cavemem) are
+  // installed and prints gaps. Purely advisory — we never install anything.
+  // See docs/ecosystem.md for the rationale behind the whitelist.
+  try {
+    const { checkEcosystem, formatEcosystemBlock } =
+      await import("./cli/ecosystem-check.js");
+    const block = formatEcosystemBlock(checkEcosystem());
+    if (block) {
+      console.log(block);
+      console.log("");
+    }
+  } catch {
+    /* ecosystem check is best-effort; never break doctor */
+  }
+
   process.exit(0);
 }
 
