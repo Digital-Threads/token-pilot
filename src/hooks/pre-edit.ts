@@ -93,28 +93,35 @@ export function decidePreEdit(
 
   const suggestion = `mcp__token-pilot__read_for_edit(path="${filePath}", symbol="<target>")`;
 
-  // advisory mode: inject a non-blocking hint. The agent still runs the
-  // Edit, but next time should see the pattern.
-  if (ctx.mode === "advisory") {
-    return {
-      kind: "advise",
-      message:
-        `File "${filePath}" was not prepared with read_for_edit. ` +
-        `Consider calling ${suggestion} first — the exact old_string it returns is what Edit actually needs. ` +
-        `Edit built from smart_read / Read snippets frequently mismatches on whitespace.`,
-    };
+  // v0.30.4 — only TOKEN_PILOT_MODE=strict produces a hard deny. The old
+  // "deny is default = hard-block every un-prepped Edit" was overreach:
+  // two real-project deadlocks reported on 2026-04-24 (MCP briefly
+  // disconnected, and an agent that simply forgot to prep). The cost of a
+  // false deny (stuck session, user scrambles for TOKEN_PILOT_BYPASS) is
+  // much worse than the cost of a missed nudge. Strict mode still exists
+  // for users who want the old hard-block behaviour.
+  if (ctx.mode === "strict") {
+    const reason =
+      `File "${filePath}" was not prepared with read_for_edit. ` +
+      `Call ${suggestion} FIRST to obtain the exact old_string for Edit — ` +
+      `this is the canonical flow. Building old_string from smart_read or Read ` +
+      `snippets diverges from disk (whitespace, line-number prefixes) and Edit ` +
+      `silently mismatches. ` +
+      `Escape hatch: set TOKEN_PILOT_BYPASS=1 in the environment, or switch to ` +
+      `TOKEN_PILOT_MODE=deny / advisory for warn-only behaviour.`;
+    return { kind: "deny", reason };
   }
 
-  // deny / strict: hard block with an actionable message.
-  const reason =
-    `File "${filePath}" was not prepared with read_for_edit. ` +
-    `Call ${suggestion} FIRST to obtain the exact old_string for Edit — ` +
-    `this is the canonical flow. Building old_string from smart_read or Read ` +
-    `snippets diverges from disk (whitespace, line-number prefixes) and Edit ` +
-    `silently mismatches. ` +
-    `Escape hatch: set TOKEN_PILOT_BYPASS=1 in the environment, or switch to ` +
-    `TOKEN_PILOT_MODE=advisory for warn-only behaviour.`;
-  return { kind: "deny", reason };
+  // advisory + deny (default) both yield a non-blocking hint. The agent
+  // still runs the Edit; the additionalContext teaches the pattern next
+  // time without stranding the user mid-session.
+  return {
+    kind: "advise",
+    message:
+      `File "${filePath}" was not prepared with read_for_edit. ` +
+      `Consider calling ${suggestion} first — the exact old_string it returns is what Edit actually needs. ` +
+      `Edit built from smart_read / Read snippets frequently mismatches on whitespace.`,
+  };
 }
 
 /**

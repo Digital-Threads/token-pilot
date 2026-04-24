@@ -31,22 +31,36 @@ function editInput(filePath: string, tool = "Edit"): PreEditInput {
 describe("decidePreEdit", () => {
   // ── Positive: tools we actually enforce ─────────────────────────────
 
-  it("denies Edit on an existing code file when not prepared (default mode)", () => {
+  // v0.30.4 — deny-mode default now emits a non-blocking advisory, not a
+  // hard block. Real-world friction (MCP flakes, agents forgetting prep)
+  // made hard-block a worse failure than a missed nudge.
+  it("advises (no block) on Edit without prep in default deny mode", () => {
     const decision = decidePreEdit(editInput("/p/src/app.ts"), ctx());
-    expect(decision.kind).toBe("deny");
-    if (decision.kind === "deny") {
-      expect(decision.reason).toContain("read_for_edit");
-      expect(decision.reason).toContain("/p/src/app.ts");
-      expect(decision.reason).toContain("TOKEN_PILOT_BYPASS");
+    expect(decision.kind).toBe("advise");
+    if (decision.kind === "advise") {
+      expect(decision.message).toContain("read_for_edit");
+      expect(decision.message).toContain("/p/src/app.ts");
     }
   });
 
-  it("denies MultiEdit on an existing code file when not prepared", () => {
+  it("advises (no block) on MultiEdit without prep in default deny mode", () => {
     const decision = decidePreEdit(
       editInput("/p/src/app.ts", "MultiEdit"),
       ctx(),
     );
+    expect(decision.kind).toBe("advise");
+  });
+
+  it("strict mode hard-denies Edit without prep (opt-in)", () => {
+    const decision = decidePreEdit(
+      editInput("/p/src/app.ts"),
+      ctx({ mode: "strict" }),
+    );
     expect(decision.kind).toBe("deny");
+    if (decision.kind === "deny") {
+      expect(decision.reason).toContain("read_for_edit");
+      expect(decision.reason).toContain("TOKEN_PILOT_BYPASS");
+    }
   });
 
   // v0.30.3 — Write is NOT enforced. Whole-file replace has no old_string
@@ -139,14 +153,15 @@ describe("decidePreEdit", () => {
 
   // ── Strict mode treated identically to deny at the decision layer ───
 
-  it("strict mode denies exactly like deny mode", () => {
-    const denyDec = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "deny" }));
-    const strictDec = decidePreEdit(
-      editInput("/p/x.ts"),
-      ctx({ mode: "strict" }),
-    );
-    expect(denyDec.kind).toBe("deny");
-    expect(strictDec.kind).toBe("deny");
+  // v0.30.4 — strict is now the ONLY mode that hard-denies Edit without
+  // prep. advisory + deny both fall through to a non-blocking advisory.
+  it("strict hard-denies; deny and advisory both soft-advise", () => {
+    const adv = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "advisory" }));
+    const deny = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "deny" }));
+    const strict = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "strict" }));
+    expect(adv.kind).toBe("advise");
+    expect(deny.kind).toBe("advise");
+    expect(strict.kind).toBe("deny");
   });
 });
 

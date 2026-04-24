@@ -89,6 +89,46 @@ describe("detectHeavyPattern — git log", () => {
       "allow",
     );
   });
+
+  // v0.30.3 — short-form positional limit. Regression from a user report:
+  // `git log --oneline -5` is canonical git syntax and was incorrectly
+  // flagged as unbounded because the heuristic only knew -n/-N/--max-count.
+  it("allows short-form -N max-count (git log -5)", () => {
+    expect(detectHeavyPattern("git log -5").kind).toBe("allow");
+    expect(detectHeavyPattern("git log --oneline -5").kind).toBe("allow");
+    expect(detectHeavyPattern("git log --oneline -10 --stat").kind).toBe(
+      "allow",
+    );
+    expect(detectHeavyPattern("git log -100 --graph").kind).toBe("allow");
+  });
+
+  it("still blocks git log with flags that are NOT max-count bounds", () => {
+    // -p (patch) shouldn't be mistaken for a bound
+    expect(detectHeavyPattern("git log -p").kind).toBe("deny");
+    // --stat alone isn't a bound either
+    expect(detectHeavyPattern("git log --stat").kind).toBe("deny");
+  });
+
+  // v0.30.4 — regression from a commit-message false positive: the
+  // heuristic used /\bgit\s+log\b/ which matched anywhere in the string.
+  // A literal `git commit -m "... git log ..."` then tripped the rule
+  // because "git log" appeared inside the message. Anchor the pattern to
+  // command-start or post-separator position instead.
+  it("ignores literal 'git log' that appears inside a quoted message", () => {
+    expect(
+      detectHeavyPattern('git commit -m "bump: fixes git log heuristic"').kind,
+    ).toBe("allow");
+    expect(
+      detectHeavyPattern(
+        `git commit -m "$(cat <<'EOF'\nreplace git log with smart_log\nEOF\n)"`,
+      ).kind,
+    ).toBe("allow");
+  });
+
+  it("still catches git log after a chained separator", () => {
+    expect(detectHeavyPattern("cd repo && git log").kind).toBe("deny");
+    expect(detectHeavyPattern("git status; git log").kind).toBe("deny");
+  });
 });
 
 describe("detectHeavyPattern — git diff", () => {

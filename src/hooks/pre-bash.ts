@@ -147,11 +147,16 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
     };
   }
 
-  // 4. git log without -n / -N
+  // 4. git log without -n / -N / -<N> (short-form max-count) / --max-count
+  // v0.30.3: added -<N> support — `git log --oneline -5` is canonical
+  // bounded syntax and must not trip the heuristic.
+  // v0.30.4: require `git log` at the START of the command (or after a
+  // separator), not anywhere in it — otherwise `git commit -m "... git log ..."`
+  // gets wrongly flagged because "git log" appears inside the message.
   if (
     invokes(cmd, "git") &&
-    /\bgit\s+log\b/.test(cmd) &&
-    !/-n\s*\d+|-N\s*\d+|--max-count=\d+/.test(cmd) &&
+    /(^|[;&|\n]\s*)git\s+log\b/.test(cmd) &&
+    !/-n\s*\d+|-N\s*\d+|--max-count=\d+|\s-\d+(\s|$)/.test(cmd) &&
     !/\|\s*head/.test(cmd)
   ) {
     return {
@@ -164,10 +169,12 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
   }
 
   // 5. git diff with no path argument (common mistake on large repos)
+  // v0.30.4: anchor to command start / separator so an embedded "git diff"
+  // inside a commit message or comment doesn't trip the rule.
   if (
-    /\bgit\s+diff\b/.test(cmd) &&
+    /(^|[;&|\n]\s*)git\s+diff\b/.test(cmd) &&
     !/\bgit\s+diff\s+[^\s|]*--stat/.test(cmd) &&
-    /\bgit\s+diff\s*($|[|;&])/.test(cmd)
+    /(^|[;&|\n]\s*)git\s+diff\s*($|[|;&])/.test(cmd)
   ) {
     return {
       kind: "deny",

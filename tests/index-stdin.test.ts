@@ -248,11 +248,9 @@ describe("index stdin hooks", () => {
     expect(writeSpy).not.toHaveBeenCalled();
   });
 
-  it("edit hook: denies Edit on an existing un-prepared code file (TOKEN_PILOT_MODE=deny)", async () => {
-    // Concrete on-disk fixture: the new hook calls existsSync, so we need
-    // a real file. A separate prep-state roundtrip is covered by the
-    // edit-prep-state unit suite; here we only exercise the hook wrapper
-    // and the deny render path.
+  it("edit hook: advises (no block) on un-prepared Edit in default deny mode", async () => {
+    // v0.30.4 — default deny mode yields an additionalContext hint, not a
+    // hard permissionDecision=deny. Hard block is reserved for strict mode.
     const fixtureRoot = await mkdtemp(join(tmpdir(), "token-pilot-edit-hook-"));
     try {
       const filePath = join(fixtureRoot, "app.ts");
@@ -264,13 +262,41 @@ describe("index stdin hooks", () => {
         }),
       );
       const mod = await loadIndexWithReadFile(read);
-      // Default mode is "deny" when TOKEN_PILOT_MODE is unset.
+      expect(() => mod.handleHookEdit()).toThrow("EXIT:0");
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const payload = String(writeSpy.mock.calls[0][0]);
+      expect(payload).toContain('"permissionDecision":"allow"');
+      expect(payload).toContain("additionalContext");
+      expect(payload).toContain("read_for_edit");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("edit hook: hard-denies in strict mode only", async () => {
+    const fixtureRoot = await mkdtemp(
+      join(tmpdir(), "token-pilot-edit-hook-strict-"),
+    );
+    const originalMode = process.env.TOKEN_PILOT_MODE;
+    try {
+      process.env.TOKEN_PILOT_MODE = "strict";
+      const filePath = join(fixtureRoot, "app.ts");
+      await writeFile(filePath, "export const x = 1;\n");
+      const read = vi.fn(() =>
+        JSON.stringify({
+          tool_name: "Edit",
+          tool_input: { file_path: filePath },
+        }),
+      );
+      const mod = await loadIndexWithReadFile(read);
       expect(() => mod.handleHookEdit()).toThrow("EXIT:0");
       expect(writeSpy).toHaveBeenCalledTimes(1);
       const payload = String(writeSpy.mock.calls[0][0]);
       expect(payload).toContain('"permissionDecision":"deny"');
       expect(payload).toContain("read_for_edit");
     } finally {
+      if (originalMode === undefined) delete process.env.TOKEN_PILOT_MODE;
+      else process.env.TOKEN_PILOT_MODE = originalMode;
       await rm(fixtureRoot, { recursive: true, force: true });
     }
   });
