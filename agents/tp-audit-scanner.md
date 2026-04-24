@@ -11,7 +11,7 @@ tools:
   - Grep
   - Read
 model: sonnet
-token_pilot_version: "0.30.0"
+token_pilot_version: "0.30.1"
 token_pilot_body_hash: 7095ffab66aca2e424f00875933e3f63bc10651eef2fde6a59f08bbbdbf86f7c
 ---
 

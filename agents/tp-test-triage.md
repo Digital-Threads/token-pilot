@@ -8,7 +8,7 @@ tools:
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__read_symbol
 model: sonnet
-token_pilot_version: "0.30.0"
+token_pilot_version: "0.30.1"
 token_pilot_body_hash: f4e0dcbd2b4e8648efcafc9d53101a66bf394d7c90e97df7581ac47fcfbff5cb
 ---
 

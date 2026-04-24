@@ -9,7 +9,7 @@ tools:
   - mcp__token-pilot__session_budget
   - Bash
   - Read
-token_pilot_version: "0.30.0"
+token_pilot_version: "0.30.1"
 token_pilot_body_hash: d031f30e9cc4ea454aa256427659ed27249d820b75dc8b9b99c81ba7635230a7
 ---
 
