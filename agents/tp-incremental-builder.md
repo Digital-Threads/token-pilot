@@ -13,7 +13,7 @@ tools:
   - Edit
   - Bash
 model: sonnet
-token_pilot_version: "0.30.2"
+token_pilot_version: "0.30.3"
 token_pilot_body_hash: 14c9adcabfb772c77a467a5fbfa682abbd5adc87e22d7fbe5d1329ffd790dde5
 ---
 

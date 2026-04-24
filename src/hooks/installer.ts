@@ -68,15 +68,6 @@ function createHookConfig(options?: HookInstallOptions) {
           ],
         },
         {
-          matcher: "Write",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-edit", options),
-            },
-          ],
-        },
-        {
           matcher: "Bash",
           hooks: [
             {

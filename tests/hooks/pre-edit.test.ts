@@ -49,9 +49,12 @@ describe("decidePreEdit", () => {
     expect(decision.kind).toBe("deny");
   });
 
-  it("denies Write on an existing code file when not prepared (overwrite)", () => {
+  // v0.30.3 — Write is NOT enforced. Whole-file replace has no old_string
+  // to prep. Blocking Write in v0.30.0-0.30.2 was overreach — hit legit
+  // script-regeneration flows in real projects.
+  it("always allows Write, even on an existing code file without prep", () => {
     const decision = decidePreEdit(editInput("/p/src/app.ts", "Write"), ctx());
-    expect(decision.kind).toBe("deny");
+    expect(decision.kind).toBe("allow");
   });
 
   it("allows Edit on a non-existent file (let Claude Code report the real error)", () => {

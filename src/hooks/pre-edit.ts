@@ -62,7 +62,13 @@ export function decidePreEdit(
   ctx: PreEditContext,
 ): PreEditDecision {
   const toolName = input.tool_name ?? "";
-  if (toolName !== "Edit" && toolName !== "MultiEdit" && toolName !== "Write") {
+  // Only Edit and MultiEdit touch a file partially with an old_string that
+  // MUST match disk byte-for-byte — those are the calls read_for_edit
+  // actually prepares. Write replaces the whole file (new content, no
+  // old_string) so enforcing prep on Write is overreach: blocks legit
+  // script regeneration / template overwrites that never needed prep.
+  // Pre-v0.30.3 we blocked Write too; that was wrong. Rolled back.
+  if (toolName !== "Edit" && toolName !== "MultiEdit") {
     return { kind: "allow" };
   }
 
@@ -75,10 +81,8 @@ export function decidePreEdit(
   // carry the same value, skip enforcement.
   if (!ctx.isCodeFile) return { kind: "allow" };
 
-  // Non-existent files are out of scope for the enforcement:
-  //  - Write on a new file is legitimate new-file creation
-  //  - Edit / MultiEdit on a missing path will error downstream in
-  //    Claude Code itself — nothing for us to add there
+  // Non-existent files — Edit/MultiEdit will error downstream in Claude Code
+  // itself. Nothing for us to add.
   if (!ctx.fileExists) return { kind: "allow" };
 
   // Explicit escape hatch. Documented as TOKEN_PILOT_BYPASS=1.

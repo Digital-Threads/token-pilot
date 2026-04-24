@@ -16,7 +16,7 @@ tools:
   - Glob
   - Bash
 model: haiku
-token_pilot_version: "0.30.2"
+token_pilot_version: "0.30.3"
 token_pilot_body_hash: de342efe1e3ee265df1773ebde1241555750ab17de249190a5c1c200f1f8f51a
 ---
 

@@ -10,7 +10,7 @@ tools:
   - mcp__token-pilot__test_summary
   - Glob
   - Grep
-token_pilot_version: "0.30.2"
+token_pilot_version: "0.30.3"
 token_pilot_body_hash: 6d862d1bcaeda3fb13099f51e40faaaf45d16d7d41d1b938609500192aa606f2
 ---
 
