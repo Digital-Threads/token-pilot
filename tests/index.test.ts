@@ -605,3 +605,58 @@ describe("index CLI helpers", () => {
     vi.unstubAllGlobals();
   });
 });
+
+/**
+ * Regression tests for the ENOENT path-resolution bug reported 2026-04-21
+ * against docker-local-env monorepo: ALL reads of files under `front/` resolved
+ * to the plugin cache dir instead of the project root. Root cause was
+ * `start.sh` capturing `$(pwd)` AFTER `cd $SCRIPT_DIR`, making the plugin dir
+ * the fallback projectRoot. `looksLikePluginCacheDir` is the defence that
+ * makes the server reject a poisoned cliArgs[0] even with older start.sh.
+ */
+describe("looksLikePluginCacheDir", () => {
+  it("flags canonical Claude Code plugin cache paths", () => {
+    expect(
+      indexModule.looksLikePluginCacheDir(
+        "/home/user/.claude/plugins/cache/token-pilot/token-pilot/0.30.0",
+      ),
+    ).toBe(true);
+    expect(
+      indexModule.looksLikePluginCacheDir(
+        "/Users/me/.claude/plugins/cache/token-pilot/token-pilot/1.0.0",
+      ),
+    ).toBe(true);
+  });
+
+  it("flags Windows-separator plugin cache paths", () => {
+    expect(
+      indexModule.looksLikePluginCacheDir(
+        "C:\\Users\\me\\.claude\\plugins\\cache\\token-pilot\\token-pilot\\0.30.0",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag real project directories", () => {
+    expect(
+      indexModule.looksLikePluginCacheDir("/home/user/docker-local-env"),
+    ).toBe(false);
+    expect(
+      indexModule.looksLikePluginCacheDir("/Users/me/www/playerok/pl-api"),
+    ).toBe(false);
+    expect(indexModule.looksLikePluginCacheDir("/tmp/some-repo")).toBe(false);
+  });
+
+  it("does not flag a dev install of token-pilot itself", () => {
+    // Developer clones the repo and runs against it — legal.
+    expect(
+      indexModule.looksLikePluginCacheDir("/Users/dev/www/token-pilot"),
+    ).toBe(false);
+  });
+
+  it("handles empty / malformed input defensively", () => {
+    expect(indexModule.looksLikePluginCacheDir("")).toBe(false);
+    expect(
+      indexModule.looksLikePluginCacheDir(undefined as unknown as string),
+    ).toBe(false);
+  });
+});

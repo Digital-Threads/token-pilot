@@ -17,7 +17,7 @@ process.stderr.on("error", (err) => {
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync, realpathSync, appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -326,12 +326,44 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
   }
 }
 
+/**
+ * Defensive check for the Claude Code plugin `start.sh` bug (fixed 2026-04-24,
+ * but older installs still in the wild). If the caller passed the plugin's own
+ * cache dir as projectRoot, every relative path like `front/src/File.php` gets
+ * resolved inside the plugin install instead of the user's repo (ENOENT).
+ *
+ * Matches the canonical Claude Code plugin cache pattern
+ *   ~/.claude/plugins/cache/token-pilot/token-pilot/<version>/
+ * on both POSIX and Windows separators. Intentionally narrow — does NOT match
+ * dev installs (cloning the repo and running against itself stays legal).
+ */
+export function looksLikePluginCacheDir(candidate: string): boolean {
+  if (!candidate) return false;
+  try {
+    const resolved = resolve(candidate);
+    return /[\\/]plugins[\\/]cache[\\/]token-pilot[\\/]/.test(resolved);
+  } catch {
+    return false;
+  }
+}
+
 export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
-  let projectRoot = cliArgs[0] || process.cwd();
+  // Defensive: ignore a poisoned cliArgs[0] pointing into the plugin install
+  // dir. Fall through to the INIT_CWD / PWD / cwd detection below — same
+  // behaviour as if the argument had never been passed.
+  let explicitRoot = cliArgs[0];
+  if (explicitRoot && looksLikePluginCacheDir(explicitRoot)) {
+    console.error(
+      `[token-pilot] ignoring "${explicitRoot}" — looks like the plugin cache dir (start.sh bug). Auto-detecting project root instead.`,
+    );
+    explicitRoot = "";
+  }
+
+  let projectRoot = explicitRoot || process.cwd();
 
   // Detect git root for reliable project root
   // Try multiple sources: args[0] → INIT_CWD (npm/npx invoking dir) → PWD → cwd
-  if (!cliArgs[0]) {
+  if (!explicitRoot) {
     const candidates = [
       process.env.INIT_CWD, // npm/npx sets this to invoking directory
       process.env.PWD, // shell working directory (may differ from cwd)
