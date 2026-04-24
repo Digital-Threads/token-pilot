@@ -647,7 +647,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "explore_area",
     description:
-      "One-call exploration of a directory: outline (all symbols), imports (external deps + who imports this area), tests (matching test files), recent git changes. Use INSTEAD OF separate outline + related_files + git log calls.",
+      "One-call exploration of a directory: outline (all symbols), imports (external deps + who imports this area), tests (matching test files), recent git changes. Use INSTEAD OF separate outline + related_files + git log calls. Default since v0.30.0 returns only outline+changes — telemetry showed the all-4 default producing negative token reduction for small areas. Opt into imports/tests explicitly via `include` when you need them.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -662,7 +662,8 @@ export const TOOL_DEFINITIONS = [
             type: "string",
             enum: ["outline", "imports", "tests", "changes"],
           },
-          description: "Sections to include (default: all)",
+          description:
+            'Sections to include. Default: ["outline","changes"]. Add "imports" for dep graph, "tests" to map test files — both can be heavy on large areas.',
         },
       },
       required: ["path"],

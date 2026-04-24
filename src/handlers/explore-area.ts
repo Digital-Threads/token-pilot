@@ -67,7 +67,12 @@ export async function handleExploreArea(
   }
 
   const relDir = relative(projectRoot, absPath) || ".";
-  const include = args.include ?? ["outline", "imports", "tests", "changes"];
+  // v0.30.0 — narrowed default from all 4 sections to the two cheap ones.
+  // Telemetry (docker-local-env, 2026-04-24) showed the all-4 default giving
+  // negative token reduction (-7%): `imports` builds a full dep graph and
+  // `tests` walks subtrees, both easily outweighing the raw-file baseline.
+  // Callers who need imports/tests now opt in explicitly via `include`.
+  const include = args.include ?? ["outline", "changes"];
 
   // Collect code files for import/test analysis
   const codeFiles = await listCodeFiles(absPath);
