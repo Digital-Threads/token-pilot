@@ -115,6 +115,10 @@ export async function createServer(
   // entirely; callers that care about durability should not use it.
   const shutdownFlush = (): void => {
     void sessionRegistries.flushAll();
+    // Stop the 5-minute ast-index tick so we don't block exit on SIGINT/SIGTERM.
+    // .unref() already makes it non-keeping, but clearing is defensive and
+    // avoids a stray `update` firing during shutdown.
+    astIndex.stopPeriodicUpdate();
   };
   process.once("beforeExit", shutdownFlush);
   process.once("SIGINT", shutdownFlush);
@@ -317,13 +321,26 @@ export async function createServer(
     }
   }
 
-  // Wire session cache to git watcher
-  if (sessionCache) {
-    gitWatcher.onBranchSwitchEvent((changedFiles) => {
+  // Wire git-watcher → session cache + AST index.
+  // Always registers — even without sessionCache — so branch-switch still
+  // triggers the index update. Without this the index went stale on every
+  // `git checkout` until the next file-touch (or never, for branches that
+  // only moved files the agent hadn't read yet).
+  gitWatcher.onBranchSwitchEvent((changedFiles) => {
+    if (sessionCache) {
       sessionCache.invalidateByFiles(changedFiles);
       sessionCache.invalidateByGit();
-    });
-  }
+    }
+    // Fire-and-forget. incrementalUpdate self-guards against
+    // disabled / oversized / uninitialised index states.
+    void astIndex.incrementalUpdate();
+  });
+
+  // 5-minute safety-net for long sessions where FileWatcher may miss events
+  // (Docker bind mounts, NFS, files mutated by sibling processes). Cheap —
+  // each tick is a single `ast-index update` call that bails early if the
+  // index isn't ready or the previous tick is still running.
+  astIndex.startPeriodicUpdate();
 
   // Read version from package.json
   let pkgVersion = "0.1.1";

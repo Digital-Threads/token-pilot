@@ -67,6 +67,9 @@ vi.mock("../../src/ast-index/client.js", () => ({
     disableIndex(): void {}
     enableIndex(): void {}
     updateProjectRoot(): void {}
+    async incrementalUpdate(): Promise<void> {}
+    startPeriodicUpdate(): void {}
+    stopPeriodicUpdate(): void {}
     async outline(): Promise<null> {
       return null;
     }
