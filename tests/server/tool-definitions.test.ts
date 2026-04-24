@@ -97,4 +97,33 @@ describe("getMcpInstructions", () => {
   it("deprecated MCP_INSTRUCTIONS alias equals full instructions", () => {
     expect(MCP_INSTRUCTIONS).toBe(getMcpInstructions("full"));
   });
+
+  // Tool-audit telemetry (2026-04-24) showed a huge gap between Codex
+  // (read_for_edit = 33% of all calls) and Claude (0.3%). Claude was reading
+  // via smart_read and diffing the snippet into Edit — which often mismatched.
+  // Both edit and full profiles must now carry an explicit MANDATORY block
+  // that forces read_for_edit before any Edit on an existing file.
+  for (const profile of ["edit", "full"] as const) {
+    it(`${profile} profile contains MANDATORY read_for_edit-before-Edit rule`, () => {
+      const txt = getMcpInstructions(profile);
+      expect(txt).toContain("MANDATORY EDIT SAFETY");
+      expect(txt).toMatch(/FIRST call read_for_edit/);
+      // Explicit anti-pattern callout — never build old_string from smart_read
+      expect(txt).toMatch(/NEVER build Edit's old_string from a smart_read/);
+      // The numbered rule for read_for_edit is now marked MANDATORY, not optional
+      expect(txt).toMatch(/read_for_edit — MANDATORY, not optional/);
+      // Workflow line reinforces the flow
+      expect(txt).toContain(
+        "Edit (mandatory): smart_read (to pick target) → read_for_edit → Edit → read_diff",
+      );
+    });
+  }
+
+  it("nav and minimal profiles must NOT carry the edit-safety rule (no edit tools there)", () => {
+    for (const profile of ["nav", "minimal"] as const) {
+      const txt = getMcpInstructions(profile);
+      expect(txt, `profile=${profile}`).not.toContain("MANDATORY EDIT SAFETY");
+      expect(txt, `profile=${profile}`).not.toContain("read_for_edit");
+    }
+  });
 });
