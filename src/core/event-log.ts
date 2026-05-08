@@ -36,7 +36,14 @@ export interface HookEvent {
   /** null for top-level session; agent_type string inside a subagent. */
   agent_type: string | null;
   agent_id: string | null;
-  event: "denied" | "allowed" | "bypass" | "pass-through" | "task" | string;
+  event:
+    | "denied"
+    | "allowed"
+    | "bypass"
+    | "pass-through"
+    | "task"
+    | "diagnostic"
+    | string;
   file: string;
   lines: number;
   estTokens: number;
@@ -44,6 +51,26 @@ export interface HookEvent {
   summaryTokens: number;
   /** estTokens - summaryTokens; 0 for allow/bypass. */
   savedTokens: number;
+
+  // ─── diagnostic (v0.34.0) ────────────────────────────────────────
+  // Populated only on `event: "diagnostic"` records — emitted by
+  // hooks/handlers when an edge-case fires (matcher empty, WSL
+  // path rejected, validation coerced, …). Every diagnostic gets a
+  // stable `code` so frequencies are countable in stats.
+  /** "info" | "warn" | "error" — severity of the diagnostic. */
+  level?: "info" | "warn" | "error";
+  /** Stable searchable identifier — e.g. `force_subagents_no_agents`. */
+  code?: string;
+  /** Optional small map of context — must be sanitised by caller. */
+  detail?: Record<string, unknown>;
+
+  // ─── timing (v0.34.0 Pack 3) ─────────────────────────────────────
+  /**
+   * Wall-clock duration of the hook handler that emitted this event,
+   * milliseconds. Always optional — only the safe-runner wrapper sets
+   * it, and only on the FINAL diagnostic record per hook invocation.
+   */
+  duration_ms?: number;
 
   // ─── task-specific (v0.31.0) ─────────────────────────────────────
   // These are populated only on `event: "task"` records emitted by
@@ -179,6 +206,52 @@ export async function appendEvent(
   } catch {
     /* silent — telemetry is best-effort */
   }
+}
+
+/**
+ * v0.34.0 — convenience wrapper for emitting a `diagnostic` event.
+ *
+ * Diagnostics describe edge-case branches inside a normal handler
+ * run (matcher returned no agents, WSL path rejected, MCP arg
+ * coerced, etc.). They live in the project-local hook-events.jsonl
+ * alongside the regular events so `stats --diagnostics` can count
+ * them by code.
+ *
+ * If the projectRoot is not yet resolvable (the failure happened
+ * before detection), prefer `appendError` from `core/error-log.ts`
+ * — it falls back to a user-level path.
+ *
+ * Pure-ish: never throws. Same best-effort semantics as appendEvent.
+ */
+export async function appendDiagnostic(
+  projectRoot: string,
+  args: {
+    code: string;
+    level?: "info" | "warn" | "error";
+    detail?: Record<string, unknown>;
+    sessionId?: string;
+    agentType?: string | null;
+    agentId?: string | null;
+    durationMs?: number;
+  },
+): Promise<void> {
+  const rec: HookEvent = {
+    ts: Date.now(),
+    session_id: args.sessionId ?? "diagnostic",
+    agent_type: args.agentType ?? null,
+    agent_id: args.agentId ?? null,
+    event: "diagnostic",
+    file: "",
+    lines: 0,
+    estTokens: 0,
+    summaryTokens: 0,
+    savedTokens: 0,
+    level: args.level ?? "info",
+    code: args.code,
+    detail: args.detail,
+    duration_ms: args.durationMs,
+  };
+  await appendEvent(projectRoot, rec);
 }
 
 /**
