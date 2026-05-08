@@ -1,6 +1,33 @@
 import { resolve, relative } from "node:path";
 
 /**
+ * v0.33.0 (B9) — coerce an `unknown` argument value to an integer.
+ *
+ * MCP transports frequently round-trip numeric arguments through
+ * JSON or environment variables and re-emit them as strings (e.g.
+ * `"42"`). Accept that case and reject everything else, including
+ * non-finite numbers, decimals, and strings that don't parse cleanly.
+ *
+ * Returns the integer value or `null` when the input cannot be
+ * interpreted as one.
+ */
+export function coerceIntFromAny(value: unknown): number | null {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) return null;
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return null;
+    if (!/^-?\d+$/.test(trimmed)) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+    return n;
+  }
+  return null;
+}
+
+/**
  * Resolve a user-provided path and validate it stays within projectRoot.
  * Prevents path traversal attacks (e.g. ../../etc/passwd).
  */
@@ -146,28 +173,24 @@ export function validateReadRangeArgs(args: unknown): {
   if (typeof a.path !== "string" || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
-  if (
-    typeof a.start_line !== "number" ||
-    !Number.isInteger(a.start_line) ||
-    a.start_line < 1
-  ) {
+  // v0.33.0 (B9) — some MCP clients serialise numbers as strings;
+  // accept "10" the same as 10. Reject non-numeric strings.
+  const start = coerceIntFromAny(a.start_line);
+  if (start === null || start < 1) {
     throw new Error(
       'Required parameter "start_line" must be a positive integer.',
     );
   }
-  if (
-    typeof a.end_line !== "number" ||
-    !Number.isInteger(a.end_line) ||
-    a.end_line < 1
-  ) {
+  const end = coerceIntFromAny(a.end_line);
+  if (end === null || end < 1) {
     throw new Error(
       'Required parameter "end_line" must be a positive integer.',
     );
   }
-  if (a.end_line < a.start_line) {
+  if (end < start) {
     throw new Error('"end_line" must be >= "start_line".');
   }
-  return { path: a.path, start_line: a.start_line, end_line: a.end_line };
+  return { path: a.path, start_line: start, end_line: end };
 }
 
 /**

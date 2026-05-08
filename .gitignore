@@ -45,3 +45,4 @@ docs/code-review-report.md
 .claude/
 .token-pilot.json
 .token-pilot-fingerprint.json
+tp-report.txt

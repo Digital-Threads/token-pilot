@@ -36,6 +36,40 @@ function buildHookCommand(
   return `token-pilot ${action}`;
 }
 
+/**
+ * Detect a stale token-pilot hook command — one that points at a
+ * pinned npx-cache snapshot (`npx/_npx/<hash>/...`) or any other
+ * version-pinned path that won't follow plugin upgrades.
+ *
+ * v0.33.0 fix: users who ran `npx token-pilot init` early on got
+ * settings.json entries with literal `~/.npm/_npx/<hash>/...` paths.
+ * When the npx cache rotates or token-pilot publishes a new minor,
+ * those entries silently call the old binary, missing every hook
+ * shipped after install (e.g. v0.31.0 Task hooks). Removing the
+ * stale entry lets the next install or the bundled plugin's
+ * `hooks/hooks.json` (CLAUDE_PLUGIN_ROOT) take over.
+ */
+export function isStaleTokenPilotHookCommand(cmd: unknown): boolean {
+  if (typeof cmd !== "string") return false;
+  if (!cmd.includes("token-pilot")) return false;
+  // npm/npx cache hash — always stale (will rotate)
+  if (/\/_npx\/[0-9a-f]+\//.test(cmd)) return true;
+  // Pinned plugin-cache version path — old version that may not
+  // contain a hook handler the new settings entry references.
+  // Match `/plugins/cache/token-pilot/token-pilot/<version>/`.
+  const pinned = cmd.match(
+    /\/plugins\/cache\/token-pilot\/token-pilot\/([^/]+)\//,
+  );
+  if (pinned) {
+    // The plugin runtime always uses ${CLAUDE_PLUGIN_ROOT} which
+    // resolves to the *current* version dir. A literal version in
+    // the path means someone wrote it from a CLI that captured the
+    // dir at install time — stale by definition.
+    return true;
+  }
+  return false;
+}
+
 function createHookConfig(options?: HookInstallOptions) {
   return {
     hooks: {
@@ -187,12 +221,15 @@ export async function installHook(
 
     if (Array.isArray(existingHooks)) {
       // Remove old broken hooks (bare "token-pilot" without absolute path)
-      // and replace with working ones using absolute paths
+      // OR stale npx-cache / pinned-version paths (v0.33.0)
+      // and replace with working ones using absolute paths.
       const oldBrokenHooks = existingHooks.filter(
         (h: any) =>
           isTokenPilotHook(h) &&
           h.hooks?.some(
-            (hook: any) => hook.command?.match(/^token-pilot\s/), // bare command without path
+            (hook: any) =>
+              hook.command?.match(/^token-pilot\s/) ||
+              isStaleTokenPilotHookCommand(hook.command),
           ),
       );
 
@@ -385,4 +422,135 @@ export async function uninstallHook(
       message: `Failed to process settings: ${err?.message ?? err}`,
     };
   }
+}
+
+// ─── v0.33.0 migration ────────────────────────────────────────────────
+
+export interface CleanStaleResult {
+  scanned: string[];
+  cleaned: string[];
+  staleEntriesRemoved: number;
+  message: string;
+}
+
+/**
+ * Scan a settings.json (user-level or project-level) and remove every
+ * token-pilot hook entry whose command points at a pinned npx-cache
+ * snapshot or a literal plugin-cache version path. The plugin's bundled
+ * `hooks/hooks.json` (resolved through `${CLAUDE_PLUGIN_ROOT}` at
+ * runtime) supersedes them.
+ *
+ * Pure-ish: writes only when something changed. Never throws — bad JSON
+ * or missing file are reported in the result so callers (CLI, init)
+ * can surface them without aborting.
+ */
+export async function cleanStaleHookEntries(
+  settingsPath: string,
+): Promise<CleanStaleResult> {
+  const result: CleanStaleResult = {
+    scanned: [settingsPath],
+    cleaned: [],
+    staleEntriesRemoved: 0,
+    message: "",
+  };
+
+  let raw: string;
+  try {
+    raw = await readFile(settingsPath, "utf-8");
+  } catch (err: any) {
+    if (err?.code === "ENOENT") {
+      result.message = `No settings at ${settingsPath} — nothing to migrate.`;
+      return result;
+    }
+    result.message = `Cannot read ${settingsPath}: ${err?.message ?? err}`;
+    return result;
+  }
+
+  let settings: Record<string, any>;
+  try {
+    settings = JSON.parse(raw);
+  } catch {
+    result.message = `Invalid JSON in ${settingsPath} — skipped (fix manually).`;
+    return result;
+  }
+
+  const sections = ["PreToolUse", "PostToolUse", "SessionStart"] as const;
+  let removed = 0;
+
+  for (const section of sections) {
+    const arr = settings.hooks?.[section];
+    if (!Array.isArray(arr)) continue;
+    const filtered = arr.filter((entry: any) => {
+      const inner = Array.isArray(entry?.hooks) ? entry.hooks : [];
+      const hasStale = inner.some((h: any) =>
+        isStaleTokenPilotHookCommand(h?.command),
+      );
+      if (hasStale) {
+        removed++;
+        return false;
+      }
+      return true;
+    });
+    if (filtered.length !== arr.length) {
+      if (filtered.length === 0) {
+        delete settings.hooks[section];
+      } else {
+        settings.hooks[section] = filtered;
+      }
+    }
+  }
+
+  if (removed === 0) {
+    result.message = `No stale token-pilot hook entries in ${settingsPath}.`;
+    return result;
+  }
+
+  // Drop empty hooks container so JSON stays clean.
+  if (
+    settings.hooks &&
+    typeof settings.hooks === "object" &&
+    Object.keys(settings.hooks).length === 0
+  ) {
+    delete settings.hooks;
+  }
+
+  await writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+  result.cleaned.push(settingsPath);
+  result.staleEntriesRemoved = removed;
+  result.message = `Removed ${removed} stale token-pilot hook entr${
+    removed === 1 ? "y" : "ies"
+  } from ${settingsPath}.`;
+  return result;
+}
+
+/**
+ * Inspect `~/.claude/settings.json` to determine whether the user has
+ * enabled the bundled `token-pilot` plugin in Claude Code. When true,
+ * the plugin's own `hooks/hooks.json` is the source of truth and any
+ * additional hook entries written by the npm CLI are duplicates that
+ * also lock the user to whichever binary path the CLI captured.
+ */
+export async function isTokenPilotPluginEnabled(
+  homeDir: string,
+): Promise<boolean> {
+  const settingsPath = resolve(homeDir, ".claude", "settings.json");
+  let raw: string;
+  try {
+    raw = await readFile(settingsPath, "utf-8");
+  } catch {
+    return false;
+  }
+  let settings: any;
+  try {
+    settings = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  const enabled = settings?.enabledPlugins;
+  if (!enabled || typeof enabled !== "object") return false;
+  // keys look like `token-pilot@token-pilot` — match prefix.
+  return Object.entries(enabled).some(
+    ([key, val]) =>
+      val === true && typeof key === "string" && key.startsWith("token-pilot@"),
+  );
 }

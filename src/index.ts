@@ -29,7 +29,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
-import { installHook, uninstallHook } from "./hooks/installer.js";
+import {
+  installHook,
+  uninstallHook,
+  cleanStaleHookEntries,
+  isTokenPilotPluginEnabled,
+} from "./hooks/installer.js";
+import { runHookEntryPoint } from "./hooks/safe-runner.js";
+import { loadErrors, formatErrorList } from "./core/error-log.js";
+import { appendDiagnostic } from "./core/event-log.js";
 import {
   findBinary,
   installBinary,
@@ -156,24 +164,33 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
 
   switch (cliArgs[0]) {
     case "hook-read": {
-      const cfg = await loadConfig(process.cwd());
-      await handleHookRead(
-        cliArgs[1],
-        cfg.hooks.mode,
-        cfg.hooks.denyThreshold,
-        process.cwd(),
-        {
-          adaptiveThreshold: cfg.hooks.adaptiveThreshold,
-          adaptiveBudgetTokens: cfg.hooks.adaptiveBudgetTokens,
-        },
-      );
+      // v0.34.0 — wrap in runHookEntryPoint so any unexpected throw
+      // lands in `~/.token-pilot/hook-errors.jsonl` instead of being
+      // swallowed silently. handleHookRead has its own internal
+      // try/catch for known I/O failures; the wrapper is the safety
+      // net for everything else.
+      await runHookEntryPoint({ hook: "hook-read" }, async () => {
+        const cfg = await loadConfig(process.cwd());
+        await handleHookRead(
+          cliArgs[1],
+          cfg.hooks.mode,
+          cfg.hooks.denyThreshold,
+          process.cwd(),
+          {
+            adaptiveThreshold: cfg.hooks.adaptiveThreshold,
+            adaptiveBudgetTokens: cfg.hooks.adaptiveBudgetTokens,
+          },
+        );
+      });
       return;
     }
     case "hook-edit":
-      handleHookEdit();
+      await runHookEntryPoint({ hook: "hook-edit" }, async () => {
+        handleHookEdit();
+      });
       return;
     case "hook-post-bash": {
-      try {
+      await runHookEntryPoint({ hook: "hook-post-bash" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const advice = decidePostBashAdvice(input, {
@@ -181,18 +198,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         });
         const rendered = renderPostBashHookOutput(advice);
         if (rendered) process.stdout.write(rendered);
-      } catch {
-        /* silent — hook must not break */
-      }
-      process.exit(0);
+      });
       return;
     }
     case "hook-pre-bash": {
       // v0.28.0 — passive pre-intercept for heavy Bash commands.
-      // PostToolUse can't truncate tool_response (API limit), so the only
-      // way to actually save tokens is to deny the call up front and
-      // nudge the agent to the cheaper MCP equivalent.
-      try {
+      // v0.34.0 — runHookEntryPoint covers throw paths.
+      await runHookEntryPoint({ hook: "hook-pre-bash" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreBash(
@@ -201,16 +213,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         );
         const rendered = renderPreBashOutput(decision);
         if (rendered) process.stdout.write(rendered);
-      } catch {
-        /* silent — hook must not break */
-      }
-      process.exit(0);
+      });
       return;
     }
     case "hook-pre-grep": {
       // v0.28.0 — passive pre-intercept for symbol-like Grep patterns.
-      // Redirects identifier searches to mcp__token-pilot__find_usages.
-      try {
+      // v0.34.0 — runHookEntryPoint covers throw paths.
+      await runHookEntryPoint({ hook: "hook-pre-grep" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreGrep(
@@ -219,39 +228,44 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         );
         const rendered = renderPreGrepOutput(decision);
         if (rendered) process.stdout.write(rendered);
-      } catch {
-        /* silent — hook must not break */
-      }
-      process.exit(0);
+      });
       return;
     }
     case "hook-pre-task": {
       // v0.31.0 Pack 2 — route general-purpose Task dispatches to a
-      // `tp-*` specialist when the description clearly matches. Default
-      // (deny / advisory mode) is a non-blocking advise; strict mode or
-      // TOKEN_PILOT_FORCE_SUBAGENTS=1 hard-denies on a high-confidence
-      // match. The matcher is lenient by design (false deny is much
-      // worse than a missed nudge — see pre-edit v0.30.4 rollback).
-      try {
-        const stdin = readFileSync(0, "utf-8");
-        const input = JSON.parse(stdin);
-        const agentIndex = await getAgentIndex();
-        const force = process.env.TOKEN_PILOT_FORCE_SUBAGENTS === "1";
-        const decision = decidePreTask(input, {
-          mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
-          agentIndex,
-          force,
-        });
-        const rendered = renderPreTaskOutput(decision);
-        if (rendered) process.stdout.write(rendered);
-      } catch {
-        /* silent — hook must not break */
-      }
-      process.exit(0);
+      // `tp-*` specialist when the description clearly matches.
+      // v0.34.0 — error/diagnostic logging via runHookEntryPoint.
+      await runHookEntryPoint(
+        { hook: "hook-pre-task" },
+        async () => {
+          const stdin = readFileSync(0, "utf-8");
+          const input = JSON.parse(stdin);
+          const agentIndex = await getAgentIndex();
+          const force = process.env.TOKEN_PILOT_FORCE_SUBAGENTS === "1";
+
+          // v0.34.0 diagnostic: B4 — empty index + force is a fail
+          // case (we deny, but record so the user can see why).
+          if (force && agentIndex.agents.length === 0) {
+            await appendDiagnostic(process.cwd(), {
+              code: "force_subagents_no_agents",
+              level: "warn",
+              detail: { hint: "run `npx token-pilot install-agents`" },
+            });
+          }
+
+          const decision = decidePreTask(input, {
+            mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+            agentIndex,
+            force,
+          });
+          const rendered = renderPreTaskOutput(decision);
+          if (rendered) process.stdout.write(rendered);
+        },
+      );
       return;
     }
     case "hook-post-task": {
-      try {
+      await runHookEntryPoint({ hook: "hook-post-task" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const message = await processPostTask(process.cwd(), homedir(), input);
@@ -265,29 +279,23 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
             }),
           );
         }
-      } catch {
-        /* silent — hook must not break */
-      }
-      process.exit(0);
+      });
       return;
     }
     case "hook-session-start": {
-      const cfg = await loadConfig(process.cwd());
-      // `sessionStart.enabled` is independent of `hooks.mode` by design —
-      // a user may want the Read-blocking hook off (mode:"off") while still
-      // getting the tool-rules reminder at session start, or vice versa.
-      if (!cfg.sessionStart.enabled) {
-        process.exit(0);
-      }
-      const result = await handleSessionStart({
-        projectRoot: process.cwd(),
-        homeDir: homedir(),
-        sessionStartConfig: cfg.sessionStart,
+      await runHookEntryPoint({ hook: "hook-session-start" }, async () => {
+        const cfg = await loadConfig(process.cwd());
+        // sessionStart.enabled is independent of hooks.mode by design.
+        if (!cfg.sessionStart.enabled) return;
+        const result = await handleSessionStart({
+          projectRoot: process.cwd(),
+          homeDir: homedir(),
+          sessionStartConfig: cfg.sessionStart,
+        });
+        if (result) {
+          process.stdout.write(result);
+        }
       });
-      if (result) {
-        process.stdout.write(result);
-      }
-      process.exit(0);
       return;
     }
     case "install-hook":
@@ -296,6 +304,45 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "uninstall-hook":
       await handleUninstallHook(cliArgs[1] || process.cwd());
       return;
+    case "errors": {
+      // v0.34.0 — surface ~/.token-pilot/hook-errors.jsonl with optional
+      // filters: --tail=N --code=<x> --hook=<y> --level=<info|warn|error>
+      const args = cliArgs.slice(1);
+      const flag = (k: string) => {
+        for (const a of args) {
+          if (a.startsWith(`--${k}=`)) return a.slice(k.length + 3);
+          if (a === `--${k}` || a === `-${k}`) return "true";
+        }
+        return undefined;
+      };
+      const tailRaw = flag("tail");
+      const records = await loadErrors({
+        tail: tailRaw ? Number(tailRaw) : undefined,
+        code: flag("code"),
+        hook: flag("hook"),
+        level: flag("level") as "info" | "warn" | "error" | undefined,
+      });
+      process.stdout.write(formatErrorList(records) + "\n");
+      return;
+    }
+    case "migrate-hooks": {
+      // v0.33.0 — clean stale npx-cache / pinned-version token-pilot
+      // hook entries from user-level + project-level settings.json so
+      // the bundled plugin's hooks/hooks.json takes over via
+      // CLAUDE_PLUGIN_ROOT. Safe and idempotent.
+      const targets = [
+        resolve(homedir(), ".claude", "settings.json"),
+        resolve(cliArgs[1] || process.cwd(), ".claude", "settings.json"),
+      ];
+      let total = 0;
+      for (const path of targets) {
+        const r = await cleanStaleHookEntries(path);
+        console.log(r.message);
+        total += r.staleEntriesRemoved;
+      }
+      console.log(`\nDone — removed ${total} stale entr${total === 1 ? "y" : "ies"}.`);
+      return;
+    }
     case "install-ast-index":
       await handleInstallAstIndex();
       return;
@@ -387,6 +434,34 @@ export function looksLikePluginCacheDir(candidate: string): boolean {
   }
 }
 
+/**
+ * v0.33.0 (B8) — reject candidates that are obviously not a project
+ * directory. Triggered by WSL launches where the shell starts in
+ * `C:\Windows\System32`, `/mnt/c/Windows/...`, or a UNC path. Without
+ * this guard, `git rev-parse --show-toplevel` either fails noisily or
+ * returns the Windows tree, leaving every subsequent git/MCP call
+ * looking at the wrong filesystem.
+ *
+ * Conservative — only matches paths we are certain are not user code.
+ */
+export function isWindowsSystemPath(candidate: string): boolean {
+  if (!candidate) return false;
+  // Native Windows: C:\Windows\... or C:/Windows/...
+  if (/^[A-Za-z]:[\\/](Windows|Program Files|ProgramData)\b/i.test(candidate)) {
+    return true;
+  }
+  // WSL view of Windows: /mnt/c/Windows/... (or any drive letter)
+  if (/^\/mnt\/[a-z]\/(windows|program files|programdata)\b/i.test(candidate)) {
+    return true;
+  }
+  // UNC path — almost never a project root and `cwd` cannot be set to
+  // one reliably anyway. Better to skip than to misroute.
+  if (/^\\\\/.test(candidate)) {
+    return true;
+  }
+  return false;
+}
+
 export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   // Defensive: ignore a poisoned cliArgs[0] pointing into the plugin install
   // dir. Fall through to the INIT_CWD / PWD / cwd detection below — same
@@ -401,14 +476,37 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
 
   let projectRoot = explicitRoot || process.cwd();
 
-  // Detect git root for reliable project root
-  // Try multiple sources: args[0] → INIT_CWD (npm/npx invoking dir) → PWD → cwd
+  // Detect git root for reliable project root.
+  // v0.33.0 (B8) — on WSL the shell is sometimes launched with the
+  // working directory pointing into Windows' filesystem
+  // (`/mnt/c/Windows/system32` or, worse, a UNC like `\\\\wsl$\\…`).
+  // INIT_CWD/PWD/cwd then resolve to a Windows system path and
+  // every git operation lands in the wrong tree. Claude Code itself
+  // reliably exports `CLAUDE_PROJECT_DIR` — prefer it absolutely
+  // when present and reject obvious system paths regardless.
   if (!explicitRoot) {
-    const candidates = [
+    const rawCandidates = [
+      process.env.CLAUDE_PROJECT_DIR, // canonical Claude Code env (B8)
       process.env.INIT_CWD, // npm/npx sets this to invoking directory
       process.env.PWD, // shell working directory (may differ from cwd)
       process.cwd(), // Node.js working directory
     ].filter((c): c is string => !!c && c !== "/");
+    // v0.34.0 — emit a diagnostic for every Windows / UNC reject so
+    // we can see in stats how often WSL launches misroute the cwd.
+    for (const c of rawCandidates) {
+      if (isWindowsSystemPath(c)) {
+        try {
+          await appendDiagnostic(process.cwd(), {
+            code: "wsl_path_rejected",
+            level: "warn",
+            detail: { path_basename: c.split(/[\\/]/).pop() ?? "" },
+          });
+        } catch {
+          /* logger of last resort */
+        }
+      }
+    }
+    const candidates = rawCandidates.filter((c) => !isWindowsSystemPath(c));
 
     let detected = false;
     for (const candidate of candidates) {
@@ -825,6 +923,26 @@ export async function handleInstallHook(projectRoot: string) {
     process.exit(0);
   }
 
+  // v0.33.0 — detect when the user already enabled the token-pilot
+  // plugin in `~/.claude/settings.json`. Even though we're running
+  // outside CLAUDE_PLUGIN_ROOT here (CLI invocation), the plugin's
+  // own `hooks/hooks.json` is what Claude Code uses at runtime.
+  // Writing additional entries with a captured npx-cache path leads
+  // to the bug B2 (v0.33.0): hooks pinned to an old binary that
+  // never sees newer hook handlers. Surface a clear migration step
+  // instead of silently duplicating.
+  if (await isTokenPilotPluginEnabled(homedir())) {
+    const userSettings = resolve(homedir(), ".claude", "settings.json");
+    const cleanup = await cleanStaleHookEntries(userSettings);
+    console.log(
+      "token-pilot plugin is enabled in ~/.claude/settings.json —\n" +
+        "the plugin's bundled hooks/hooks.json is the source of truth.\n" +
+        "Skipping settings.json hook write to avoid pinning to a stale path.\n" +
+        cleanup.message,
+    );
+    process.exit(0);
+  }
+
   let hookOptions: { scriptPath?: string; nodeExecPath?: string } | undefined;
   try {
     const rawPath = fileURLToPath(new URL("./index.js", import.meta.url));
@@ -1083,6 +1201,110 @@ export async function handleDoctor() {
     }
   } catch {
     /* ecosystem check is best-effort; never break doctor */
+  }
+
+  // ── v0.34.0 health checks (Pack 2 of error-logging release) ──
+  try {
+    console.log("── runtime health ──");
+
+    // Recent errors
+    const recent = await loadErrors({ tail: 100 });
+    if (recent.length === 0) {
+      console.log(`  errors:       0 in ~/.token-pilot/hook-errors.jsonl ✓`);
+    } else {
+      const counts = new Map<string, number>();
+      for (const r of recent) counts.set(r.code, (counts.get(r.code) ?? 0) + 1);
+      const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      console.log(`  errors:       ${recent.length} recent (top codes):`);
+      for (const [code, n] of top) console.log(`                  ${String(n).padStart(3)}× ${code}`);
+      console.log(`  drill-in:     token-pilot errors --tail=20`);
+    }
+
+    // Stale hook entries — user-level + project-level
+    const userSettings = join(homedir(), ".claude", "settings.json");
+    const projectSettings = join(cwd, ".claude", "settings.json");
+    let staleCount = 0;
+    for (const p of [userSettings, projectSettings]) {
+      try {
+        if (!existsSync(p)) continue;
+        const raw = await import("node:fs/promises").then((m) => m.readFile(p, "utf-8"));
+        const json = JSON.parse(raw);
+        const sections = ["PreToolUse", "PostToolUse", "SessionStart"] as const;
+        for (const s of sections) {
+          const arr = json.hooks?.[s];
+          if (!Array.isArray(arr)) continue;
+          for (const entry of arr) {
+            const inner = Array.isArray(entry?.hooks) ? entry.hooks : [];
+            for (const h of inner) {
+              if (typeof h?.command === "string") {
+                if (/\/_npx\/[0-9a-f]+\//.test(h.command)) staleCount++;
+                else if (/\/plugins\/cache\/token-pilot\/token-pilot\/[^/]+\//.test(h.command)) staleCount++;
+              }
+            }
+          }
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    if (staleCount === 0) {
+      console.log(`  stale hooks:  none ✓`);
+    } else {
+      console.log(`  stale hooks:  ${staleCount} pinned-path entries`);
+      console.log(`  fix:          token-pilot migrate-hooks`);
+    }
+
+    // Installed tp-* agents vs catalog
+    let installed = 0;
+    let catalog = 0;
+    try {
+      const fsp = await import("node:fs/promises");
+      const userAgents = join(homedir(), ".claude", "agents");
+      const projAgents = join(cwd, ".claude", "agents");
+      const seen = new Set<string>();
+      for (const dir of [userAgents, projAgents]) {
+        try {
+          const entries = await fsp.readdir(dir);
+          for (const e of entries) {
+            if (e.startsWith("tp-") && e.endsWith(".md")) seen.add(e);
+          }
+        } catch {
+          /* missing */
+        }
+      }
+      installed = seen.size;
+      const dist = new URL("../agents", import.meta.url).pathname;
+      try {
+        const dEntries = await fsp.readdir(dist);
+        catalog = dEntries.filter((f) => f.startsWith("tp-") && f.endsWith(".md")).length;
+      } catch {
+        catalog = 0;
+      }
+    } catch {
+      /* skip */
+    }
+    if (catalog === 0) {
+      console.log(`  tp-* agents:  could not read catalog`);
+    } else if (installed === 0) {
+      console.log(`  tp-* agents:  0 of ${catalog} installed`);
+      console.log(`  fix:          token-pilot install-agents --scope=user`);
+    } else if (installed < catalog) {
+      console.log(`  tp-* agents:  ${installed} of ${catalog} installed (partial)`);
+      console.log(`  fix:          token-pilot install-agents --force`);
+    } else {
+      console.log(`  tp-* agents:  ${installed}/${catalog} ✓`);
+    }
+
+    // WSL detection probe
+    const cwdGuess = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    if (isWindowsSystemPath(cwdGuess)) {
+      console.log(`  cwd:          ${cwdGuess} ✗ (Windows system path — see B8)`);
+    } else {
+      console.log(`  cwd:          ${cwdGuess} ✓`);
+    }
+    console.log("");
+  } catch {
+    /* health checks are best-effort */
   }
 
   process.exit(0);

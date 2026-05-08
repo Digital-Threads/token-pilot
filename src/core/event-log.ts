@@ -36,7 +36,14 @@ export interface HookEvent {
   /** null for top-level session; agent_type string inside a subagent. */
   agent_type: string | null;
   agent_id: string | null;
-  event: "denied" | "allowed" | "bypass" | "pass-through" | "task" | string;
+  event:
+    | "denied"
+    | "allowed"
+    | "bypass"
+    | "pass-through"
+    | "task"
+    | "diagnostic"
+    | string;
   file: string;
   lines: number;
   estTokens: number;
@@ -44,6 +51,26 @@ export interface HookEvent {
   summaryTokens: number;
   /** estTokens - summaryTokens; 0 for allow/bypass. */
   savedTokens: number;
+
+  // ─── diagnostic (v0.34.0) ────────────────────────────────────────
+  // Populated only on `event: "diagnostic"` records — emitted by
+  // hooks/handlers when an edge-case fires (matcher empty, WSL
+  // path rejected, validation coerced, …). Every diagnostic gets a
+  // stable `code` so frequencies are countable in stats.
+  /** "info" | "warn" | "error" — severity of the diagnostic. */
+  level?: "info" | "warn" | "error";
+  /** Stable searchable identifier — e.g. `force_subagents_no_agents`. */
+  code?: string;
+  /** Optional small map of context — must be sanitised by caller. */
+  detail?: Record<string, unknown>;
+
+  // ─── timing (v0.34.0 Pack 3) ─────────────────────────────────────
+  /**
+   * Wall-clock duration of the hook handler that emitted this event,
+   * milliseconds. Always optional — only the safe-runner wrapper sets
+   * it, and only on the FINAL diagnostic record per hook invocation.
+   */
+  duration_ms?: number;
 
   // ─── task-specific (v0.31.0) ─────────────────────────────────────
   // These are populated only on `event: "task"` records emitted by
@@ -182,6 +209,52 @@ export async function appendEvent(
 }
 
 /**
+ * v0.34.0 — convenience wrapper for emitting a `diagnostic` event.
+ *
+ * Diagnostics describe edge-case branches inside a normal handler
+ * run (matcher returned no agents, WSL path rejected, MCP arg
+ * coerced, etc.). They live in the project-local hook-events.jsonl
+ * alongside the regular events so `stats --diagnostics` can count
+ * them by code.
+ *
+ * If the projectRoot is not yet resolvable (the failure happened
+ * before detection), prefer `appendError` from `core/error-log.ts`
+ * — it falls back to a user-level path.
+ *
+ * Pure-ish: never throws. Same best-effort semantics as appendEvent.
+ */
+export async function appendDiagnostic(
+  projectRoot: string,
+  args: {
+    code: string;
+    level?: "info" | "warn" | "error";
+    detail?: Record<string, unknown>;
+    sessionId?: string;
+    agentType?: string | null;
+    agentId?: string | null;
+    durationMs?: number;
+  },
+): Promise<void> {
+  const rec: HookEvent = {
+    ts: Date.now(),
+    session_id: args.sessionId ?? "diagnostic",
+    agent_type: args.agentType ?? null,
+    agent_id: args.agentId ?? null,
+    event: "diagnostic",
+    file: "",
+    lines: 0,
+    estTokens: 0,
+    summaryTokens: 0,
+    savedTokens: 0,
+    level: args.level ?? "info",
+    code: args.code,
+    detail: args.detail,
+    duration_ms: args.durationMs,
+  };
+  await appendEvent(projectRoot, rec);
+}
+
+/**
  * Read all events from the current log file. Malformed JSONL lines are
  * skipped silently (a corrupted line should not poison the whole
  * dataset). Returns [] if the file is missing.
@@ -203,6 +276,84 @@ export async function loadEvents(projectRoot: string): Promise<HookEvent[]> {
     }
   }
   return out;
+}
+
+/**
+ * v0.33.0 (B5) — load events from EVERY `.token-pilot/hook-events.jsonl`
+ * found at or below `repoRoot`. The hook writer resolves its own
+ * project root from `process.cwd()` at the moment Claude Code spawns
+ * us, which can land in a subdirectory of the actual repo (apps/admin,
+ * apps/api, packages/prisma, …). Without this, `token-pilot stats`
+ * sees only the top-level log and reports a fraction of the savings.
+ *
+ * Walks up to `maxDepth` levels and merges chronologically. Pure on
+ * filesystem read errors — missing dirs are silently skipped.
+ */
+export async function loadEventsTree(
+  repoRoot: string,
+  maxDepth = 5,
+): Promise<HookEvent[]> {
+  const PRUNE = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    ".cache",
+    "coverage",
+    ".vercel",
+    ".vite",
+  ]);
+  const seen = new Set<string>();
+  const all: HookEvent[] = [];
+
+  async function visit(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth) return;
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      return;
+    }
+    if (entries.includes(".token-pilot")) {
+      const logPath = join(dir, ".token-pilot", CURRENT_FILE);
+      if (!seen.has(logPath)) {
+        seen.add(logPath);
+        try {
+          const raw = await fs.readFile(logPath, "utf-8");
+          for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              all.push(JSON.parse(line) as HookEvent);
+            } catch {
+              /* skip malformed */
+            }
+          }
+        } catch {
+          /* missing log */
+        }
+      }
+    }
+    for (const name of entries) {
+      if (PRUNE.has(name)) continue;
+      if (name.startsWith(".") && name !== ".claude") continue;
+      const full = join(dir, name);
+      try {
+        const stat = await fs.stat(full);
+        if (stat.isDirectory()) {
+          await visit(full, depth + 1);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  await visit(repoRoot, 0);
+  // Sort chronologically so per-session aggregations stay correct.
+  all.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  return all;
 }
 
 /**
