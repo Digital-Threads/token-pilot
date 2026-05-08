@@ -79,4 +79,45 @@ describe("checkForTypo", () => {
     expect(r.suggestion).toBeUndefined();
     expect(r.message).toContain("token-pilot --help");
   });
+
+  // v0.33.0 — regression guard. Every command we add to the
+  // index.ts switch MUST also live in KNOWN_COMMANDS, otherwise the
+  // typo-guard rejects the call with exit 1 before the switch even
+  // fires. This is exactly how `hook-pre-task` (v0.31.0) silently
+  // disabled itself for weeks until tool-audit data showed 0 task
+  // events on every machine. List the entire current set of public
+  // commands here so a future addition without registry update fails
+  // loudly in CI rather than silently in production.
+  it.each([
+    // hook entry points (Claude Code calls these via hooks/hooks.json)
+    "hook-read",
+    "hook-edit",
+    "hook-pre-bash",
+    "hook-pre-grep",
+    "hook-pre-task",
+    "hook-post-bash",
+    "hook-post-task",
+    "hook-session-start",
+    // user-facing CLI
+    "install-hook",
+    "uninstall-hook",
+    "install-ast-index",
+    "install-agents",
+    "uninstall-agents",
+    "bless-agents",
+    "unbless-agents",
+    "stats",
+    "tool-audit",
+    "save-doc",
+    "list-docs",
+    "init",
+    "doctor",
+    "migrate-hooks",
+    "errors",
+  ])(
+    "%s passes the typo-guard (must be in KNOWN_COMMANDS)",
+    (cmd) => {
+      expect(checkForTypo(cmd).kind).toBe("pass-through");
+    },
+  );
 });

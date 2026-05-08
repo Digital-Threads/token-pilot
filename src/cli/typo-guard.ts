@@ -25,6 +25,12 @@ export const KNOWN_COMMANDS = [
   "hook-edit",
   "hook-pre-bash",
   "hook-pre-grep",
+  // v0.31.0 — Task routing enforcement. Missing from this list since
+  // v0.31.0 caused typo-guard to reject every PreToolUse:Task hook
+  // invocation with exit 1, which is why tool-audit logs across
+  // multiple machines showed 0 task events for weeks. Restored in
+  // v0.33.0+ alongside the rest of this release's CLI surface.
+  "hook-pre-task",
   "hook-post-bash",
   "hook-post-task",
   "hook-session-start",
@@ -41,6 +47,9 @@ export const KNOWN_COMMANDS = [
   "save-doc",
   "list-docs",
   "init",
+  // v0.33.0
+  "migrate-hooks",
+  "errors",
   "--version",
   "-v",
   "--help",
