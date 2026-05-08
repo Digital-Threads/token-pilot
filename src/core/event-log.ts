@@ -206,6 +206,84 @@ export async function loadEvents(projectRoot: string): Promise<HookEvent[]> {
 }
 
 /**
+ * v0.33.0 (B5) — load events from EVERY `.token-pilot/hook-events.jsonl`
+ * found at or below `repoRoot`. The hook writer resolves its own
+ * project root from `process.cwd()` at the moment Claude Code spawns
+ * us, which can land in a subdirectory of the actual repo (apps/admin,
+ * apps/api, packages/prisma, …). Without this, `token-pilot stats`
+ * sees only the top-level log and reports a fraction of the savings.
+ *
+ * Walks up to `maxDepth` levels and merges chronologically. Pure on
+ * filesystem read errors — missing dirs are silently skipped.
+ */
+export async function loadEventsTree(
+  repoRoot: string,
+  maxDepth = 5,
+): Promise<HookEvent[]> {
+  const PRUNE = new Set([
+    "node_modules",
+    ".git",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+    ".cache",
+    "coverage",
+    ".vercel",
+    ".vite",
+  ]);
+  const seen = new Set<string>();
+  const all: HookEvent[] = [];
+
+  async function visit(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth) return;
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      return;
+    }
+    if (entries.includes(".token-pilot")) {
+      const logPath = join(dir, ".token-pilot", CURRENT_FILE);
+      if (!seen.has(logPath)) {
+        seen.add(logPath);
+        try {
+          const raw = await fs.readFile(logPath, "utf-8");
+          for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              all.push(JSON.parse(line) as HookEvent);
+            } catch {
+              /* skip malformed */
+            }
+          }
+        } catch {
+          /* missing log */
+        }
+      }
+    }
+    for (const name of entries) {
+      if (PRUNE.has(name)) continue;
+      if (name.startsWith(".") && name !== ".claude") continue;
+      const full = join(dir, name);
+      try {
+        const stat = await fs.stat(full);
+        if (stat.isDirectory()) {
+          await visit(full, depth + 1);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  await visit(repoRoot, 0);
+  // Sort chronologically so per-session aggregations stay correct.
+  all.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  return all;
+}
+
+/**
  * Enumerate all archive files (`hook-events.<ts>.jsonl`) with metadata
  * needed by `retentionDeletions`.
  */

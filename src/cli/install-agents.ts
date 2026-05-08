@@ -230,6 +230,95 @@ export function resolveDistAgentsDir(scriptUrl: string): string {
   return join(here, "..", "..", "agents");
 }
 
+/**
+ * Compare two semver-ish version strings. Returns positive if `a > b`,
+ * negative if `a < b`, 0 if equal. Tolerates non-semver suffixes by
+ * stripping anything past `-` or `+`. Pre-release / metadata are
+ * ignored. Used only for picking the highest version of a directory
+ * sibling list — bullet-proofness not required.
+ */
+function compareVersions(a: string, b: string): number {
+  const norm = (s: string) =>
+    s
+      .split(/[-+]/)[0]
+      .split(".")
+      .map((p) => (Number.isFinite(parseInt(p, 10)) ? parseInt(p, 10) : 0));
+  const [ax, ay, az] = norm(a);
+  const [bx, by, bz] = norm(b);
+  if (ax !== bx) return ax - bx;
+  if (ay !== by) return ay - by;
+  return az - bz;
+}
+
+/**
+ * v0.33.0 — locate the freshest tp-* template source available on disk.
+ *
+ * The plugin cache (`~/.claude/plugins/cache/token-pilot/token-pilot/<v>/agents/`)
+ * almost always trails or matches the version of the running binary, but
+ * users with a stale npm-global token-pilot (e.g. v0.20.1 — see beads B1)
+ * end up running a binary whose own `agents/` directory contains an old
+ * subset of templates while the plugin cache holds the up-to-date 25-agent
+ * set. Probe both, pick whichever has the higher version (or, when
+ * versions cannot be read, the more complete set).
+ *
+ * Pure: never throws — returns the script-relative dir as fallback when
+ * the cache cannot be read.
+ */
+export async function pickFreshestAgentsSource(
+  scriptUrl: string,
+  homeDir: string,
+): Promise<{ dir: string; source: "self" | "plugin-cache" }> {
+  const selfDir = resolveDistAgentsDir(scriptUrl);
+  const cacheRoot = join(
+    homeDir,
+    ".claude",
+    "plugins",
+    "cache",
+    "token-pilot",
+    "token-pilot",
+  );
+
+  let cacheVersion: string | null = null;
+  let cacheDir: string | null = null;
+  try {
+    const versions = (await readdir(cacheRoot)).filter((v) => /\d+\.\d+/.test(v));
+    if (versions.length > 0) {
+      versions.sort(compareVersions);
+      cacheVersion = versions[versions.length - 1];
+      cacheDir = join(cacheRoot, cacheVersion, "agents");
+    }
+  } catch {
+    /* no plugin cache — keep self */
+  }
+
+  if (!cacheDir) return { dir: selfDir, source: "self" };
+
+  // Compare counts of tp-*.md to spot the obvious "stale binary" case
+  // where the running CLI is old but plugin cache is current.
+  let selfCount = 0;
+  let cacheCount = 0;
+  try {
+    selfCount = (await readdir(selfDir)).filter(
+      (f) => f.endsWith(".md") && f.startsWith("tp-"),
+    ).length;
+  } catch {
+    /* selfDir missing — pick cache */
+  }
+  try {
+    cacheCount = (await readdir(cacheDir)).filter(
+      (f) => f.endsWith(".md") && f.startsWith("tp-"),
+    ).length;
+  } catch {
+    return { dir: selfDir, source: "self" };
+  }
+
+  if (cacheCount > selfCount) {
+    return { dir: cacheDir, source: "plugin-cache" };
+  }
+  // Tie or self has more — keep self (newer un-released templates win).
+  return { dir: selfDir, source: "self" };
+}
+
 /** Read one line from an interactive TTY prompt. */
 async function promptLine(question: string): Promise<string> {
   process.stderr.write(question);
@@ -428,8 +517,22 @@ export async function handleInstallAgents(
     }
   }
 
-  const distAgentsDir =
-    opts?.distAgentsDir ?? resolveDistAgentsDir(import.meta.url);
+  // v0.33.0 (B1+B3) — explicit override wins; otherwise probe the
+  // plugin cache and pick whichever has more tp-*.md templates. This
+  // protects users with stale npm-global token-pilot from copying
+  // an outdated 6-agent subset when the bundled plugin already
+  // shipped the full 25.
+  let distAgentsDir = opts?.distAgentsDir;
+  if (!distAgentsDir) {
+    const picked = await pickFreshestAgentsSource(import.meta.url, homeDir);
+    distAgentsDir = picked.dir;
+    if (picked.source === "plugin-cache") {
+      process.stderr.write(
+        `[token-pilot] using agents from plugin cache: ${distAgentsDir}\n` +
+          `  (running CLI's own agents/ has fewer templates — bundled plugin is fresher).\n`,
+      );
+    }
+  }
 
   try {
     const result = await installAgents({

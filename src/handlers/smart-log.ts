@@ -39,14 +39,19 @@ export async function handleSmartLog(
   const count = Math.min(args.count ?? 10, MAX_COUNT);
   const ref = args.ref ?? 'HEAD';
 
-  // Build git log command with --numstat for file stats
+  // Build git log command with --numstat for file stats.
+  // v0.33.0 (B6) — `ref` MUST be a revision argument, not a pathspec.
+  // The previous version pushed `'--', ref` which made git interpret
+  // `HEAD` as a path (`git log -- HEAD`) and silently returned empty.
+  // Adding a path then produced `git log -- HEAD -- foo.ts` — invalid.
+  // Correct order: `git log <flags> <ref> [-- <path>]`.
   const gitArgs = [
     'log',
     `--format=${RECORD_SEPARATOR}%h${FIELD_SEPARATOR}%ad${FIELD_SEPARATOR}%an${FIELD_SEPARATOR}%s`,
     '--date=short',
     '--numstat',
     `-n`, `${count}`,
-    '--', ref,
+    ref,
   ];
 
   if (args.path) {

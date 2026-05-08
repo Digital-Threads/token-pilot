@@ -12,7 +12,11 @@
  * directly without touching the filesystem.
  */
 
-import { loadEvents, type HookEvent } from "../core/event-log.js";
+import {
+  loadEvents,
+  loadEventsTree,
+  type HookEvent,
+} from "../core/event-log.js";
 
 export interface StatsOptions {
   /**
@@ -204,7 +208,15 @@ export async function handleStats(
   opts?: { projectRoot?: string },
 ): Promise<number> {
   const projectRoot = opts?.projectRoot ?? process.cwd();
-  const events = await loadEvents(projectRoot);
+
+  // v0.33.0 (B5) — `--no-merge` disables the repo-tree walk and reads
+  // only the top-level `.token-pilot/hook-events.jsonl`. Default is to
+  // merge events from every subdirectory log so monorepo subdir
+  // sessions show up in the same totals.
+  const noMerge = argv.includes("--no-merge");
+  const events = noMerge
+    ? await loadEvents(projectRoot)
+    : await loadEventsTree(projectRoot);
 
   const session = parseFlag(argv, "session");
   const byAgent = parseFlag(argv, "by-agent");

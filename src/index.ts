@@ -29,7 +29,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createServer } from "./server.js";
-import { installHook, uninstallHook } from "./hooks/installer.js";
+import {
+  installHook,
+  uninstallHook,
+  cleanStaleHookEntries,
+  isTokenPilotPluginEnabled,
+} from "./hooks/installer.js";
 import {
   findBinary,
   installBinary,
@@ -296,6 +301,24 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "uninstall-hook":
       await handleUninstallHook(cliArgs[1] || process.cwd());
       return;
+    case "migrate-hooks": {
+      // v0.33.0 — clean stale npx-cache / pinned-version token-pilot
+      // hook entries from user-level + project-level settings.json so
+      // the bundled plugin's hooks/hooks.json takes over via
+      // CLAUDE_PLUGIN_ROOT. Safe and idempotent.
+      const targets = [
+        resolve(homedir(), ".claude", "settings.json"),
+        resolve(cliArgs[1] || process.cwd(), ".claude", "settings.json"),
+      ];
+      let total = 0;
+      for (const path of targets) {
+        const r = await cleanStaleHookEntries(path);
+        console.log(r.message);
+        total += r.staleEntriesRemoved;
+      }
+      console.log(`\nDone — removed ${total} stale entr${total === 1 ? "y" : "ies"}.`);
+      return;
+    }
     case "install-ast-index":
       await handleInstallAstIndex();
       return;
@@ -387,6 +410,34 @@ export function looksLikePluginCacheDir(candidate: string): boolean {
   }
 }
 
+/**
+ * v0.33.0 (B8) — reject candidates that are obviously not a project
+ * directory. Triggered by WSL launches where the shell starts in
+ * `C:\Windows\System32`, `/mnt/c/Windows/...`, or a UNC path. Without
+ * this guard, `git rev-parse --show-toplevel` either fails noisily or
+ * returns the Windows tree, leaving every subsequent git/MCP call
+ * looking at the wrong filesystem.
+ *
+ * Conservative — only matches paths we are certain are not user code.
+ */
+export function isWindowsSystemPath(candidate: string): boolean {
+  if (!candidate) return false;
+  // Native Windows: C:\Windows\... or C:/Windows/...
+  if (/^[A-Za-z]:[\\/](Windows|Program Files|ProgramData)\b/i.test(candidate)) {
+    return true;
+  }
+  // WSL view of Windows: /mnt/c/Windows/... (or any drive letter)
+  if (/^\/mnt\/[a-z]\/(windows|program files|programdata)\b/i.test(candidate)) {
+    return true;
+  }
+  // UNC path — almost never a project root and `cwd` cannot be set to
+  // one reliably anyway. Better to skip than to misroute.
+  if (/^\\\\/.test(candidate)) {
+    return true;
+  }
+  return false;
+}
+
 export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   // Defensive: ignore a poisoned cliArgs[0] pointing into the plugin install
   // dir. Fall through to the INIT_CWD / PWD / cwd detection below — same
@@ -401,14 +452,23 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
 
   let projectRoot = explicitRoot || process.cwd();
 
-  // Detect git root for reliable project root
-  // Try multiple sources: args[0] → INIT_CWD (npm/npx invoking dir) → PWD → cwd
+  // Detect git root for reliable project root.
+  // v0.33.0 (B8) — on WSL the shell is sometimes launched with the
+  // working directory pointing into Windows' filesystem
+  // (`/mnt/c/Windows/system32` or, worse, a UNC like `\\\\wsl$\\…`).
+  // INIT_CWD/PWD/cwd then resolve to a Windows system path and
+  // every git operation lands in the wrong tree. Claude Code itself
+  // reliably exports `CLAUDE_PROJECT_DIR` — prefer it absolutely
+  // when present and reject obvious system paths regardless.
   if (!explicitRoot) {
     const candidates = [
+      process.env.CLAUDE_PROJECT_DIR, // canonical Claude Code env (B8)
       process.env.INIT_CWD, // npm/npx sets this to invoking directory
       process.env.PWD, // shell working directory (may differ from cwd)
       process.cwd(), // Node.js working directory
-    ].filter((c): c is string => !!c && c !== "/");
+    ]
+      .filter((c): c is string => !!c && c !== "/")
+      .filter((c) => !isWindowsSystemPath(c));
 
     let detected = false;
     for (const candidate of candidates) {
@@ -821,6 +881,26 @@ export async function handleInstallHook(projectRoot: string) {
         "declared in hooks/hooks.json and registered by the\n" +
         "plugin installer. `install-hook` is only needed for npm/npx setups.\n" +
         "Skipping to avoid duplicate hook entries.",
+    );
+    process.exit(0);
+  }
+
+  // v0.33.0 — detect when the user already enabled the token-pilot
+  // plugin in `~/.claude/settings.json`. Even though we're running
+  // outside CLAUDE_PLUGIN_ROOT here (CLI invocation), the plugin's
+  // own `hooks/hooks.json` is what Claude Code uses at runtime.
+  // Writing additional entries with a captured npx-cache path leads
+  // to the bug B2 (v0.33.0): hooks pinned to an old binary that
+  // never sees newer hook handlers. Surface a clear migration step
+  // instead of silently duplicating.
+  if (await isTokenPilotPluginEnabled(homedir())) {
+    const userSettings = resolve(homedir(), ".claude", "settings.json");
+    const cleanup = await cleanStaleHookEntries(userSettings);
+    console.log(
+      "token-pilot plugin is enabled in ~/.claude/settings.json —\n" +
+        "the plugin's bundled hooks/hooks.json is the source of truth.\n" +
+        "Skipping settings.json hook write to avoid pinning to a stale path.\n" +
+        cleanup.message,
     );
     process.exit(0);
   }

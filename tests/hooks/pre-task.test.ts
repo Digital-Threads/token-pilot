@@ -72,36 +72,48 @@ describe("decidePreTask — allow cases", () => {
     expect(d.kind).toBe("allow");
   });
 
-  it("allows when description is empty", () => {
+  it("advises with the tool-guide when description is empty (B14)", () => {
     const d = decidePreTask(input("general-purpose", ""), ctx());
-    expect(d.kind).toBe("allow");
+    expect(d.kind).toBe("advise");
+    if (d.kind === "advise") {
+      expect(d.message).toContain("smart_read");
+    }
   });
 
-  it("allows when heuristic returns no match", () => {
+  it("advises with the tool-guide when heuristic returns no match (B14)", () => {
     const d = decidePreTask(
       input("general-purpose", "reminder to buy milk"),
       ctx(),
     );
-    expect(d.kind).toBe("allow");
+    expect(d.kind).toBe("advise");
+    if (d.kind === "advise") {
+      expect(d.message).toContain("smart_read");
+      // No agent name should be suggested when there is no match.
+      expect(d.message).not.toMatch(/tp-[a-z]/);
+    }
   });
 
-  it("allows when description contains an escape phrase", () => {
+  it("advises with the tool-guide when description contains an escape phrase (B14)", () => {
     const d = decidePreTask(
       input("general-purpose", 'ad-hoc "review these changes" investigation'),
       ctx(),
     );
-    expect(d.kind).toBe("allow");
+    expect(d.kind).toBe("advise");
+    if (d.kind === "advise") {
+      expect(d.message).toContain("smart_read");
+      expect(d.message).not.toMatch(/tp-[a-z]/);
+    }
   });
 
-  it("allows open-ended / across-the-codebase escape forms", () => {
+  it("advises with the tool-guide on open-ended / across-the-codebase escape forms (B14)", () => {
     for (const phrase of [
       "open-ended review these changes task",
       "review these changes across the codebase",
       "multi-step review these changes",
     ]) {
-      expect(decidePreTask(input("general-purpose", phrase), ctx()).kind).toBe(
-        "allow",
-      );
+      const d = decidePreTask(input("general-purpose", phrase), ctx());
+      expect(d.kind).toBe("advise");
+      if (d.kind === "advise") expect(d.message).toContain("smart_read");
     }
   });
 });
@@ -159,12 +171,20 @@ describe("decidePreTask — deny cases (strict / force)", () => {
     expect(d.kind).toBe("deny");
   });
 
-  it("force does NOT override an escape phrase", () => {
+  it("force does NOT hard-deny when an escape phrase is present (advises with tool-guide)", () => {
+    // v0.33.0 (B14): an escape phrase still pre-empts agent suggestion,
+    // but we now always send the generic tool-guide so the subagent
+    // learns about smart_read / read_symbol. force should NOT escalate
+    // an escape into a hard deny.
     const d = decidePreTask(
       input("general-purpose", "ad-hoc review these changes"),
       ctx({ mode: "deny", force: true }),
     );
-    expect(d.kind).toBe("allow");
+    expect(d.kind).toBe("advise");
+    if (d.kind === "advise") {
+      expect(d.message).toContain("smart_read");
+      expect(d.message).not.toMatch(/tp-[a-z]/);
+    }
   });
 
   it("force does NOT block tp-* subagents", () => {
@@ -173,6 +193,26 @@ describe("decidePreTask — deny cases (strict / force)", () => {
       ctx({ force: true }),
     );
     expect(d.kind).toBe("allow");
+  });
+
+  it("force + empty agent index → diagnostic deny (B4)", () => {
+    // Reproduce the silent-no-op scenario: user enables FORCE_SUBAGENTS
+    // but never ran install-agents — the catalog is empty, so previously
+    // every Task slipped through. v0.33.0 deny with a clear hint instead.
+    const emptyCtx = {
+      mode: "advisory" as const,
+      agentIndex: { agents: [] },
+      force: true,
+    };
+    const d = decidePreTask(
+      input("general-purpose", "please review these changes"),
+      emptyCtx,
+    );
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") {
+      expect(d.reason).toContain("install-agents");
+      expect(d.reason).toContain("FORCE_SUBAGENTS");
+    }
   });
 });
 

@@ -920,8 +920,27 @@ export class AstIndexClient {
   }
 
   private async exec(args: string[], timeoutMs?: number): Promise<string> {
+    // v0.33.0 (B10) — lazy retry. server.ts calls init() at startup,
+    // but it can fail silently (binary download flaky, permissions
+    // on shared FS, or the user invoked us before postinstall ran).
+    // Subsequent MCP calls would otherwise throw "not initialized"
+    // forever. Try once more here; on failure surface a friendlier
+    // error pointing at the install command.
     if (!this.binaryPath) {
-      throw new Error("ast-index not initialized. Call init() first.");
+      try {
+        await this.init();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `ast-index not initialized — auto-init also failed: ${msg}\n` +
+            `Run: npx token-pilot install-ast-index`,
+        );
+      }
+      if (!this.binaryPath) {
+        throw new Error(
+          "ast-index not initialized. Run `npx token-pilot install-ast-index`.",
+        );
+      }
     }
 
     // ast-index v3.39+ honours AST_INDEX_WALK_UP=1 — read-commands then

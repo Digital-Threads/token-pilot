@@ -24,6 +24,16 @@ vi.mock("../src/server.js", () => ({
 vi.mock("../src/hooks/installer.js", () => ({
   installHook: mockDeps.installHook,
   uninstallHook: mockDeps.uninstallHook,
+  // v0.33.0: stub plugin-detection + migration helpers introduced in
+  // this release so the CLI flow under test stays unaffected.
+  isTokenPilotPluginEnabled: vi.fn().mockResolvedValue(false),
+  cleanStaleHookEntries: vi.fn().mockResolvedValue({
+    scanned: [],
+    cleaned: [],
+    staleEntriesRemoved: 0,
+    message: "",
+  }),
+  isStaleTokenPilotHookCommand: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../src/ast-index/binary-manager.js", async () => {
