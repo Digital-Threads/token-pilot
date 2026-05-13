@@ -6,12 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-read",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-read"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-read"
           }
         ]
       },
@@ -20,12 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-edit"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit"
           }
         ]
       },
@@ -34,12 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-edit"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit"
           }
         ]
       },
@@ -48,12 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-bash",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-pre-bash"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-bash"
           }
         ]
       },
@@ -62,12 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-grep",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-pre-grep"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-grep"
           }
         ]
       },
@@ -76,12 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-task",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-pre-task"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-task"
           }
         ]
       }
@@ -91,12 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-session-start",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-session-start"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-session-start"
           }
         ]
       }
@@ -107,12 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-post-bash"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash"
           }
         ]
       },
@@ -121,12 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task",
-            "args": [
-              "node",
-              "${CLAUDE_PLUGIN_ROOT}/dist/index.js",
-              "hook-post-task"
-            ]
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task"
           }
         ]
       }

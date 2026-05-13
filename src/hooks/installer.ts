@@ -36,26 +36,15 @@ function buildHookCommand(
   return `token-pilot ${action}`;
 }
 
-/**
- * v0.34.0 — build the `args: string[]` companion to `command`. Claude
- * Code's new hook schema runs `args` directly via `posix_spawn`
- * without an intermediate `/bin/sh -c`. That's safer for paths with
- * spaces, faster (no extra fork), and sidesteps a class of EAGAIN
- * burst-spawn failures on macOS/WSL when many SessionStart hooks
- * fire at once. We emit BOTH fields side by side — older Claude
- * Code versions ignore `args` and use `command`; newer versions
- * prefer `args` and ignore `command`. No version negotiation needed.
- */
-function buildHookArgs(
-  action: string,
-  options?: HookInstallOptions,
-): string[] {
-  if (options?.scriptPath) {
-    const node = options.nodeExecPath || process.execPath;
-    return [node, options.scriptPath, action];
-  }
-  return ["token-pilot", action];
-}
+// v0.34.0 added a `buildHookArgs()` companion that emitted an
+// `args: string[]` field alongside `command`. The intent was to take
+// advantage of Claude Code's new direct-spawn schema, but real
+// installs hit ENOENT because Claude Code does NOT expand
+// `${CLAUDE_PLUGIN_ROOT}` inside `args` array elements. The literal
+// `${CLAUDE_PLUGIN_ROOT}/dist/index.js` then went to posix_spawn as
+// a real path and bounced. v0.34.1 dropped the helper entirely and
+// kept `command`-only emission. Re-introduce only when Claude Code
+// docs confirm the env-expansion rules for `args`.
 
 /**
  * Detect a stale token-pilot hook command — one that points at a
@@ -92,16 +81,22 @@ export function isStaleTokenPilotHookCommand(cmd: unknown): boolean {
 }
 
 /**
- * Helper — build the canonical pair `{type, command, args}` for one
- * hook action so emit stays uniform across every matcher. v0.34.0
- * adds `args` alongside `command` (Claude Code prefers `args` when
- * present; older versions ignore it).
+ * Helper — build the canonical `{type, command}` pair for one hook
+ * action so emit stays uniform across every matcher.
+ *
+ * v0.34.0 introduced an `args: string[]` field alongside `command` to
+ * adopt Claude Code's new direct-spawn schema, but that path caused
+ * ENOENT on real installs because the new spawn skips shell expansion
+ * and Claude Code does NOT interpolate `${CLAUDE_PLUGIN_ROOT}` inside
+ * `args` array elements (only inside `command` strings). v0.34.1
+ * reverts: shell-expanded `command` remains the safe, portable form
+ * for every Claude Code version we know of. When Claude Code docs
+ * confirm the env-expansion rules for `args`, we can revisit.
  */
 function hookEntry(action: string, options?: HookInstallOptions) {
   return {
     type: "command" as const,
     command: buildHookCommand(action, options),
-    args: buildHookArgs(action, options),
   };
 }
 
