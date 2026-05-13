@@ -37,6 +37,27 @@ function buildHookCommand(
 }
 
 /**
+ * v0.34.0 — build the `args: string[]` companion to `command`. Claude
+ * Code's new hook schema runs `args` directly via `posix_spawn`
+ * without an intermediate `/bin/sh -c`. That's safer for paths with
+ * spaces, faster (no extra fork), and sidesteps a class of EAGAIN
+ * burst-spawn failures on macOS/WSL when many SessionStart hooks
+ * fire at once. We emit BOTH fields side by side — older Claude
+ * Code versions ignore `args` and use `command`; newer versions
+ * prefer `args` and ignore `command`. No version negotiation needed.
+ */
+function buildHookArgs(
+  action: string,
+  options?: HookInstallOptions,
+): string[] {
+  if (options?.scriptPath) {
+    const node = options.nodeExecPath || process.execPath;
+    return [node, options.scriptPath, action];
+  }
+  return ["token-pilot", action];
+}
+
+/**
  * Detect a stale token-pilot hook command — one that points at a
  * pinned npx-cache snapshot (`npx/_npx/<hash>/...`) or any other
  * version-pinned path that won't follow plugin upgrades.
@@ -70,93 +91,62 @@ export function isStaleTokenPilotHookCommand(cmd: unknown): boolean {
   return false;
 }
 
+/**
+ * Helper — build the canonical pair `{type, command, args}` for one
+ * hook action so emit stays uniform across every matcher. v0.34.0
+ * adds `args` alongside `command` (Claude Code prefers `args` when
+ * present; older versions ignore it).
+ */
+function hookEntry(action: string, options?: HookInstallOptions) {
+  return {
+    type: "command" as const,
+    command: buildHookCommand(action, options),
+    args: buildHookArgs(action, options),
+  };
+}
+
 function createHookConfig(options?: HookInstallOptions) {
   return {
     hooks: {
       PreToolUse: [
         {
           matcher: "Read",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-read", options),
-            },
-          ],
+          hooks: [hookEntry("hook-read", options)],
         },
         {
           matcher: "Edit",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-edit", options),
-            },
-          ],
+          hooks: [hookEntry("hook-edit", options)],
         },
         {
           matcher: "MultiEdit",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-edit", options),
-            },
-          ],
+          hooks: [hookEntry("hook-edit", options)],
         },
         {
           matcher: "Bash",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-pre-bash", options),
-            },
-          ],
+          hooks: [hookEntry("hook-pre-bash", options)],
         },
         {
           matcher: "Grep",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-pre-grep", options),
-            },
-          ],
+          hooks: [hookEntry("hook-pre-grep", options)],
         },
         {
           matcher: "Task",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-pre-task", options),
-            },
-          ],
+          hooks: [hookEntry("hook-pre-task", options)],
         },
       ],
       SessionStart: [
         {
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-session-start", options),
-            },
-          ],
+          hooks: [hookEntry("hook-session-start", options)],
         },
       ],
       PostToolUse: [
         {
           matcher: "Bash",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-post-bash", options),
-            },
-          ],
+          hooks: [hookEntry("hook-post-bash", options)],
         },
         {
           matcher: "Task",
-          hooks: [
-            {
-              type: "command" as const,
-              command: buildHookCommand("hook-post-task", options),
-            },
-          ],
+          hooks: [hookEntry("hook-post-task", options)],
         },
       ],
     },
