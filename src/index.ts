@@ -550,6 +550,33 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
     }
   }
 
+  // v0.34.0 — fire-and-forget startup diagnostic so we can verify
+  // in real-world telemetry whether the new Claude Code (which exposes
+  // CLAUDE_PROJECT_DIR to MCP stdio servers since the May 2026 update)
+  // is what actually drove the projectRoot decision. NOT awaited — an
+  // extra await before createServer breaks tests that rely on a tight
+  // microtask flush, and the emit is purely advisory.
+  {
+    const cpd = process.env.CLAUDE_PROJECT_DIR;
+    appendDiagnostic(projectRoot, {
+      code: "mcp_startup",
+      level: "info",
+      detail: {
+        project_root_source: explicitRoot
+          ? "args"
+          : cpd && projectRoot === cpd
+            ? "CLAUDE_PROJECT_DIR"
+            : process.env.INIT_CWD && projectRoot === process.env.INIT_CWD
+              ? "INIT_CWD"
+              : "git-detect-or-cwd",
+        claude_project_dir_present: !!cpd,
+        platform: process.platform,
+      },
+    }).catch(() => {
+      /* best-effort */
+    });
+  }
+
   // Guard: refuse to use dangerous roots that would index the entire disk
   if (isDangerousRoot(projectRoot)) {
     console.error(

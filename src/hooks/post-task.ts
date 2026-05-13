@@ -152,6 +152,12 @@ export interface PostTaskHookInput {
   session_id?: string;
   agent_type?: string;
   agent_id?: string;
+  /**
+   * v0.34.0 — Claude Code now passes the dispatching agent's id so
+   * we can reconstruct the full delegation chain. Older versions
+   * never populate it.
+   */
+  parent_agent_id?: string;
 }
 
 // ─── Cached tp-* agent index ─────────────────────────────────────────
@@ -264,6 +270,11 @@ export async function processPostTask(
       session_id: input.session_id ?? "",
       agent_type: input.agent_type ?? null,
       agent_id: input.agent_id ?? null,
+      // v0.34.0 — capture parent_agent_id when Claude Code provides it.
+      // Lets us reconstruct main → general-purpose → tp-* chains.
+      ...(input.parent_agent_id
+        ? { parent_agent_id: input.parent_agent_id }
+        : {}),
       event: "task",
       file: "",
       lines: 0,

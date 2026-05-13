@@ -183,12 +183,55 @@ describe("Hook Installer", () => {
     expect(readHook.hooks[0].command).toBe(
       "/usr/local/bin/node /usr/local/lib/node_modules/token-pilot/dist/index.js hook-read",
     );
+    // v0.34.0 — `args: string[]` must accompany `command`. Claude
+    // Code's new hook schema prefers args (direct spawn, no shell);
+    // older versions ignore the field and fall back to command.
+    expect(readHook.hooks[0].args).toEqual([
+      "/usr/local/bin/node",
+      "/usr/local/lib/node_modules/token-pilot/dist/index.js",
+      "hook-read",
+    ]);
     const editHook = settings.hooks.PreToolUse.find(
       (h: any) => h.matcher === "Edit",
     );
     expect(editHook.hooks[0].command).toBe(
       "/usr/local/bin/node /usr/local/lib/node_modules/token-pilot/dist/index.js hook-edit",
     );
+    expect(editHook.hooks[0].args).toEqual([
+      "/usr/local/bin/node",
+      "/usr/local/lib/node_modules/token-pilot/dist/index.js",
+      "hook-edit",
+    ]);
+  });
+
+  it("emits args alongside command for every PreToolUse + PostToolUse + SessionStart hook (v0.34.0)", async () => {
+    // Regression guard: every entry in the generated config must
+    // carry both `command` (legacy CC) and `args` (new CC). Missing
+    // args degrades to /bin/sh -c invocation, which is exactly the
+    // class of EAGAIN burst-spawn failures we want to avoid.
+    const result = await installHook(tempDir, {
+      scriptPath: "/x/index.js",
+      nodeExecPath: "/x/bin/node",
+    });
+    expect(result.installed).toBe(true);
+    const settings = JSON.parse(
+      await readFile(join(tempDir, ".claude", "settings.json"), "utf-8"),
+    );
+    const allSections = [
+      ...(settings.hooks.PreToolUse ?? []),
+      ...(settings.hooks.PostToolUse ?? []),
+      ...(settings.hooks.SessionStart ?? []),
+    ];
+    for (const entry of allSections) {
+      for (const h of entry.hooks) {
+        expect(h.command).toBeTypeOf("string");
+        expect(Array.isArray(h.args)).toBe(true);
+        expect(h.args.length).toBeGreaterThanOrEqual(2);
+        // First arg must be the node binary, last must be the action.
+        expect(h.args[0]).toBe("/x/bin/node");
+        expect(h.args[1]).toBe("/x/index.js");
+      }
+    }
   });
 
   it("skips install when running as plugin (CLAUDE_PLUGIN_ROOT set)", async () => {

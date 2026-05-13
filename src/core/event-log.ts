@@ -36,6 +36,16 @@ export interface HookEvent {
   /** null for top-level session; agent_type string inside a subagent. */
   agent_type: string | null;
   agent_id: string | null;
+  /**
+   * v0.34.0 — agent_id of the parent that dispatched this subagent.
+   * Claude Code now ships `x-claude-code-parent-agent-id` headers
+   * and exposes the value in PostToolUse:Task input. Capturing it
+   * lets us reconstruct the full dispatch chain
+   * (main → general-purpose → tp-* delegate, etc.) instead of seeing
+   * only the leaf agent. Optional — older Claude Code versions
+   * never populate it; events stay shape-compatible.
+   */
+  parent_agent_id?: string | null;
   event:
     | "denied"
     | "allowed"
