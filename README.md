@@ -122,6 +122,38 @@ npx token-pilot install-hook
 npx token-pilot install-agents --scope=user --force
 ```
 
+## Tips for Claude Code 2.1.139+
+
+The May 2026 Claude Code update changed a few things that affect how
+token-pilot is invoked. Nothing breaks on older versions — these are
+quality-of-life notes for the newer ones.
+
+- **Run a tp-\* agent directly without the `plugin:` prefix.**
+  `claude --agent tp-debugger "fix the stack trace"` now works the same
+  as `--agent token-pilot:tp-debugger`. The Task tool dispatcher
+  resolves the short name automatically.
+
+- **Cold ast-index calls — raise `MCP_TOOL_TIMEOUT`.**
+  The first `find_usages` / `outline` / `read_symbol` on a large repo
+  triggers an index build. Default per-MCP-tool timeout (60 s) is
+  enough for ~50k-file repos; bigger ones benefit from
+  `MCP_TOOL_TIMEOUT=120000` in `~/.claude/settings.json`. Subsequent
+  calls hit the cache and return in ~50 ms.
+
+- **Background sessions with `--mcp-config`.**
+  Dispatching a worker via `claude agents` or `--bg` with
+  `--mcp-config /path/to/other.json` swaps the MCP set for that
+  session. If `token-pilot` is not in the override config, MCP tools
+  (`smart_read`, `find_usages`, …) are unavailable in that worker
+  even though the hooks (Read / Edit / Bash / Grep / Task) still
+  fire — hooks are project-level, MCP tools are session-level. Add
+  `token-pilot` to the override config or skip `--mcp-config`.
+
+- **`claude plugin details token-pilot`.**
+  Shows the projected per-turn token cost, the hook event names, and
+  the MCP server entry. The skill list, the agent list, and the LSP
+  list are all auto-discovered from the canonical sub-folders.
+
 ## Troubleshooting
 
 ```bash

@@ -258,6 +258,31 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
             agentIndex,
             force,
           });
+
+          // v0.34.2 — emit a diagnostic for every non-allow Task decision
+          // so we can count miss-rate and pair-popularity without waiting
+          // for PostToolUse:Task to land. If the post-task hook ever fails
+          // again (see typo-guard bug from v0.33.1), pre-task diagnostics
+          // are still recoverable from hook-events.jsonl. Best-effort —
+          // never blocks the dispatch decision.
+          if (decision.kind !== "allow") {
+            const subagentType = input?.tool_input?.subagent_type ?? "";
+            appendDiagnostic(process.cwd(), {
+              code: "task_pre_intercept",
+              level: decision.kind === "deny" ? "warn" : "info",
+              detail: {
+                decision: decision.kind,
+                subagent_type:
+                  typeof subagentType === "string" ? subagentType : "",
+                index_size: agentIndex.agents.length,
+                force,
+                mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+              },
+            }).catch(() => {
+              /* never block dispatch on telemetry */
+            });
+          }
+
           const rendered = renderPreTaskOutput(decision);
           if (rendered) process.stdout.write(rendered);
         },
