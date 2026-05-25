@@ -125,11 +125,18 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
   }
 
   // 2. find / | find ~ | find . without bounds
+  //
+  // Claude Code 2.1.149 (May 2026) fixed the macOS-specific kernel-level
+  // file/vnode exhaustion crash from large unbounded `find` walks. The
+  // hook still denies because the *context* problem is unchanged — an
+  // unbounded walk easily dumps tens of thousands of paths into the
+  // tool result and blows past the per-turn token budget regardless of
+  // how stable the host stays.
   if (/\bfind\s+(\/|~|\$HOME)/.test(cmd) && !/-maxdepth\s+\d+/.test(cmd)) {
     return {
       kind: "deny",
       reason:
-        "Unbounded `find /` walks the whole filesystem and dumps every match. " +
+        "Unbounded `find /` walks the whole filesystem and dumps every match into the tool result. " +
         "Use the Glob tool for pattern matching, or add `-maxdepth N -type f -name <glob>` " +
         "to bound the walk. Re-run with `-maxdepth` to bypass.",
     };
