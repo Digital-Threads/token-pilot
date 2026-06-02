@@ -34,6 +34,9 @@ export const KNOWN_COMMANDS = [
   "hook-post-bash",
   "hook-post-task",
   "hook-session-start",
+  // v0.35.0 — one-shot project setup hook (uses Claude Code's
+  // undocumented `once: true` SessionStart flag).
+  "hook-bootstrap",
   "install-hook",
   "uninstall-hook",
   "install-ast-index",

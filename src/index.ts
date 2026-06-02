@@ -307,6 +307,63 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       });
       return;
     }
+    case "hook-bootstrap": {
+      // v0.35.0 — fires ONCE per project via Claude Code's undocumented
+      // `once: true` SessionStart flag. Self-removes after the first
+      // run, so steps must be idempotent (re-running cannot hurt).
+      // Stays silent on success; only emits hints when something is
+      // missing. Always exits 0 — the very first session must never
+      // be blocked by a bootstrap hint.
+      await runHookEntryPoint({ hook: "hook-bootstrap" }, async () => {
+        const cwd = process.cwd();
+        const hints = [];
+        // Detect installed tp-* agents (project-level OR user-level).
+        try {
+          const { readdirSync, existsSync } = await import("node:fs");
+          const projAgents = resolve(cwd, ".claude", "agents");
+          const userAgents = resolve(homedir(), ".claude", "agents");
+          let total = 0;
+          for (const dir of [projAgents, userAgents]) {
+            if (existsSync(dir)) {
+              total += readdirSync(dir).filter(
+                (f) => f.startsWith("tp-") && f.endsWith(".md"),
+              ).length;
+            }
+          }
+          if (total === 0) {
+            hints.push(
+              "no tp-* agents installed — run `npx token-pilot install-agents --scope=project` to enable the 25-agent toolkit",
+            );
+          }
+        } catch {
+          /* skip silently */
+        }
+        // Detect ast-index binary availability.
+        try {
+          const { findBinary } = await import("./ast-index/binary-manager.js");
+          const status = await findBinary();
+          if (!status.available) {
+            hints.push(
+              "ast-index binary missing — run `npx token-pilot install-ast-index` to unlock find_usages / outline / read_symbol",
+            );
+          }
+        } catch {
+          /* skip silently */
+        }
+        if (hints.length > 0) {
+          const message = `[token-pilot] bootstrap notes:\n  - ${hints.join("\n  - ")}`;
+          process.stdout.write(
+            JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: "SessionStart",
+                additionalContext: message,
+              },
+            }),
+          );
+        }
+      });
+      return;
+    }
     case "hook-session-start": {
       await runHookEntryPoint({ hook: "hook-session-start" }, async () => {
         const cfg = await loadConfig(process.cwd());
@@ -883,6 +940,34 @@ async function runHookReadDispatchImpl(
     tier: pipelineResult.tier,
   });
   await writeEvent("denied", Math.ceil(message.length / 4));
+
+  // v0.35.0 — `updatedInput` rewrite. Claude Code's undocumented
+  // PreToolUse return key (surfaced from @anthropic-ai/claude-code@2.1.87
+  // source) lets a hook silently transform the tool_input instead of
+  // blocking. When TOKEN_PILOT_HOOK_REWRITE=1 is set we bound the Read
+  // to its first ~200 lines so the model sees a truncated file rather
+  // than a deny + suggestion. The structural summary still rides in
+  // `additionalContext`, so the model gets both views in one round.
+  //
+  // Default OFF — the field is undocumented and changes user-visible
+  // behaviour. Opt-in only.
+  if (process.env.TOKEN_PILOT_HOOK_REWRITE === "1") {
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: {
+          file_path: filePath,
+          offset: 1,
+          limit: 200,
+        },
+        additionalContext:
+          `[token-pilot] Read on ${filePath} was rewritten to lines 1-200 ` +
+          `(file has ${lineCount} lines). For full structure use mcp__token-pilot__smart_read(${filePath}).\n\n` +
+          message,
+      },
+    });
+  }
 
   return JSON.stringify({
     hookSpecificOutput: {

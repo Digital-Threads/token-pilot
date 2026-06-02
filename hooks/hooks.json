@@ -61,6 +61,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-bootstrap",
+            "once": true,
+            "statusMessage": "Bootstrapping token-pilot..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-session-start"
           }
         ]
@@ -72,7 +82,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash",
+            "async": true
           }
         ]
       },
@@ -81,7 +92,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task",
+            "async": true
           }
         ]
       }

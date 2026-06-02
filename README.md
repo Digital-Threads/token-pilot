@@ -154,6 +154,84 @@ quality-of-life notes for the newer ones.
   the MCP server entry. The skill list, the agent list, and the LSP
   list are all auto-discovered from the canonical sub-folders.
 
+## Power-user — undocumented Claude Code features that pair with token-pilot
+
+These fields come from reverse-engineering `@anthropic-ai/claude-code@2.1.87`
+source (see the May 2026 Habr write-up). They work today but are
+not in the official Claude Code docs, so use at your own risk.
+
+### Persistent agent memory (`memory: project`)
+
+Every relevant tp-\* agent (onboard, debugger, pr-reviewer,
+history-explorer, audit-scanner) now ships with `memory: project`
+in its frontmatter. Claude Code persists the agent's working notes
+in the project so the agent gets faster on repeat invocations —
+`tp-onboard` remembers your layout, `tp-pr-reviewer` remembers your
+flagged patterns, etc. v0.35.0+.
+
+### Required MCP gating (`requiredMcpServers`)
+
+Every tp-\* agent declares `requiredMcpServers: ["token-pilot"]`.
+Claude Code refuses to load the agent when the MCP server isn't
+configured, so a stale install never produces a "tools not found"
+loop. v0.35.0+.
+
+### Bootstrap-once hook (`once: true`)
+
+The plugin ships a SessionStart hook flagged `once: true` —
+Claude Code runs it once per project then auto-removes the entry.
+It surfaces friendly hints when `install-agents` or
+`install-ast-index` hasn't been run yet. v0.35.0+.
+
+### Async telemetry (`async: true`)
+
+PostToolUse hooks (Bash, Task) are marked `async: true` so they
+no longer add wall-clock to the hot path — telemetry writes fire
+in the background.
+
+### Auto-mode permissions (user-side)
+
+If you want full auto-approval for safe commands, the YOLO
+classifier reads natural-language environment descriptions:
+
+```json
+{
+  "autoMode": {
+    "allow": ["Bash(git status)", "Bash(npm test)", "Read", "Grep"],
+    "soft_deny": ["Bash(git push *)", "Bash(rm *)", "Write(.env)"],
+    "environmentDescription":
+      "This is a development laptop. Read-only ops are safe; deny anything touching credentials or production."
+  }
+}
+```
+
+token-pilot's enforcement still runs on top (raw Read on large files
+is denied first, regardless of autoMode).
+
+### Permission rule syntax cheat-sheet
+
+```
+Bash(npm *)                       # wildcard after "npm "
+Bash(git commit *)                # specific subcommand
+Read(*.ts)                        # extension
+Read(src/**/*.ts)                 # recursive + extension
+Write(src/**)                     # recursive all files
+mcp__token-pilot                  # all token-pilot MCP tools
+mcp__token-pilot__smart_read      # one specific MCP tool
+```
+
+`*` matches inside word boundaries (shell-glob); `**` is recursive.
+The `if` field on hooks uses the same syntax.
+
+### Experimental: transparent Read rewrite
+
+Set `TOKEN_PILOT_HOOK_REWRITE=1` to swap the "deny + suggest" Read
+hook behaviour for an `updatedInput` rewrite — Claude Code's
+undocumented field that silently bounds the Read to its first 200
+lines instead of bouncing the call. The structural summary still
+rides along in `additionalContext`. Default OFF because the field
+is undocumented and may change.
+
 ## Troubleshooting
 
 ```bash

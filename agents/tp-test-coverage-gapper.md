@@ -10,8 +10,11 @@ tools:
   - mcp__token-pilot__test_summary
   - Glob
   - Grep
-token_pilot_version: "0.34.3"
+token_pilot_version: "0.35.0"
 token_pilot_body_hash: be81eed53a3720d146cf89e4a14a7a56577633f7c84c234c412ab70d64c05b11
+requiredMcpServers:
+  - "token-pilot"
+color: red
 ---
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:
