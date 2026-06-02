@@ -98,6 +98,7 @@ describe("checkForTypo", () => {
     "hook-post-bash",
     "hook-post-task",
     "hook-session-start",
+    "hook-bootstrap",
     // user-facing CLI
     "install-hook",
     "uninstall-hook",

@@ -92,11 +92,25 @@ export function isStaleTokenPilotHookCommand(cmd: unknown): boolean {
  * reverts: shell-expanded `command` remains the safe, portable form
  * for every Claude Code version we know of. When Claude Code docs
  * confirm the env-expansion rules for `args`, we can revisit.
+ *
+ * v0.35.0 — `extras` lets callers attach undocumented Claude Code
+ * fields surfaced by reverse-engineering the 2.1.87 source:
+ *   - `async: true`     — non-blocking; ideal for telemetry-only
+ *                         PostToolUse hooks that just log events
+ *   - `once: true`      — runs exactly once per project, auto-removes
+ *                         on success; for first-session bootstrap
+ *   - `statusMessage`   — UI hint while the hook runs
+ * All are additive and ignored by older Claude Code versions.
  */
-function hookEntry(action: string, options?: HookInstallOptions) {
+function hookEntry(
+  action: string,
+  options?: HookInstallOptions,
+  extras: Record<string, unknown> = {},
+) {
   return {
     type: "command" as const,
     command: buildHookCommand(action, options),
+    ...extras,
   };
 }
 
@@ -131,17 +145,27 @@ function createHookConfig(options?: HookInstallOptions) {
       ],
       SessionStart: [
         {
+          hooks: [
+            // v0.35.0 — once-only bootstrap (project setup hints)
+            hookEntry("hook-bootstrap", options, {
+              once: true,
+              statusMessage: "Bootstrapping token-pilot...",
+            }),
+          ],
+        },
+        {
           hooks: [hookEntry("hook-session-start", options)],
         },
       ],
       PostToolUse: [
         {
           matcher: "Bash",
-          hooks: [hookEntry("hook-post-bash", options)],
+          // v0.35.0 — async: true keeps telemetry off the hot path
+          hooks: [hookEntry("hook-post-bash", options, { async: true })],
         },
         {
           matcher: "Task",
-          hooks: [hookEntry("hook-post-task", options)],
+          hooks: [hookEntry("hook-post-task", options, { async: true })],
         },
       ],
     },

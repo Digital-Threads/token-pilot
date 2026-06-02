@@ -8,8 +8,11 @@ tools:
   - mcp__token-pilot__test_summary
   - mcp__token-pilot__outline
   - Bash
-token_pilot_version: "0.34.3"
+token_pilot_version: "0.35.0"
 token_pilot_body_hash: de64a406b5176de19f7422619c7de7949b1f28865f225402c9cea9255f377428
+requiredMcpServers:
+  - "token-pilot"
+color: purple
 ---
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:

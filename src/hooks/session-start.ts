@@ -332,10 +332,22 @@ export async function handleSessionStart(
       /* silent — telemetry nudge is strictly opt-in */
     }
 
+    // v0.35.0 — watchPaths is an undocumented SessionStart return key
+    // (surfaced by reverse-engineering @anthropic-ai/claude-code@2.1.87).
+    // Claude Code watches these paths and re-fires FileChanged so a
+    // second active session picks up new snapshots / errors emitted by
+    // another worker without manual polling. Additive — older Claude
+    // Code versions ignore the key.
+    const watchPaths = [
+      ".token-pilot/snapshots/latest.md",
+      ".token-pilot/hook-events.jsonl",
+    ];
+
     const output = {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
         additionalContext: message,
+        watchPaths,
       },
     };
 

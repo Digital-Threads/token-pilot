@@ -11,8 +11,11 @@ tools:
   - Read
   - Grep
 model: sonnet
-token_pilot_version: "0.34.3"
+token_pilot_version: "0.35.0"
 token_pilot_body_hash: a60f6ae110eb3138064bce074e8ba26fa0ce5f4659df1624a9d9d3646803391b
+requiredMcpServers:
+  - "token-pilot"
+color: purple
 ---
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:

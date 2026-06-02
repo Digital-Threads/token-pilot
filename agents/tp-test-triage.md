@@ -8,8 +8,11 @@ tools:
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__read_symbol
 model: sonnet
-token_pilot_version: "0.34.3"
+token_pilot_version: "0.35.0"
 token_pilot_body_hash: 362ecf4cb03b059421ea26933473700900073dc38b3a7fe271208dfb1ae14f90
+requiredMcpServers:
+  - "token-pilot"
+color: red
 ---
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:

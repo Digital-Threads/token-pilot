@@ -16,8 +16,11 @@ tools:
   - Glob
   - Bash
 model: haiku
-token_pilot_version: "0.34.3"
+token_pilot_version: "0.35.0"
 token_pilot_body_hash: 2b08618d34a61f00aafccbda9fed6d83243296dedb83440edbd2d5c28bb6dbc4
+requiredMcpServers:
+  - "token-pilot"
+color: gray
 ---
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:

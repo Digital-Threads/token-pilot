@@ -57,12 +57,78 @@ function bodyHash(composed) {
 }
 
 /**
+ * v0.35.0 — per-agent frontmatter capabilities derived from Claude
+ * Code's undocumented agent fields (memory / color / requiredMcpServers /
+ * omitClaudeMd). All five tp-* agents below build a project-local
+ * knowledge base across sessions, so a recurring task gets faster on
+ * each repeat.
+ */
+const AGENT_MEMORY = {
+  "tp-onboard": "project",
+  "tp-debugger": "project",
+  "tp-pr-reviewer": "project",
+  "tp-history-explorer": "project",
+  "tp-audit-scanner": "project",
+};
+
+/**
+ * UI colour, picked by role family. Helps the user tell what a
+ * dispatched subagent is going to do at a glance.
+ */
+const AGENT_COLOR = {
+  // read / explore family — blue
+  "tp-onboard": "blue",
+  "tp-history-explorer": "blue",
+  "tp-impact-analyzer": "blue",
+  "tp-api-surface-tracker": "blue",
+  "tp-session-restorer": "blue",
+  // write / edit / refactor family — orange
+  "tp-refactor-planner": "orange",
+  "tp-incremental-builder": "orange",
+  "tp-migration-scout": "orange",
+  "tp-spec-writer": "orange",
+  // review / audit family — red
+  "tp-pr-reviewer": "red",
+  "tp-audit-scanner": "red",
+  "tp-review-impact": "red",
+  "tp-test-triage": "red",
+  "tp-dead-code-finder": "red",
+  "tp-test-coverage-gapper": "red",
+  // docs / wiki / context family — green
+  "tp-doc-writer": "green",
+  "tp-context-engineer": "green",
+  // git / commit / release family — purple
+  "tp-commit-writer": "purple",
+  "tp-ship-coordinator": "purple",
+  "tp-dep-health": "purple",
+  // debug / diagnostics family — yellow
+  "tp-debugger": "yellow",
+  "tp-performance-profiler": "yellow",
+  "tp-incident-timeline": "yellow",
+  "tp-test-writer": "yellow",
+  // catch-all
+  "tp-run": "gray",
+};
+
+/**
+ * Agents that should ignore project-level CLAUDE.md so they apply
+ * generic industry standards rather than the user's project bias.
+ * Currently just the security/quality audit scanner.
+ */
+const AGENT_OMIT_CLAUDE_MD = new Set(["tp-audit-scanner"]);
+
+/**
  * Inject token_pilot install-marker fields into the frontmatter before
  * writing. install-agents reads these to decide idempotence states
  * (unchanged-installed / template-upgraded / user-edited) per Phase 5
  * idempotence contract.
+ *
+ * v0.35.0 — also inject the undocumented Claude Code agent fields
+ * surfaced by reverse-engineering the 2.1.87 source (memory, color,
+ * requiredMcpServers, omitClaudeMd). All additive — older Claude Code
+ * versions ignore unknown frontmatter keys.
  */
-function stampFrontmatter(composed, version) {
+function stampFrontmatter(composed, version, agentName) {
   const m = composed.match(FRONTMATTER_RE);
   if (!m) return composed;
   const [, fm, body] = m;
@@ -72,11 +138,30 @@ function stampFrontmatter(composed, version) {
   // regex replacement accidentally consumed the newline before `---`).
   const closeIdx = fm.lastIndexOf("---\n");
   if (closeIdx < 0) return composed;
-  const injected =
-    fm.slice(0, closeIdx) +
+
+  let extra =
     `token_pilot_version: "${version}"\n` +
-    `token_pilot_body_hash: ${hash}\n` +
-    fm.slice(closeIdx);
+    `token_pilot_body_hash: ${hash}\n`;
+
+  // v0.35.0 — every tp-* agent declares the token-pilot MCP as a hard
+  // requirement so Claude Code refuses to load it when the MCP isn't
+  // configured. Prevents the "tools not found" UX when a user has the
+  // agents installed but forgot to enable the plugin.
+  extra +=
+    `requiredMcpServers:\n` +
+    `  - "token-pilot"\n`;
+
+  if (agentName && AGENT_MEMORY[agentName]) {
+    extra += `memory: ${AGENT_MEMORY[agentName]}\n`;
+  }
+  if (agentName && AGENT_COLOR[agentName]) {
+    extra += `color: ${AGENT_COLOR[agentName]}\n`;
+  }
+  if (agentName && AGENT_OMIT_CLAUDE_MD.has(agentName)) {
+    extra += `omitClaudeMd: true\n`;
+  }
+
+  const injected = fm.slice(0, closeIdx) + extra + fm.slice(closeIdx);
   return injected + body;
 }
 
@@ -118,7 +203,8 @@ function main() {
 
     const source = readFileSync(join(TEMPLATES_DIR, entry), "utf-8");
     const composed = composeAgent(source, shared, contract);
-    const stamped = stampFrontmatter(composed, version);
+    const agentName = entry.replace(/\.md$/, "");
+    const stamped = stampFrontmatter(composed, version, agentName);
     writeFileSync(join(out, entry), stamped);
     written.push(entry);
   }
