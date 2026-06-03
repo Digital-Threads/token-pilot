@@ -38,9 +38,24 @@ export function parseAgentBudget(body: string): number | null {
 }
 
 /**
- * Count approx tokens in the `tool_response.content[*].text` blocks of a
- * PostToolUse hook input for the Task tool. Returns null for anything
- * other than a well-formed Task response.
+ * Extract the subagent's token count from a PostToolUse:Task hook input.
+ *
+ * v0.37.0 — the Task tool's `tool_response` carries an authoritative
+ * `totalTokens` field. Verified by inspecting the Claude Code 2.1.131
+ * bundle: the Task result object is
+ *   { agentId, agentType, content, totalDurationMs, totalTokens, totalToolUseCount, usage }
+ * Earlier versions of this function only summed `content[*].text`
+ * lengths / 4 — a rough heuristic that returned 0 whenever the
+ * response wasn't a `{content:[{text}]}` array, leaving the budget
+ * watchdog and task token-weighting permanently at zero.
+ *
+ * Resolution order:
+ *   1. `tool_response.totalTokens` (exact, preferred)
+ *   2. `tool_response.usage.output_tokens` (exact, alternate shape)
+ *   3. char/4 over `content[*].text` (legacy heuristic fallback)
+ *   4. char/4 over a plain string `content`
+ *
+ * Returns null only when no signal at all is available.
  */
 export function extractSubagentTokens(input: {
   tool_name?: string;
@@ -48,17 +63,40 @@ export function extractSubagentTokens(input: {
 }): number | null {
   if (input.tool_name !== "Task") return null;
   const resp = input.tool_response as
-    | { content?: Array<{ type?: string; text?: string }> }
+    | {
+        totalTokens?: unknown;
+        usage?: { output_tokens?: unknown; total_tokens?: unknown };
+        content?: unknown;
+      }
     | null
     | undefined;
   if (!resp || typeof resp !== "object") return null;
-  const parts = Array.isArray(resp.content) ? resp.content : [];
-  let chars = 0;
-  for (const p of parts) {
-    if (typeof p?.text === "string") chars += p.text.length;
+
+  // 1. Authoritative totalTokens.
+  if (typeof resp.totalTokens === "number" && resp.totalTokens > 0) {
+    return Math.round(resp.totalTokens);
   }
-  if (chars === 0) return null;
-  return Math.ceil(chars / 4);
+  // 2. usage shape (alternate / future-proof).
+  const usage = resp.usage;
+  if (usage && typeof usage === "object") {
+    const out = usage.total_tokens ?? usage.output_tokens;
+    if (typeof out === "number" && out > 0) return Math.round(out);
+  }
+  // 3. Legacy heuristic over content[*].text.
+  if (Array.isArray(resp.content)) {
+    let chars = 0;
+    for (const p of resp.content) {
+      if (p && typeof (p as { text?: unknown }).text === "string") {
+        chars += (p as { text: string }).text.length;
+      }
+    }
+    if (chars > 0) return Math.ceil(chars / 4);
+  }
+  // 4. Plain-string content.
+  if (typeof resp.content === "string" && resp.content.length > 0) {
+    return Math.ceil(resp.content.length / 4);
+  }
+  return null;
 }
 
 export interface BudgetDecisionInput {

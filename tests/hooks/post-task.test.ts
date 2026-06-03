@@ -94,6 +94,61 @@ describe("extractSubagentTokens", () => {
       extractSubagentTokens({ tool_name: "Task", tool_response: null }),
     ).toBeNull();
   });
+
+  // v0.37.0 — the real Claude Code Task tool_response carries an
+  // authoritative `totalTokens` (verified against the 2.1.131 bundle).
+  it("prefers the authoritative totalTokens field over the heuristic", () => {
+    const hookInput = {
+      tool_name: "Task",
+      tool_response: {
+        agentId: "a1",
+        agentType: "general-purpose",
+        content: [{ type: "text", text: "a".repeat(4000) }], // heuristic → 1000
+        totalTokens: 7321, // authoritative
+        totalToolUseCount: 5,
+      },
+    };
+    expect(extractSubagentTokens(hookInput)).toBe(7321);
+  });
+
+  it("falls back to usage.output_tokens when totalTokens absent", () => {
+    expect(
+      extractSubagentTokens({
+        tool_name: "Task",
+        tool_response: { usage: { output_tokens: 4242 } },
+      }),
+    ).toBe(4242);
+  });
+
+  it("falls back to the char/4 heuristic when no token field present", () => {
+    expect(
+      extractSubagentTokens({
+        tool_name: "Task",
+        tool_response: { content: [{ type: "text", text: "x".repeat(800) }] },
+      }),
+    ).toBe(200);
+  });
+
+  it("handles a plain-string content body", () => {
+    expect(
+      extractSubagentTokens({
+        tool_name: "Task",
+        tool_response: { content: "y".repeat(40) },
+      }),
+    ).toBe(10);
+  });
+
+  it("ignores a zero totalTokens and falls through to the heuristic", () => {
+    expect(
+      extractSubagentTokens({
+        tool_name: "Task",
+        tool_response: {
+          totalTokens: 0,
+          content: [{ type: "text", text: "z".repeat(40) }],
+        },
+      }),
+    ).toBe(10);
+  });
 });
 
 describe("decideBudgetAdvice", () => {
