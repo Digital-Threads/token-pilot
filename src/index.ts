@@ -39,6 +39,14 @@ import { runHookEntryPoint } from "./hooks/safe-runner.js";
 import { loadErrors, formatErrorList } from "./core/error-log.js";
 import { appendDiagnostic } from "./core/event-log.js";
 import {
+  startWorkflow,
+  endWorkflow,
+  listWorkflows,
+  workflowStatus,
+  formatWorkflowStatus,
+  formatWorkflowList,
+} from "./core/workflow.js";
+import {
   findBinary,
   installBinary,
   checkBinaryUpdate,
@@ -283,7 +291,32 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
             });
           }
 
-          const rendered = renderPreTaskOutput(decision);
+          // v0.38.0 — fleet budget guard. When a workflow is active and
+          // its token ceiling is within reach, append a wind-down note
+          // to whatever the routing decision produced. The dispatch is
+          // never hard-blocked on budget (a half-finished fan-out is
+          // worse than a small overrun) — we advise, and surface an
+          // over-budget diagnostic so `workflow status` reflects it.
+          const { activeWorkflowId, workflowStatus, isWorkflowNearBudget } =
+            await import("./core/workflow.js");
+          const wfId = activeWorkflowId();
+          let budgetNote = "";
+          if (wfId) {
+            const st = await workflowStatus(process.cwd(), wfId);
+            if (st && isWorkflowNearBudget(st)) {
+              budgetNote =
+                `\n\n[token-pilot] workflow ${wfId} is at ${st.pct ?? "~"}% of its ` +
+                `${st.budget_tokens} token ceiling — finish in-flight work and ` +
+                `report rather than starting new branches.`;
+              appendDiagnostic(process.cwd(), {
+                code: "workflow_near_budget",
+                level: "warn",
+                detail: { workflow_id: wfId, pct: st.pct, used: st.used_tokens },
+              }).catch(() => {});
+            }
+          }
+
+          const rendered = renderPreTaskOutput(decision, budgetNote);
           if (rendered) process.stdout.write(rendered);
         },
       );
@@ -405,6 +438,15 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         level: flag("level") as "info" | "warn" | "error" | undefined,
       });
       process.stdout.write(formatErrorList(records) + "\n");
+      return;
+    }
+    case "workflow": {
+      // v0.38.0 — fleet workflow lifecycle. token-pilot owns the
+      // workflow boundary (we set TOKEN_PILOT_WORKFLOW_ID ourselves),
+      // so this works regardless of whether Claude Code's /workflow
+      // propagates an env var. Subcommands: start / end / status / list.
+      const code = await handleWorkflowCli(cliArgs.slice(1));
+      process.exit(code);
       return;
     }
     case "migrate-hooks": {
@@ -1041,6 +1083,112 @@ export function handleHookEdit() {
   const rendered = renderPreEditOutput(decision);
   if (rendered) process.stdout.write(rendered);
   process.exit(0);
+}
+
+/**
+ * v0.38.0 — `token-pilot workflow <subcommand>` CLI.
+ *
+ *   start <goal> [--budget=N] [--max-parallel=N]
+ *       Create a workflow envelope and print an `export
+ *       TOKEN_PILOT_WORKFLOW_ID=<id>` line. Wrap a fan-out batch with
+ *       this so every hook event gets tagged with the id.
+ *   end [<id>]      Stamp the workflow ended (defaults to active env id).
+ *   status [<id>]   Show live budget + task counts (defaults to env id).
+ *   list            All recorded workflows, newest first.
+ *
+ * Returns a process exit code.
+ */
+export async function handleWorkflowCli(argv: string[]): Promise<number> {
+  const projectRoot = process.cwd();
+  const sub = argv[0];
+  const flag = (k: string): string | undefined => {
+    for (const a of argv) {
+      if (a.startsWith(`--${k}=`)) return a.slice(k.length + 3);
+    }
+    return undefined;
+  };
+  const envId =
+    process.env.TOKEN_PILOT_WORKFLOW_ID ||
+    process.env.CLAUDE_CODE_WORKFLOW_ID ||
+    undefined;
+
+  switch (sub) {
+    case "start": {
+      const goal = argv.slice(1).filter((a) => !a.startsWith("--")).join(" ");
+      if (!goal) {
+        process.stderr.write(
+          'workflow start: a goal is required — `token-pilot workflow start "review last sprint"`\n',
+        );
+        return 1;
+      }
+      const budgetRaw = flag("budget");
+      const parallelRaw = flag("max-parallel");
+      const env = await startWorkflow({
+        projectRoot,
+        goal,
+        budgetTokens: budgetRaw ? Number(budgetRaw) : null,
+        maxParallel: parallelRaw ? Number(parallelRaw) : null,
+      });
+      // The id goes to stdout as an `export` line so a user can do
+      //   eval "$(token-pilot workflow start '...')"
+      // and have the env var set for the fan-out that follows.
+      process.stdout.write(`export TOKEN_PILOT_WORKFLOW_ID=${env.workflow_id}\n`);
+      process.stderr.write(
+        `[token-pilot] workflow ${env.workflow_id} started` +
+          (env.budget_tokens ? ` · ${env.budget_tokens} token ceiling` : "") +
+          `\n`,
+      );
+      return 0;
+    }
+    case "end": {
+      const id = argv[1] && !argv[1].startsWith("--") ? argv[1] : envId;
+      if (!id) {
+        process.stderr.write(
+          "workflow end: no id given and TOKEN_PILOT_WORKFLOW_ID not set.\n",
+        );
+        return 1;
+      }
+      const env = await endWorkflow(projectRoot, id);
+      if (!env) {
+        process.stderr.write(`workflow end: unknown workflow "${id}".\n`);
+        return 1;
+      }
+      const status = await workflowStatus(projectRoot, id);
+      if (status) process.stdout.write(formatWorkflowStatus(status) + "\n");
+      process.stderr.write(`[token-pilot] workflow ${id} ended.\n`);
+      return 0;
+    }
+    case "status": {
+      const id = argv[1] && !argv[1].startsWith("--") ? argv[1] : envId;
+      if (!id) {
+        process.stderr.write(
+          "workflow status: no id given and TOKEN_PILOT_WORKFLOW_ID not set.\n",
+        );
+        return 1;
+      }
+      const status = await workflowStatus(projectRoot, id);
+      if (!status) {
+        process.stderr.write(`workflow status: unknown workflow "${id}".\n`);
+        return 1;
+      }
+      process.stdout.write(formatWorkflowStatus(status) + "\n");
+      return 0;
+    }
+    case "list": {
+      const workflows = await listWorkflows(projectRoot);
+      process.stdout.write(formatWorkflowList(workflows) + "\n");
+      return 0;
+    }
+    default:
+      process.stderr.write(
+        "Usage: token-pilot workflow <start|end|status|list>\n" +
+          '  start "<goal>" [--budget=N] [--max-parallel=N]\n' +
+          "  end [<id>]\n" +
+          "  status [<id>]\n" +
+          "  list\n",
+      );
+      return sub ? 1 : 0;
+  }
 }
 
 export async function handleInstallHook(projectRoot: string) {

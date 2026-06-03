@@ -53,6 +53,8 @@ export const KNOWN_COMMANDS = [
   // v0.33.0
   "migrate-hooks",
   "errors",
+  // v0.38.0 — fleet workflow lifecycle
+  "workflow",
   "--version",
   "-v",
   "--help",

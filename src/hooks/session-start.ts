@@ -389,6 +389,21 @@ export async function handleSessionStart(
               : `${surfaced}`;
         sessionTitle = `[TP] ${human} saved`;
       }
+
+      // v0.38.0 — when a fleet workflow is active, prefer a
+      // workflow-progress title so a long fan-out run shows live
+      // task count + budget in the window title.
+      const { activeWorkflowId, workflowStatus } = await import(
+        "../core/workflow.js"
+      );
+      const wfId = activeWorkflowId();
+      if (wfId) {
+        const st = await workflowStatus(opts.projectRoot, wfId);
+        if (st) {
+          const pct = st.pct != null ? ` · ${st.pct}%` : "";
+          sessionTitle = `[TP] wf · ${st.task_count} tasks${pct}`;
+        }
+      }
     } catch {
       /* sessionTitle is best-effort decoration; never block startup */
     }

@@ -46,6 +46,13 @@ export interface HookEvent {
    * never populate it; events stay shape-compatible.
    */
   parent_agent_id?: string | null;
+  /**
+   * v0.38.0 — id of the token-pilot workflow this event belongs to,
+   * when one is active (TOKEN_PILOT_WORKFLOW_ID set). Lets fleet-level
+   * budget + telemetry slice a fan-out run out of the global log.
+   * Optional — absent when no workflow is active.
+   */
+  workflow_id?: string;
   event:
     | "denied"
     | "allowed"
@@ -209,9 +216,19 @@ export async function appendEvent(
   event: HookEvent,
 ): Promise<void> {
   try {
+    // v0.38.0 — auto-tag with the active workflow id so every event
+    // emitted inside a `token-pilot workflow` boundary is sliceable.
+    // Read the env var directly here to keep call sites unchanged; an
+    // explicit workflow_id on the event always wins.
+    const wf =
+      event.workflow_id ??
+      process.env.TOKEN_PILOT_WORKFLOW_ID ??
+      process.env.CLAUDE_CODE_WORKFLOW_ID ??
+      undefined;
+    const tagged = wf ? { ...event, workflow_id: wf } : event;
     await ensureLogDir(projectRoot);
     await rotateIfNeeded(projectRoot);
-    const line = JSON.stringify(event) + "\n";
+    const line = JSON.stringify(tagged) + "\n";
     await fs.appendFile(currentLogPath(projectRoot), line);
   } catch {
     /* silent — telemetry is best-effort */

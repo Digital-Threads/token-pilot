@@ -269,6 +269,45 @@ tp-* agents that already declared `model: haiku` keep their cheaper
 tier (90 %+ of the agent roster); the few sonnet/opus-tier ones
 ride the upgrade automatically.
 
+## Fleet workflows (v0.38.0)
+
+When you fan a task across many subagents — via Claude Code's
+`/workflow`, the Agent tool, or your own orchestration — token-pilot
+can treat the whole run as one budgeted, telemetry-tagged unit.
+
+token-pilot **owns** the workflow boundary, so this works regardless
+of whether Claude Code propagates a workflow id. You wrap the batch:
+
+```bash
+# Start a workflow — prints an export line you eval into your shell
+eval "$(token-pilot workflow start "review every PR from last sprint" --budget=2000000)"
+
+# ...now run your fan-out work. Every hook event is tagged with the
+#    workflow id automatically (TOKEN_PILOT_WORKFLOW_ID is set).
+
+token-pilot workflow status      # live budget + task counts
+token-pilot workflow list        # all recorded workflows
+token-pilot workflow end         # stamp it finished + print summary
+```
+
+While a workflow is active:
+
+- Every `event:"task"` / `denied` / `diagnostic` row in
+  `hook-events.jsonl` carries `workflow_id`, so you can slice one
+  fan-out run out of the global log.
+- The PreToolUse:Task hook watches the token ceiling. At ≥90 % it
+  appends a wind-down note to its routing advice ("finish in-flight
+  work rather than starting new branches") and logs a
+  `workflow_near_budget` diagnostic — visible in `workflow status`.
+  Dispatch is never hard-blocked on budget (a half-finished fan-out
+  is worse than a small overrun).
+- The window title switches to `[TP] wf · N tasks · X%` so a long run
+  shows live progress.
+
+If Claude Code ever sets its own workflow-id env var
+(`CLAUDE_CODE_WORKFLOW_ID`), token-pilot reads that too — no config
+change needed.
+
 ## Troubleshooting
 
 ```bash

@@ -115,6 +115,7 @@ describe("checkForTypo", () => {
     "doctor",
     "migrate-hooks",
     "errors",
+    "workflow",
   ])(
     "%s passes the typo-guard (must be in KNOWN_COMMANDS)",
     (cmd) => {
