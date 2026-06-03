@@ -179,15 +179,46 @@ of building on undocumented features without data backing.
   complexity. Hypothesis: under 50 ms per query → cache not worth
   it; over 500 ms → mandatory.
 
-## Decision
+## Decision (updated v0.38.0)
 
-**Do not implement Phase 1+ now.** v0.36.0 ships the groundwork
-(sessionTitle hook field, disallowed-tools defensively on skills,
-and this doc). When the first user runs `/workflow` against our
-fleet and reports actual behaviour, we re-read this doc and decide
-whether Phase 1 ships in v0.37 or whether the actual gap was
-elsewhere.
+**Implemented in v0.38.0 — with the dependency inverted.**
 
-This is consistent with the v0.34.x / v0.35.x discipline: adopt
-low-risk fields immediately, env-gate transformative ones, and
-defer fleet-level changes until real data justifies them.
+The original blocker was "does `/workflow` propagate a workflow-id
+env var?" Inspecting the installed Claude Code 2.1.131 bundle
+confirmed it does NOT (no `/workflow`, no workflow-id variable).
+Rather than build against an interface that may never exist, we
+inverted the dependency: **token-pilot owns the workflow boundary.**
+`token-pilot workflow start/end` writes the envelope and sets
+`TOKEN_PILOT_WORKFLOW_ID` itself, so the feature works under any
+orchestration (Claude Code `/workflow`, the Agent tool, or a shell
+loop) and composes with CC's `/workflow` if it ever sets
+`CLAUDE_CODE_WORKFLOW_ID` (which `activeWorkflowId()` already reads).
+
+Shipped:
+
+- **Workflow envelope** — `.token-pilot/workflows/<id>.json`
+  (`src/core/workflow.ts`).
+- **Event tagging** — `HookEvent.workflow_id`; `appendEvent`
+  auto-tags from the env var so every existing call site participates
+  with no change.
+- **Budget accounting** — `computeWorkflowStatus` /
+  `workflowStatus`; `token-pilot workflow status` shows
+  ceiling/used/%/task-count/over-budget-workers.
+- **Budget guard** — PreToolUse:Task appends a wind-down note + logs
+  `workflow_near_budget` at ≥90 % (advisory, never a hard block).
+- **Workflow-aware sessionTitle** — `[TP] wf · N tasks · X%`.
+- **CLI** — `workflow start|end|status|list`.
+
+Deliberately NOT built (still gated on real signal):
+
+- **Fleet memory rendezvous** (shared per-workflow agent memory) and
+  the **ast-index memoisation cache** — the server-side `SessionCache`
+  already dedups MCP reads within a process, and we have no data yet
+  showing cross-worker duplicate work is a measurable cost. Revisit
+  when a real fan-out run produces that data.
+- **`WorkflowComplete` hook polyfill** — wait for the first user to
+  run a large workflow and tell us what summary they want.
+
+This keeps the v0.34.x / v0.35.x discipline: build against interfaces
+we can verify (here, one we own), defer the rest until data justifies
+it.

@@ -180,18 +180,36 @@ export function decidePreTask(
 /**
  * Render the Claude Code hook JSON response.
  *
- * - allow  → no output (pass-through)
- * - advise → permissionDecision=allow + additionalContext
- * - deny   → permissionDecision=deny + reason
+ * - allow  → no output (pass-through), UNLESS `append` carries a fleet
+ *            budget note — then emit an allow + additionalContext so the
+ *            note still reaches the agent.
+ * - advise → permissionDecision=allow + additionalContext (+ append)
+ * - deny   → permissionDecision=deny + reason (+ append)
+ *
+ * v0.38.0 — `append` is an optional trailing string (the workflow
+ * near-budget wind-down note). Empty / omitted leaves output unchanged.
  */
-export function renderPreTaskOutput(decision: PreTaskDecision): string | null {
-  if (decision.kind === "allow") return null;
+export function renderPreTaskOutput(
+  decision: PreTaskDecision,
+  append = "",
+): string | null {
+  const extra = append || "";
+  if (decision.kind === "allow") {
+    if (!extra) return null;
+    return JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        additionalContext: extra.trimStart(),
+      },
+    });
+  }
   if (decision.kind === "advise") {
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "allow",
-        additionalContext: decision.message,
+        additionalContext: decision.message + extra,
       },
     });
   }
@@ -199,7 +217,7 @@ export function renderPreTaskOutput(decision: PreTaskDecision): string | null {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: decision.reason,
+      permissionDecisionReason: decision.reason + extra,
     },
   });
 }
