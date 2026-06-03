@@ -343,11 +343,62 @@ export async function handleSessionStart(
       ".token-pilot/hook-events.jsonl",
     ];
 
+    // v0.36.0 — sessionTitle was added in Claude Code 2.1.152. We surface
+    // the cumulative saved-token count for this project so users see the
+    // payoff at a glance in their window/tab title. Best-effort — if the
+    // savings file is unreadable we fall back to a neutral title.
+    let sessionTitle: string | undefined;
+    try {
+      const { loadSessionStats } = await import(
+        "../core/session-savings.js"
+      );
+      // Sum savings across all sessions in this project, not just one.
+      const stats = loadSessionStats(opts.projectRoot, "");
+      // sessionId="" makes loadSessionStats short-circuit; use a tiny
+      // dedicated reader instead.
+      const { readFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      let total = 0;
+      try {
+        const raw = readFileSync(
+          join(opts.projectRoot, ".token-pilot", "hook-events.jsonl"),
+          "utf-8",
+        );
+        for (const line of raw.split("\n")) {
+          if (!line) continue;
+          try {
+            const ev = JSON.parse(line);
+            if (typeof ev.savedTokens === "number") total += ev.savedTokens;
+          } catch {
+            /* skip malformed line */
+          }
+        }
+      } catch {
+        /* no log file yet */
+      }
+      // Use the larger of "single-session" (loadSessionStats fallback)
+      // and the all-sessions sum so an empty single-session number
+      // doesn't override the meaningful project-wide total.
+      const surfaced = Math.max(total, stats.savedTokens);
+      if (surfaced > 0) {
+        const human =
+          surfaced >= 1_000_000
+            ? `${(surfaced / 1_000_000).toFixed(1)}M`
+            : surfaced >= 1000
+              ? `${Math.round(surfaced / 1000)}k`
+              : `${surfaced}`;
+        sessionTitle = `[TP] ${human} saved`;
+      }
+    } catch {
+      /* sessionTitle is best-effort decoration; never block startup */
+    }
+
     const output = {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
         additionalContext: message,
         watchPaths,
+        ...(sessionTitle ? { sessionTitle } : {}),
       },
     };
 
