@@ -232,6 +232,43 @@ lines instead of bouncing the call. The structural summary still
 rides along in `additionalContext`. Default OFF because the field
 is undocumented and may change.
 
+## What's new for Claude Code 2.1.151+
+
+These notes are about behaviour you'll see automatically once you
+update both Claude Code and `token-pilot@latest`. No extra
+configuration required.
+
+### Session title badge (`[TP] Nk saved`)
+
+The SessionStart hook now sets the window/tab title to the cumulative
+token savings for the current project, using Claude Code 2.1.152's
+`hookSpecificOutput.sessionTitle` field. You'll see a badge like
+`[TP] 1.2M saved` in the title bar so you can confirm at a glance
+that the plugin is doing its job.
+
+### Hardened skills (`disallowed-tools`)
+
+The three bundled skills (`guide`, `install`, `stats`) declare
+`disallowed-tools` (Claude Code 2.1.152+) so a runaway model can't
+issue `Write` / `Edit` / `Task` while the skill is on display. The
+install skill keeps `Bash` because it has to run
+`npx token-pilot install-ast-index`; the other two have Bash
+disallowed too.
+
+### Auto mode on third-party providers
+
+Claude Code 2.1.158 opened auto mode to Bedrock / Vertex / Foundry
+on Opus 4.7 + 4.8. If you're on one of those, opt in with
+`CLAUDE_CODE_ENABLE_AUTO_MODE=1`. token-pilot's deny-Read /
+deny-Bash gates still run on top — auto mode never bypasses them.
+
+### Opus 4.8 as fast-mode default
+
+Claude Code 2.1.154 made Opus 4.8 the default for high effort. The
+tp-* agents that already declared `model: haiku` keep their cheaper
+tier (90 %+ of the agent roster); the few sonnet/opus-tier ones
+ride the upgrade automatically.
+
 ## Troubleshooting
 
 ```bash

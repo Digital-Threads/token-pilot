@@ -3,6 +3,17 @@ name: guide
 description: Show a quick-reference guide for all Token Pilot tools — when to use each one
 command: guide
 user_invocable: true
+# v0.36.0 — disallowed-tools is a Claude Code 2.1.152+ field that
+# strips the listed tools from the model's surface while this skill
+# is active. The guide just renders Markdown; it never needs Edit /
+# Write / Bash / Task. Defense-in-depth so a runaway model can't
+# mutate the workspace while a help screen is on display.
+disallowed-tools:
+  - Bash
+  - Edit
+  - MultiEdit
+  - Write
+  - Task
 ---
 
 Display the following Token Pilot tool reference to the user. Show it exactly as formatted below.
