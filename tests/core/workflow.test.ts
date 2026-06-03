@@ -179,6 +179,55 @@ describe("filesystem lifecycle", () => {
     expect(reloaded?.ended_at).toBe(9999);
   });
 
+  it("end writes a frozen workflow completion event (v0.39.0)", async () => {
+    const env = await startWorkflow({
+      projectRoot: root,
+      goal: "ship it",
+      budgetTokens: 10_000,
+      now: 100,
+      idSuffix: "z",
+    });
+    // Seed two tagged task events into the log.
+    const { appendEvent } = await import("../../src/core/event-log.ts");
+    const base = {
+      session_id: "s",
+      agent_type: null,
+      agent_id: null,
+      event: "task" as const,
+      file: "",
+      lines: 0,
+      summaryTokens: 0,
+      savedTokens: 0,
+      workflow_id: env.workflow_id,
+    };
+    await appendEvent(root, { ...base, ts: 101, estTokens: 3000 });
+    await appendEvent(root, {
+      ...base,
+      ts: 102,
+      estTokens: 2000,
+      overBudget: true,
+    });
+
+    await endWorkflow(root, env.workflow_id, 200);
+
+    const { loadEventsTree } = await import("../../src/core/event-log.ts");
+    const events = await loadEventsTree(root);
+    const summary = events.find((e) => e.event === "workflow");
+    expect(summary).toBeTruthy();
+    expect(summary?.workflow_id).toBe(env.workflow_id);
+    expect(summary?.code).toBe("workflow_complete");
+    const d = summary?.detail as {
+      used_tokens?: number;
+      task_count?: number;
+      over_budget_workers?: number;
+      duration_ms?: number;
+    };
+    expect(d.used_tokens).toBe(5000);
+    expect(d.task_count).toBe(2);
+    expect(d.over_budget_workers).toBe(1);
+    expect(d.duration_ms).toBe(100); // 200 - 100
+  });
+
   it("end returns null for unknown id", async () => {
     expect(await endWorkflow(root, "wf-nope", 1)).toBeNull();
   });

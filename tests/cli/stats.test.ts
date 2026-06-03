@@ -41,6 +41,51 @@ afterEach(async () => {
 
 // ─── formatStats (pure) ──────────────────────────────────────────────────────
 
+describe("formatStats — --workflows view (v0.39.0)", () => {
+  it("aggregates workflow completion rows", () => {
+    const events: HookEvent[] = [
+      ev({
+        event: "workflow",
+        workflow_id: "wf-1",
+        estTokens: 5000,
+        detail: {
+          goal: "review sprint",
+          used_tokens: 5000,
+          pct: 50,
+          task_count: 4,
+          over_budget_workers: 1,
+        },
+      }),
+      ev({
+        event: "workflow",
+        workflow_id: "wf-2",
+        estTokens: 1200,
+        detail: {
+          goal: "migrate api",
+          used_tokens: 1200,
+          pct: null,
+          task_count: 2,
+          over_budget_workers: 0,
+        },
+      }),
+      ev({ event: "task", estTokens: 999 }), // ignored
+    ];
+    const out = formatStats(events, { workflows: true });
+    expect(out).toMatch(/Completed workflows: 2/);
+    expect(out).toMatch(/6 tasks/);
+    expect(out).toMatch(/~6200 tokens/);
+    expect(out).toMatch(/1 over-budget/);
+    expect(out).toContain("wf-1");
+    expect(out).toContain("review sprint");
+    expect(out).toContain("wf-2");
+  });
+
+  it("reports when no workflows completed", () => {
+    const out = formatStats([ev({ event: "task" })], { workflows: true });
+    expect(out).toMatch(/No completed workflows yet/);
+  });
+});
+
 describe("formatStats — default view", () => {
   it("reports totals and per-file breakdown", () => {
     const events: HookEvent[] = [

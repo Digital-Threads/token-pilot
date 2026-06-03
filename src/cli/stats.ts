@@ -28,6 +28,8 @@ export interface StatsOptions {
   byAgent?: boolean;
   /** v0.31.0 — Task-routing view: subagent_type usage + miss-rate. */
   tasks?: boolean;
+  /** v0.39.0 — aggregate of `event:"workflow"` completion rows. */
+  workflows?: boolean;
 }
 
 function sumSaved(events: HookEvent[]): number {
@@ -93,6 +95,47 @@ export function formatStats(events: HookEvent[], opts: StatsOptions): string {
   lines.push(
     `token-pilot stats${sessionSuffix} — ${scope.length} event${scope.length === 1 ? "" : "s"}, ~${total} tokens saved`,
   );
+
+  if (opts.workflows) {
+    // v0.39.0 — workflow completion view. Each `event:"workflow"` row is
+    // a frozen summary written by `workflow end`.
+    const wf = scope.filter((e) => e.event === "workflow");
+    if (wf.length === 0) {
+      return lines[0] + "\n\nNo completed workflows yet.";
+    }
+    let totalUsed = 0;
+    let totalTasks = 0;
+    let totalOver = 0;
+    const rows: string[] = [];
+    for (const e of wf) {
+      const d = (e.detail ?? {}) as {
+        goal?: string;
+        used_tokens?: number;
+        pct?: number | null;
+        task_count?: number;
+        over_budget_workers?: number;
+      };
+      const used = d.used_tokens ?? e.estTokens ?? 0;
+      const tasks = d.task_count ?? 0;
+      const over = d.over_budget_workers ?? 0;
+      totalUsed += used;
+      totalTasks += tasks;
+      totalOver += over;
+      const pct = d.pct != null ? ` (${d.pct}%)` : "";
+      rows.push(
+        `  ${e.workflow_id ?? "?"}  ${tasks} tasks · ~${used} tok${pct}` +
+          (over > 0 ? ` · ${over} over-budget` : "") +
+          (d.goal ? `  — ${d.goal}` : ""),
+      );
+    }
+    lines.push("");
+    lines.push(
+      `Completed workflows: ${wf.length} · ${totalTasks} tasks · ~${totalUsed} tokens · ${totalOver} over-budget`,
+    );
+    lines.push("");
+    lines.push(...rows);
+    return lines.join("\n");
+  }
 
   if (opts.tasks) {
     // v0.31.0 — Task-routing view. Scope to event:"task" records only.
@@ -221,11 +264,13 @@ export async function handleStats(
   const session = parseFlag(argv, "session");
   const byAgent = parseFlag(argv, "by-agent");
   const tasks = parseFlag(argv, "tasks");
+  const workflows = parseFlag(argv, "workflows");
 
   const rendered = formatStats(events, {
     session: session === undefined ? undefined : session,
     byAgent: byAgent === true,
     tasks: tasks === true,
+    workflows: workflows === true,
   });
   process.stdout.write(rendered + "\n");
   return 0;

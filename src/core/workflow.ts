@@ -26,7 +26,11 @@
 
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
-import { loadEventsTree, type HookEvent } from "./event-log.js";
+import {
+  appendEvent,
+  loadEventsTree,
+  type HookEvent,
+} from "./event-log.js";
 
 export const WORKFLOW_SUBDIR = ".token-pilot/workflows";
 
@@ -149,8 +153,15 @@ export async function loadWorkflow(
 }
 
 /**
- * Mark a workflow ended (stamps ended_at). Returns the updated
- * envelope, or null when the id is unknown.
+ * Mark a workflow ended (stamps ended_at) and emit a frozen
+ * `event:"workflow"` completion record into hook-events.jsonl.
+ *
+ * v0.39.0 — the envelope stores only the static plan (goal, budget,
+ * timestamps); the aggregates (tokens used, task count) are computed
+ * live from tagged events. Freezing them in a single summary row at
+ * end time makes historical analysis cheap and survives event-log
+ * rotation (which could otherwise drop the underlying per-task rows).
+ * Returns the updated envelope, or null when the id is unknown.
  */
 export async function endWorkflow(
   projectRoot: string,
@@ -167,6 +178,41 @@ export async function endWorkflow(
     );
   } catch {
     /* best-effort */
+  }
+
+  // Freeze the aggregates into a completion event.
+  try {
+    const events = await loadEventsTree(projectRoot);
+    const status = computeWorkflowStatus(env, events);
+    const summary: HookEvent = {
+      ts: now,
+      session_id: "workflow",
+      agent_type: null,
+      agent_id: null,
+      workflow_id: id,
+      event: "workflow",
+      file: "",
+      lines: 0,
+      estTokens: status.used_tokens,
+      summaryTokens: 0,
+      savedTokens: 0,
+      level: "info",
+      code: "workflow_complete",
+      detail: {
+        goal: env.goal,
+        budget_tokens: env.budget_tokens,
+        used_tokens: status.used_tokens,
+        pct: status.pct,
+        task_count: status.task_count,
+        over_budget_workers: status.over_budget_workers,
+        duration_ms: env.ended_at - env.started_at,
+      },
+    };
+    // Pass the workflow_id explicitly so appendEvent keeps it even if
+    // the env var has already been unset by the time `end` runs.
+    await appendEvent(projectRoot, summary);
+  } catch {
+    /* completion telemetry is best-effort */
   }
   return env;
 }
