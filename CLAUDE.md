@@ -52,18 +52,41 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+npm install            # install deps
+npm run build          # tsc + scripts/build-agents.mjs (composes 25 tp-* agents)
+npx vitest run         # full unit suite (~1300 tests)
+npx tsc --noEmit       # type-check only
 ```
+
+The build step regenerates `agents/tp-*.md` from `templates/agents/`.
+Never hand-edit files in `agents/` — edit the template + shared
+fragments (`_shared-preamble.md`, `_response-contract.md`) and rebuild.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- `src/index.ts` — CLI entry + every hook command (`hook-read`,
+  `hook-pre-task`, `hook-post-task`, `hook-bootstrap`, …) and
+  `startServer` (projectRoot detection).
+- `src/server.ts` — MCP dispatcher (`createServer`). Every tool case
+  goes through the `SessionCache` for cross-call dedup.
+- `src/hooks/` — pure decide-functions per hook (pre-bash, pre-grep,
+  pre-task, pre-edit, post-bash, post-task, session-start) + the
+  `runHookEntryPoint` safe-runner.
+- `src/ast-index/` — wrapper around the bundled `ast-index` binary.
+- `src/core/` — event-log, error-log, validation, agent-matcher.
+- `templates/agents/` → `scripts/build-agents.mjs` → `agents/`.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- **Planning docs live in `docs/superpowers/plans/`; specs in
+  `docs/superpowers/specs/`; design notes in `docs/design/`; ADRs in
+  `docs/adr/`.** There is no `.docs/` directory — ignore any older
+  reference to one.
+- Hook decide-functions are pure (input → decision); the thin
+  `index.ts` case does stdin read + stdout write + `process.exit(0)`.
+  Telemetry writes are best-effort and must never throw out of a hook.
+- Undocumented Claude Code fields: confirm presence in the installed
+  CC bundle before shipping (see
+  `docs/reference/cc-undocumented-fields.md`). Never let an unverified
+  field ride the same release as working hooks.
