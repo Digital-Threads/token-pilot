@@ -59,9 +59,15 @@ export interface WorkflowBudgetStatus {
 
 /**
  * Resolve the active workflow id. token-pilot's own env var takes
- * precedence; we also honour a couple of plausible Claude Code names
- * so that if CC ever propagates a workflow id we pick it up without
- * a code change. Returns null when none is set.
+ * precedence.
+ *
+ * Note (verified against CC 2.1.161): Claude Code's `/workflow` does
+ * NOT export a per-workflow id env var to dispatched subagents — the
+ * bundle only has the `CLAUDE_CODE_WORKFLOWS` feature flag and an
+ * internal `WorkflowId`. The extra names below are a harmless
+ * forward-compat probe (they return null today); token-pilot's fleet
+ * workflows are independent and rely solely on our own
+ * `TOKEN_PILOT_WORKFLOW_ID`. Returns null when none is set.
  */
 export function activeWorkflowId(
   env: NodeJS.ProcessEnv = process.env,
