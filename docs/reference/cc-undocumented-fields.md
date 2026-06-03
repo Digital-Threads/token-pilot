@@ -1,7 +1,9 @@
 # Claude Code undocumented fields — support reference
 
-**Last verified:** 2026-06 against `~/.local/share/claude/versions/2.1.131`
-(Mach-O bundle, `strings` inspection).
+**Last verified:** 2026-06 against `~/.local/share/claude/versions/2.1.161`
+(Mach-O bundle, `strings` inspection). Earlier column captured against
+2.1.131; the three fields that landed between the two versions are
+noted in the table.
 
 ## Why this file exists
 
@@ -40,9 +42,24 @@ which often trails when it was *implemented*).
 | `parent_agent_id` | hook input | ✅ | post-task event capture |
 | `criticalSystemReminder_EXPERIMENTAL` | agent frontmatter | ✅ | not used — Anthropic flags it EXPERIMENTAL |
 | `initialUserMessage` | SessionStart return | ✅ | not used — too invasive (prepends to user's first message) |
-| `reloadSkills` | SessionStart return | ❌ | not used — absent on 2.1.131, and our 3 skills are static |
-| `continueOnBlock` | PostToolUse config | ❌ | not used — absent on 2.1.131; our post-hooks don't reject anyway |
-| `MessageDisplay` | hook event | ❌ | not used — absent on 2.1.131; display-only, no token-saving role |
+| `reloadSkills` | SessionStart return | ✅ (2.1.161; absent 2.1.131) | not used — our 3 skills are static; bootstrap only hints, doesn't install |
+| `continueOnBlock` | PostToolUse config | ✅ (2.1.161; absent 2.1.131) | not used — our post-hooks are advisory, they never reject |
+| `MessageDisplay` | hook event | ✅ (2.1.161; absent 2.1.131) | not used — tp-* output is already terse (caveman contract); no noise to compress yet |
+
+### Workflow env propagation (checked 2.1.161)
+
+`/workflow` exists in 2.1.161, but it does **not** export a
+per-workflow id env var to dispatched subagents. The bundle has only
+`CLAUDE_CODE_WORKFLOWS` / `CLAUDE_CODE_DISABLE_WORKFLOWS` (a feature
+flag) and an internal `WorkflowId`. There is **no
+`CLAUDE_CODE_WORKFLOW_ID`**.
+
+Consequence: token-pilot's fleet workflows (`token-pilot workflow
+start/end`, v0.38.0) are fully independent — they set our own
+`TOKEN_PILOT_WORKFLOW_ID`. `activeWorkflowId()` still probes a couple
+of plausible Claude Code names as a harmless forward-compat fallback
+(returns null when unset), but we do NOT claim automatic composition
+with CC's `/workflow` — that env bridge does not exist today.
 
 ## Method (reproduce)
 

@@ -304,9 +304,12 @@ While a workflow is active:
 - The window title switches to `[TP] wf · N tasks · X%` so a long run
   shows live progress.
 
-If Claude Code ever sets its own workflow-id env var
-(`CLAUDE_CODE_WORKFLOW_ID`), token-pilot reads that too — no config
-change needed.
+Claude Code's own `/workflow` (2.1.154+) does **not** expose a
+per-workflow id env var to subagents (verified against the 2.1.161
+bundle — it has only a `CLAUDE_CODE_WORKFLOWS` feature flag). So
+token-pilot's workflows are independent: they rely on our own
+`TOKEN_PILOT_WORKFLOW_ID`. If CC adds a per-workflow env var later,
+`activeWorkflowId()` already probes for it — no config change needed.
 
 ## Troubleshooting
 
