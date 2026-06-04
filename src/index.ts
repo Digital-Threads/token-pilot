@@ -397,6 +397,27 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       });
       return;
     }
+    case "hook-subagent-stop": {
+      // v0.40.0 — canonical subagent-completion capture. PostToolUse:Task
+      // proved non-firing for the dispatch tool (clean v0.39.3 probe:
+      // a real dispatch wrote 0 events while a Read-deny in the same
+      // session wrote fine). SubagentStop fires once per subagent by
+      // definition, so this is the reliable source for the task
+      // adoption signal. Synchronous (writes telemetry — never async).
+      await runHookEntryPoint({ hook: "hook-subagent-stop" }, async () => {
+        const stdin = readFileSync(0, "utf-8");
+        const input = JSON.parse(stdin);
+        const { buildSubagentTaskEvent } = await import(
+          "./hooks/subagent-stop.js"
+        );
+        const ev = buildSubagentTaskEvent(input, Date.now());
+        if (ev) {
+          const { appendEvent } = await import("./core/event-log.js");
+          await appendEvent(process.cwd(), ev);
+        }
+      });
+      return;
+    }
     case "hook-session-start": {
       await runHookEntryPoint({ hook: "hook-session-start" }, async () => {
         const cfg = await loadConfig(process.cwd());

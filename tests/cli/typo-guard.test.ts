@@ -99,6 +99,7 @@ describe("checkForTypo", () => {
     "hook-post-task",
     "hook-session-start",
     "hook-bootstrap",
+    "hook-subagent-stop",
     // user-facing CLI
     "install-hook",
     "uninstall-hook",
