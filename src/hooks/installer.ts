@@ -160,12 +160,21 @@ function createHookConfig(options?: HookInstallOptions) {
       PostToolUse: [
         {
           matcher: "Bash",
-          // v0.35.0 — async: true keeps telemetry off the hot path
+          // v0.35.0 — async: true keeps the advisory off the hot path.
+          // post-bash writes NO telemetry (advisory-only), so detached
+          // execution is safe here.
           hooks: [hookEntry("hook-post-bash", options, { async: true })],
         },
         {
           matcher: "Task",
-          hooks: [hookEntry("hook-post-task", options, { async: true })],
+          // v0.39.2 — post-task MUST run synchronously. It writes the
+          // `event:"task"` record via appendEvent (mkdir + stat +
+          // appendFile). Under `async: true` Claude Code fires the hook
+          // detached and may reap the process before those writes flush
+          // — the suspected cause of persistently zero task events in
+          // hook-events.jsonl despite subagents being dispatched.
+          // Telemetry integrity > the ~5ms saved on a non-hot-path hook.
+          hooks: [hookEntry("hook-post-task", options)],
         },
       ],
     },
