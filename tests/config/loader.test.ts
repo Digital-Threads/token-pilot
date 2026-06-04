@@ -84,4 +84,32 @@ describe("loadConfig — hooks.mode field (Phase 1 subtask 1.1/1.2)", () => {
     );
     stderrSpy.mockRestore();
   });
+
+  // v0.39.3 — regression for the Node <17 crash. loadConfig used
+  // structuredClone (a Node 17+ global); on a Node 16 runtime that CC
+  // spawned the hook with, it threw `structuredClone is not defined`
+  // and killed every loadConfig-dependent hook (caught in the wild by
+  // the error channel). The fix is a JSON-round-trip clone. This test
+  // deletes the global to simulate Node 16 and confirms loadConfig
+  // still returns correct, independent defaults on both paths.
+  it("does not depend on the structuredClone global (Node <17 safety)", async () => {
+    const g = globalThis as Record<string, unknown>;
+    const orig = g.structuredClone;
+    delete g.structuredClone;
+    try {
+      const a = await loadConfig(testDir); // no-config path
+      expect(a.hooks.mode).toBe("deny-enhanced");
+
+      await writeConfig({ hooks: { mode: "advisory" } }); // merge path
+      const b = await loadConfig(testDir);
+      expect(b.hooks.mode).toBe("advisory");
+
+      // mutating one result must not leak into the shared defaults
+      a.hooks.mode = "off";
+      const c = await loadConfig(join(testDir, "nope-subdir"));
+      expect(c.hooks.mode).toBe("deny-enhanced");
+    } finally {
+      if (orig !== undefined) g.structuredClone = orig;
+    }
+  });
 });

@@ -9,6 +9,27 @@ const VALID_HOOK_MODES: ReadonlySet<HookMode> = new Set([
   "deny-enhanced",
 ]);
 
+/**
+ * v0.39.3 — portable deep clone of the default config.
+ *
+ * The previous code used `structuredClone(DEFAULT_CONFIG)`, a global
+ * added in Node 17. Despite `engines: ">=18"`, the engines field is
+ * NOT enforced at runtime, and Claude Code spawns hooks with whatever
+ * `node` is first on PATH. On machines with a system / nvm-default
+ * Node 16 that resolved to v16.x, `loadConfig` threw
+ * `ReferenceError: structuredClone is not defined` — caught in the
+ * wild by the v0.33.0 error channel (hook-session-start, Node 16.17.1).
+ * That throw killed every hook that calls loadConfig (read,
+ * session-start, pre-bash, pre-grep) on those machines.
+ *
+ * DEFAULT_CONFIG is a plain JSON-serialisable object (no Dates, Maps,
+ * functions, or cycles), so a JSON round-trip is a correct, fully
+ * portable deep clone that works on every Node version.
+ */
+function cloneDefaults(): TokenPilotConfig {
+  return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as TokenPilotConfig;
+}
+
 export async function loadConfig(
   projectRoot: string,
 ): Promise<TokenPilotConfig> {
@@ -24,7 +45,7 @@ export async function loadConfig(
         `[token-pilot] Invalid config at ${configPath}: ${err?.message ?? err}. Using defaults.`,
       );
     }
-    return structuredClone(DEFAULT_CONFIG);
+    return cloneDefaults();
   }
 
   // Phase 6 subtask 6.4 — rewrite legacy `mode:"deny"` to `"advisory"`
@@ -33,7 +54,7 @@ export async function loadConfig(
   await applyLegacyDenyMigration(configPath, userConfig ?? {});
 
   const merged = deepMerge(
-    structuredClone(DEFAULT_CONFIG),
+    cloneDefaults(),
     userConfig ?? {},
   ) as TokenPilotConfig;
 
