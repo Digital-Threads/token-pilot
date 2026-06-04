@@ -170,11 +170,19 @@ function createHookConfig(options?: HookInstallOptions) {
           // v0.39.2 — post-task MUST run synchronously. It writes the
           // `event:"task"` record via appendEvent (mkdir + stat +
           // appendFile). Under `async: true` Claude Code fires the hook
-          // detached and may reap the process before those writes flush
-          // — the suspected cause of persistently zero task events in
-          // hook-events.jsonl despite subagents being dispatched.
-          // Telemetry integrity > the ~5ms saved on a non-hot-path hook.
+          // detached and may reap the process before those writes flush.
+          // Kept as a secondary path; v0.39.3 probe showed it does not
+          // fire on current Claude Code (see SubagentStop below).
           hooks: [hookEntry("hook-post-task", options)],
+        },
+      ],
+      // v0.40.0 — SubagentStop is the canonical, reliably-firing
+      // subagent-completion event. PostToolUse:Task proved non-firing
+      // for the dispatch tool; SubagentStop is where the task adoption
+      // signal is actually captured. Synchronous (writes telemetry).
+      SubagentStop: [
+        {
+          hooks: [hookEntry("hook-subagent-stop", options)],
         },
       ],
     },
@@ -342,6 +350,21 @@ export async function installHook(
       }
     }
 
+    // v0.40.0 — SubagentStop (canonical subagent-completion capture).
+    // Installed idempotently, same pattern as SessionStart.
+    if (Array.isArray((hookConfig.hooks as any).SubagentStop)) {
+      if (!Array.isArray(settings.hooks.SubagentStop)) {
+        settings.hooks.SubagentStop = [];
+      }
+      const hasSubagentStop =
+        settings.hooks.SubagentStop.some(isTokenPilotHook);
+      if (!hasSubagentStop) {
+        settings.hooks.SubagentStop.push(
+          ...(hookConfig.hooks as any).SubagentStop,
+        );
+      }
+    }
+
     await writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 
     return {
@@ -374,7 +397,13 @@ export async function uninstallHook(
     const hasPreToolUse = !!settings.hooks?.PreToolUse;
     const hasSessionStart = !!settings.hooks?.SessionStart;
     const hasPostToolUse = !!settings.hooks?.PostToolUse;
-    if (!hasPreToolUse && !hasSessionStart && !hasPostToolUse) {
+    const hasSubagentStop = !!settings.hooks?.SubagentStop;
+    if (
+      !hasPreToolUse &&
+      !hasSessionStart &&
+      !hasPostToolUse &&
+      !hasSubagentStop
+    ) {
       return { removed: false, fatal: false, message: "No hooks to remove." };
     }
 
@@ -405,6 +434,15 @@ export async function uninstallHook(
       );
       if (settings.hooks.PostToolUse.length === 0) {
         delete settings.hooks.PostToolUse;
+      }
+    }
+
+    if (Array.isArray(settings.hooks?.SubagentStop)) {
+      settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(
+        (h: any) => !isTokenPilotHook(h),
+      );
+      if (settings.hooks.SubagentStop.length === 0) {
+        delete settings.hooks.SubagentStop;
       }
     }
 

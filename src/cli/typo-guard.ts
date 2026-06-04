@@ -37,6 +37,8 @@ export const KNOWN_COMMANDS = [
   // v0.35.0 — one-shot project setup hook (uses Claude Code's
   // undocumented `once: true` SessionStart flag).
   "hook-bootstrap",
+  // v0.40.0 — canonical subagent-completion capture
+  "hook-subagent-stop",
   "install-hook",
   "uninstall-hook",
   "install-ast-index",
