@@ -299,19 +299,13 @@ export function formatStatuslineHint(
 
     case "not-configured": {
       lines.push(
-        `  ○ no statusline badge configured — add one to see token-pilot`,
+        `  ○ no statusline badge configured — see token-pilot's live`,
       );
-      lines.push(`    state (enforcement mode + cumulative saved tokens) in`);
-      lines.push(`    Claude Code's status bar.`);
-      lines.push("");
-      const command = pluginRoot
-        ? `bash "${pluginRoot}/hooks/statusline-chain.sh"`
-        : `bash "$(ls -t ~/.claude/plugins/cache/token-pilot/token-pilot/*/hooks/statusline-chain.sh 2>/dev/null | head -1)"`;
-      lines.push(`    Add to ${result.configPath}:`);
-      lines.push(`      "statusLine": {`);
-      lines.push(`        "type": "command",`);
-      lines.push(`        "command": "${command.replace(/"/g, '\\"')}"`);
-      lines.push(`      }`);
+      lines.push(
+        `    saved-token count + enforcement mode in your status bar.`,
+      );
+      lines.push(`    one command (non-destructive — never clobbers an existing one):`);
+      lines.push(`      token-pilot install-statusline`);
       return lines.join("\n");
     }
   }

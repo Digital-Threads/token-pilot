@@ -277,11 +277,11 @@ describe("checkStatusline + formatStatuslineHint", () => {
       },
       [],
     );
+    // v0.42.0 — the not-configured nudge now points at the one-command
+    // installer instead of a hand-edit JSON recipe.
     expect(hint).not.toBeNull();
     expect(hint).toContain("statusline badge");
-    expect(hint).toContain("/fake/settings.json");
-    expect(hint).toContain("statusline-chain.sh");
-    expect(hint).toContain('"type": "command"');
+    expect(hint).toContain("token-pilot install-statusline");
   });
 
   it("formatStatuslineHint: silent when chain wrapper already active", async () => {

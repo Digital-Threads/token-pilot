@@ -115,6 +115,7 @@ describe("checkForTypo", () => {
     "init",
     "doctor",
     "migrate-hooks",
+    "install-statusline",
     "errors",
     "workflow",
   ])(
