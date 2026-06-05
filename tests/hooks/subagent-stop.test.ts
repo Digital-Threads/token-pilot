@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import {
   buildSubagentTaskEvent,
   tokensFromTranscript,
+  decideSubagentFeedback,
+  renderSubagentFeedback,
   type SubagentStopInput,
 } from "../../src/hooks/subagent-stop.ts";
 
@@ -97,5 +99,64 @@ describe("tokensFromTranscript", () => {
       ].join("\n"),
     );
     expect(tokensFromTranscript(p)).toBe(1200);
+  });
+});
+
+describe("decideSubagentFeedback (v0.41.0)", () => {
+  const input: SubagentStopInput = { agent_type: "general-purpose", agent_id: "x" };
+
+  it("warns when an active workflow is at/over 90% of its ceiling", () => {
+    const msg = decideSubagentFeedback(input, {
+      workflow: {
+        workflow_id: "wf-1",
+        budget_tokens: 1000,
+        used_tokens: 950,
+        pct: 95,
+      },
+    });
+    expect(msg).not.toBeNull();
+    expect(msg).toContain("wf-1");
+    expect(msg).toContain("95%");
+    expect(msg).toMatch(/wind down/i);
+  });
+
+  it("stays silent below 90%", () => {
+    expect(
+      decideSubagentFeedback(input, {
+        workflow: {
+          workflow_id: "wf-1",
+          budget_tokens: 1000,
+          used_tokens: 500,
+          pct: 50,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("stays silent with no workflow / no budget", () => {
+    expect(decideSubagentFeedback(input, { workflow: null })).toBeNull();
+    expect(
+      decideSubagentFeedback(input, {
+        workflow: {
+          workflow_id: "wf",
+          budget_tokens: null,
+          used_tokens: 9999,
+          pct: null,
+        },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("renderSubagentFeedback", () => {
+  it("returns null for no message", () => {
+    expect(renderSubagentFeedback(null)).toBeNull();
+  });
+  it("wraps a message in SubagentStop hookSpecificOutput", () => {
+    const out = renderSubagentFeedback("wind down");
+    expect(out).not.toBeNull();
+    const parsed = JSON.parse(out!);
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SubagentStop");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("wind down");
   });
 });

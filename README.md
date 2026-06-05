@@ -232,6 +232,21 @@ lines instead of bouncing the call. The structural summary still
 rides along in `additionalContext`. Default OFF because the field
 is undocumented and may change.
 
+### Experimental: SubagentStop budget feedback (CC 2.1.163+)
+
+Every subagent completion already lands a task-telemetry row via the
+`SubagentStop` hook (that's how `stats --tasks` knows what you
+dispatched). With `TOKEN_PILOT_SUBAGENT_FEEDBACK=1` the same hook also
+returns `additionalContext` — when a `token-pilot workflow` fan-out is
+at ≥90 % of its token ceiling, each completing agent gets a wind-down
+note so a hundred-agent `/workflow` run stops before blowing the
+budget.
+
+**Requires Claude Code 2.1.163+.** Returning `additionalContext` from
+`SubagentStop` is only honoured there; older Claude Code labels it a
+hook error. Default OFF for that reason — enable only once
+`claude --version` reports 2.1.163 or later.
+
 ## What's new for Claude Code 2.1.151+
 
 These notes are about behaviour you'll see automatically once you

@@ -407,13 +407,44 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await runHookEntryPoint({ hook: "hook-subagent-stop" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
-        const { buildSubagentTaskEvent } = await import(
-          "./hooks/subagent-stop.js"
-        );
+        const {
+          buildSubagentTaskEvent,
+          decideSubagentFeedback,
+          renderSubagentFeedback,
+        } = await import("./hooks/subagent-stop.js");
         const ev = buildSubagentTaskEvent(input, Date.now());
         if (ev) {
           const { appendEvent } = await import("./core/event-log.js");
           await appendEvent(process.cwd(), ev);
+        }
+
+        // v0.41.0 — optional SubagentStop feedback. Returning
+        // hookSpecificOutput.additionalContext from SubagentStop is a
+        // Claude Code 2.1.163+ feature; on older Claude Code it is
+        // labelled a hook error (noise). Gate strictly behind
+        // TOKEN_PILOT_SUBAGENT_FEEDBACK=1 so the default path (telemetry
+        // only) stays safe on every version.
+        if (process.env.TOKEN_PILOT_SUBAGENT_FEEDBACK === "1") {
+          const { activeWorkflowId, workflowStatus } = await import(
+            "./core/workflow.js"
+          );
+          let wf = null;
+          const wfId = activeWorkflowId();
+          if (wfId) {
+            const st = await workflowStatus(process.cwd(), wfId);
+            if (st) {
+              wf = {
+                workflow_id: st.workflow_id,
+                budget_tokens: st.budget_tokens,
+                used_tokens: st.used_tokens,
+                pct: st.pct,
+              };
+            }
+          }
+          const rendered = renderSubagentFeedback(
+            decideSubagentFeedback(input, { workflow: wf }),
+          );
+          if (rendered) process.stdout.write(rendered);
         }
       });
       return;
