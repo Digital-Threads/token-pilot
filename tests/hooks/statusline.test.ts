@@ -87,7 +87,7 @@ describe("tp-statusline.sh", () => {
     expect(out).toBe("[TP]");
   });
 
-  it("shows cumulative savedTokens suffix when events file exists", async () => {
+  it("shows cumulative PROJECT savedTokens (all sessions) when events file exists", async () => {
     const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}`);
     await mkdir(join(root, ".token-pilot"), { recursive: true });
     const events = [
@@ -103,26 +103,28 @@ describe("tp-statusline.sh", () => {
       workspace: { current_dir: root },
     });
     const out = strip(runScript(TP_SCRIPT, payload));
-    // 5000 + 3500 + 2000 = 10500 → "10k"
-    expect(out).toMatch(/\[TP 10k\]/);
+    // v0.42.1 — cumulative across ALL sessions: 5000+3500+9999+2000 = 20499 → "20k"
+    expect(out).toMatch(/\[TP 20k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
 
-  it("ignores events for other sessions", async () => {
+  it("counts every session's savings, not just the current one (v0.42.1)", async () => {
     const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-2`);
     await mkdir(join(root, ".token-pilot"), { recursive: true });
     await writeFile(
       join(root, ".token-pilot", "hook-events.jsonl"),
       '{"session_id":"other","savedTokens":99999}\n',
     );
+    // A brand-new session ("me") with no events of its own still shows
+    // the project's cumulative total — this is exactly the bare-[TP]
+    // bug fix (per-session filter made fresh sessions show nothing).
     const payload = JSON.stringify({
       session_id: "me",
       workspace: { current_dir: root },
     });
     const out = strip(runScript(TP_SCRIPT, payload));
-    // session "me" has no events → no saved suffix
-    expect(out).toBe("[TP]");
+    expect(out).toMatch(/\[TP 99k\]/);
 
     await rm(root, { recursive: true, force: true });
   });

@@ -52,26 +52,24 @@ SESSION_ID=$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9-_')
 # CWD: allow path chars only — no ; $ ` quotes, etc.
 CWD=$(printf '%s' "$CWD" | tr -cd 'a-zA-Z0-9/._-')
 
-# Compute cumulative savedTokens for this session, if we have enough info
-# to find the events log. Any error → render without the saved-tokens suffix.
+# Compute cumulative savedTokens for the whole PROJECT (every session),
+# if we can find the events log. Any error → render without the suffix.
+#
+# v0.42.1 — sum ALL savedTokens, not just the current session_id. The
+# old per-session filter showed an empty `[TP]` at the start of every
+# fresh session (nothing saved yet), which is what users hit on screen.
+# The cumulative project total is always meaningful after first use and
+# matches the number the removed sessionTitle displayed.
 SAVED_SUFFIX=""
-if [ -n "$SESSION_ID" ] && [ -n "$CWD" ] && [ -d "$CWD/.token-pilot" ]; then
+if [ -n "$CWD" ] && [ -d "$CWD/.token-pilot" ]; then
 	EVENTS_FILE="$CWD/.token-pilot/hook-events.jsonl"
 	if [ -f "$EVENTS_FILE" ] && [ ! -L "$EVENTS_FILE" ]; then
-		TOTAL=$(awk -v sid="$SESSION_ID" '
+		TOTAL=$(awk '
       {
-        # Find session_id in the line
-        if (match($0, /"session_id"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
-          line_sid = substr($0, RSTART, RLENGTH)
-          sub(/^"session_id"[[:space:]]*:[[:space:]]*"/, "", line_sid)
-          sub(/"$/, "", line_sid)
-          if (line_sid == sid) {
-            if (match($0, /"savedTokens"[[:space:]]*:[[:space:]]*-?[0-9]+/)) {
-              t = substr($0, RSTART, RLENGTH)
-              gsub(/[^0-9-]/, "", t)
-              total += t + 0
-            }
-          }
+        if (match($0, /"savedTokens"[[:space:]]*:[[:space:]]*-?[0-9]+/)) {
+          t = substr($0, RSTART, RLENGTH)
+          gsub(/[^0-9-]/, "", t)
+          total += t + 0
         }
       }
       END { printf("%d", total + 0) }
