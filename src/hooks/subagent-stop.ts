@@ -121,3 +121,64 @@ export function buildSubagentTaskEvent(
     code: "subagent_stop",
   };
 }
+
+// ─── v0.41.0 SubagentStop feedback ───────────────────────────────────
+
+export interface SubagentFeedbackContext {
+  /** Active workflow budget status, when a fleet workflow is running. */
+  workflow?: {
+    workflow_id: string;
+    budget_tokens: number | null;
+    used_tokens: number;
+    pct: number | null;
+  } | null;
+}
+
+/**
+ * Decide the `additionalContext` feedback to hand back from a
+ * SubagentStop hook. Pure — caller resolves the workflow status.
+ *
+ * Returns a short wind-down note when an active fleet workflow is at or
+ * past 90 % of its token ceiling, so a `/workflow`-style fan-out winds
+ * down before the budget is blown. Returns null otherwise — we do NOT
+ * nag on every completion; broad adoption nudges stay in SessionStart.
+ *
+ * Emission is the caller's responsibility and is gated behind
+ * TOKEN_PILOT_SUBAGENT_FEEDBACK=1 + Claude Code 2.1.163+ (older Claude
+ * Code labels a SubagentStop hookSpecificOutput return as a hook error).
+ */
+export function decideSubagentFeedback(
+  _input: SubagentStopInput,
+  ctx: SubagentFeedbackContext,
+): string | null {
+  const wf = ctx.workflow;
+  if (
+    wf &&
+    wf.budget_tokens != null &&
+    wf.budget_tokens > 0 &&
+    wf.used_tokens >= wf.budget_tokens * 0.9
+  ) {
+    const pct = wf.pct != null ? `${wf.pct}%` : "~90%";
+    return (
+      `[token-pilot] workflow ${wf.workflow_id} is at ${pct} of its ` +
+      `${wf.budget_tokens} token ceiling (${wf.used_tokens} used). ` +
+      `Wind down the fan-out: finish in-flight branches and report ` +
+      `rather than dispatching new agents.`
+    );
+  }
+  return null;
+}
+
+/**
+ * Render the SubagentStop hook JSON response carrying feedback. Returns
+ * null when there is nothing to say (caller writes no stdout).
+ */
+export function renderSubagentFeedback(message: string | null): string | null {
+  if (!message) return null;
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "SubagentStop",
+      additionalContext: message,
+    },
+  });
+}
