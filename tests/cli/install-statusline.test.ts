@@ -13,39 +13,63 @@ import {
   handleInstallStatusline,
   classifyStatuslineAt,
   CHAIN_COMMAND,
+  TP_ONLY_COMMAND,
 } from "../../src/cli/install-statusline.ts";
 
-describe("decideStatuslineAction", () => {
-  it("installs when not configured", () => {
-    const d = decideStatuslineAction("not-configured", false);
+const DEF = { force: false, chain: false };
+
+describe("decideStatuslineAction (v0.42.3 — TP-only default)", () => {
+  it("installs the TP-only badge when not configured", () => {
+    const d = decideStatuslineAction("not-configured", DEF);
     expect(d.write).toBe(true);
     expect(d.result.action).toBe("installed");
+    expect(d.command).toContain("tp-statusline.sh");
+    expect(d.command).not.toContain("chain");
   });
-  it("upgrades caveman-only / tp-only to the chain", () => {
-    expect(decideStatuslineAction("configured-caveman-only", false).write).toBe(
-      true,
-    );
-    expect(decideStatuslineAction("configured-tp-only", false).result.action).toBe(
-      "upgraded",
-    );
+  it("installs the chain only with --chain", () => {
+    const d = decideStatuslineAction("not-configured", { force: false, chain: true });
+    expect(d.write).toBe(true);
+    expect(d.command).toContain("statusline-chain.sh");
   });
-  it("no-ops when already chain", () => {
-    const d = decideStatuslineAction("configured-chain", false);
+  it("switches an existing chain to TP-only by default (drops caveman badge)", () => {
+    const d = decideStatuslineAction("configured-chain", DEF);
+    expect(d.write).toBe(true);
+    expect(d.command).toContain("tp-statusline.sh");
+    expect(d.result.message).toMatch(/caveman badge removed/i);
+  });
+  it("no-ops when already TP-only (default)", () => {
+    const d = decideStatuslineAction("configured-tp-only", DEF);
     expect(d.write).toBe(false);
     expect(d.result.action).toBe("noop");
   });
+  it("no-ops when already chain and --chain requested", () => {
+    const d = decideStatuslineAction("configured-chain", { force: false, chain: true });
+    expect(d.write).toBe(false);
+    expect(d.result.action).toBe("noop");
+  });
+  it("does NOT replace caveman-only without --force/--chain", () => {
+    const d = decideStatuslineAction("configured-caveman-only", DEF);
+    expect(d.write).toBe(false);
+    expect(d.result.action).toBe("skipped");
+  });
+  it("upgrades caveman-only to chain with --chain (keeps both)", () => {
+    const d = decideStatuslineAction("configured-caveman-only", { force: false, chain: true });
+    expect(d.write).toBe(true);
+    expect(d.command).toContain("statusline-chain.sh");
+  });
   it("leaves a third-party statusLine alone without --force", () => {
-    const d = decideStatuslineAction("configured-other", false);
+    const d = decideStatuslineAction("configured-other", DEF);
     expect(d.write).toBe(false);
     expect(d.result.action).toBe("skipped");
     expect(d.result.message).toContain("--force");
   });
-  it("replaces a third-party statusLine with --force", () => {
-    const d = decideStatuslineAction("configured-other", true);
+  it("replaces a third-party statusLine with --force (TP-only)", () => {
+    const d = decideStatuslineAction("configured-other", { force: true, chain: false });
     expect(d.write).toBe(true);
+    expect(d.command).toContain("tp-statusline.sh");
   });
   it("does not write on unknown (unparseable settings)", () => {
-    expect(decideStatuslineAction("unknown", false).write).toBe(false);
+    expect(decideStatuslineAction("unknown", DEF).write).toBe(false);
   });
 });
 
@@ -102,12 +126,19 @@ describe("handleInstallStatusline (tmp settings)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("writes the chain command into a fresh settings file", async () => {
+  it("writes the TP-only command into a fresh settings file (default)", async () => {
     const code = await handleInstallStatusline([], { settingsPath: p });
     expect(code).toBe(0);
     const saved = JSON.parse(await readFile(p, "utf-8"));
-    expect(saved.statusLine.command).toBe(CHAIN_COMMAND);
+    expect(saved.statusLine.command).toBe(TP_ONLY_COMMAND);
+    expect(saved.statusLine.command).not.toContain("chain");
     expect(saved.statusLine.type).toBe("command");
+  });
+
+  it("writes the chain command with --chain", async () => {
+    await handleInstallStatusline(["--chain"], { settingsPath: p });
+    const saved = JSON.parse(await readFile(p, "utf-8"));
+    expect(saved.statusLine.command).toBe(CHAIN_COMMAND);
   });
 
   it("preserves existing settings keys when writing", async () => {
@@ -117,7 +148,7 @@ describe("handleInstallStatusline (tmp settings)", () => {
     const saved = JSON.parse(await readFile(p, "utf-8"));
     expect(saved.env.FOO).toBe("1");
     expect(saved.model).toBe("opus");
-    expect(saved.statusLine.command).toBe(CHAIN_COMMAND);
+    expect(saved.statusLine.command).toBe(TP_ONLY_COMMAND);
   });
 
   it("does NOT clobber a third-party statusLine without --force", async () => {
@@ -131,13 +162,13 @@ describe("handleInstallStatusline (tmp settings)", () => {
     expect(saved.statusLine.command).toBe("custom.sh"); // untouched
   });
 
-  it("replaces a third-party statusLine with --force", async () => {
+  it("replaces a third-party statusLine with --force (TP-only)", async () => {
     await writeFile(
       p,
       JSON.stringify({ statusLine: { type: "command", command: "custom.sh" } }),
     );
     await handleInstallStatusline(["--force"], { settingsPath: p });
     const saved = JSON.parse(await readFile(p, "utf-8"));
-    expect(saved.statusLine.command).toBe(CHAIN_COMMAND);
+    expect(saved.statusLine.command).toBe(TP_ONLY_COMMAND);
   });
 });
