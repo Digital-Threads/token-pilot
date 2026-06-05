@@ -39,6 +39,8 @@ export const KNOWN_COMMANDS = [
   "hook-bootstrap",
   // v0.40.0 — canonical subagent-completion capture
   "hook-subagent-stop",
+  // v0.42.0 — one-command statusline badge installer
+  "install-statusline",
   "install-hook",
   "uninstall-hook",
   "install-ast-index",

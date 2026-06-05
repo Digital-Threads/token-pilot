@@ -501,6 +501,18 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       process.exit(code);
       return;
     }
+    case "install-statusline": {
+      // v0.42.0 — wire the additive statusline badge into
+      // ~/.claude/settings.json so users don't hand-edit JSON. Never
+      // clobbers a third-party statusLine (the sessionTitle lesson);
+      // upgrades caveman-only / tp-only to the chain wrapper.
+      const { handleInstallStatusline } = await import(
+        "./cli/install-statusline.js"
+      );
+      const code = await handleInstallStatusline(cliArgs.slice(1));
+      process.exit(code);
+      return;
+    }
     case "migrate-hooks": {
       // v0.33.0 — clean stale npx-cache / pinned-version token-pilot
       // hook entries from user-level + project-level settings.json so
