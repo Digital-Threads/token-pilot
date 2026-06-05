@@ -129,6 +129,23 @@ describe("tp-statusline.sh", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("resolves the project from a top-level `cwd` field too (v0.42.2)", async () => {
+    // Claude Code's statusline payload has used both `workspace.current_dir`
+    // and a top-level `cwd`. The badge must find the project either way,
+    // else it goes blank when the field name differs.
+    const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-cwd`);
+    await mkdir(join(root, ".token-pilot"), { recursive: true });
+    await writeFile(
+      join(root, ".token-pilot", "hook-events.jsonl"),
+      '{"session_id":"s","savedTokens":42000}\n',
+    );
+    const payload = JSON.stringify({ session_id: "s", cwd: root });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    expect(out).toMatch(/\[TP 42k\]/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
   it("does not crash on malformed events.jsonl lines", async () => {
     const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-3`);
     await mkdir(join(root, ".token-pilot"), { recursive: true });

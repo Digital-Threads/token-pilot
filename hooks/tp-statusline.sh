@@ -38,14 +38,24 @@ if [ ! -t 0 ]; then
 	INPUT=$(head -c 16384 2>/dev/null || true)
 fi
 
-# Extract session_id and workspace.current_dir with plain sed. Each field
-# is then sanitised through a character whitelist so nothing survives into
-# a shell expansion that isn't safe.
+# Extract session_id and the working directory with plain sed. Each
+# field is sanitised through a character whitelist so nothing survives
+# into an unsafe shell expansion.
+#
+# v0.42.1 — read BOTH `current_dir` and `cwd`. Claude Code's statusline
+# payload has varied between `workspace.current_dir` and a top-level
+# `cwd` across versions; reading whichever is present keeps the badge
+# from going blank when the field name differs (the bare-[TP] symptom
+# was partly this — the project dir wasn't resolved, so no events file
+# was found).
 SESSION_ID=""
 CWD=""
 if [ -n "$INPUT" ]; then
 	SESSION_ID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -c 128)
 	CWD=$(printf '%s' "$INPUT" | sed -n 's/.*"current_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -c 4096)
+	if [ -z "$CWD" ]; then
+		CWD=$(printf '%s' "$INPUT" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -c 4096)
+	fi
 fi
 
 SESSION_ID=$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9-_')
