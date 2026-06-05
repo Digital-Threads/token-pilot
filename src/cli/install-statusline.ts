@@ -27,7 +27,14 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { StatuslineStatus } from "./ecosystem-check.js";
 
-/** The version-agnostic chain command (auto-picks the newest plugin dir). */
+/** TP-only badge command (DEFAULT — just token-pilot's [TP] badge). */
+export const TP_ONLY_COMMAND =
+  'bash "$(ls -t ~/.claude/plugins/cache/token-pilot/token-pilot/*/hooks/tp-statusline.sh 2>/dev/null | head -1)"';
+
+/**
+ * Chain command — renders token-pilot's badge AND any other ecosystem
+ * badge (caveman) side by side. Opt-in via `--chain`.
+ */
 export const CHAIN_COMMAND =
   'bash "$(ls -t ~/.claude/plugins/cache/token-pilot/token-pilot/*/hooks/statusline-chain.sh 2>/dev/null | head -1)"';
 
@@ -36,76 +43,108 @@ export interface InstallStatuslineResult {
   message: string;
 }
 
+export interface DecideStatuslineOpts {
+  force: boolean;
+  /** `--chain`: render caveman + [TP] together. Default false → [TP] only. */
+  chain: boolean;
+}
+
 /**
- * Pure decision: given the current statusline status, what should the
- * installer do? Separated from I/O for unit tests.
+ * Pure decision: given the current statusline status + options, what
+ * should the installer do and which command should it write?
+ *
+ * v0.42.3 — DEFAULT is now the TP-only badge. The previous default
+ * silently installed the chain wrapper, which also rendered caveman's
+ * badge — presumptuous (we install OUR badge, we don't decide that a
+ * third-party tool's badge belongs in your status bar). `--chain`
+ * opts into the combined view. token-pilot's own previous choices
+ * (tp-only ↔ chain) are switched freely; a non-token-pilot statusLine
+ * (caveman-only, custom) is never clobbered without `--force`.
  */
 export function decideStatuslineAction(
   status: StatuslineStatus,
-  force: boolean,
-): { write: boolean; result: InstallStatuslineResult } {
+  opts: DecideStatuslineOpts,
+): { write: boolean; command: string; result: InstallStatuslineResult } {
+  const command = opts.chain ? CHAIN_COMMAND : TP_ONLY_COMMAND;
+  const badgeDesc = opts.chain ? "caveman + [TP] badges" : "[TP] badge";
+  const noWrite = (action: InstallStatuslineResult["action"], message: string) => ({
+    write: false,
+    command,
+    result: { action, message },
+  });
+  const doWrite = (action: InstallStatuslineResult["action"], message: string) => ({
+    write: true,
+    command,
+    result: { action, message },
+  });
+
   switch (status) {
     case "not-configured":
-      return {
-        write: true,
-        result: {
-          action: "installed",
-          message:
-            "statusLine configured — the [TP] badge will show in your status bar (restart Claude Code).",
-        },
-      };
-    case "configured-caveman-only":
+      return doWrite(
+        "installed",
+        `statusLine configured — the ${badgeDesc} will show in your status bar (restart Claude Code).`,
+      );
+
     case "configured-tp-only":
-      return {
-        write: true,
-        result: {
-          action: "upgraded",
-          message:
-            "statusLine upgraded to the chain wrapper — both caveman and [TP] badges now render side by side.",
-        },
-      };
+      // Already ours. Switch only if the user asked for the chain.
+      return opts.chain
+        ? doWrite(
+            "upgraded",
+            "statusLine upgraded to the chain wrapper — caveman + [TP] now render side by side.",
+          )
+        : noWrite("noop", "statusLine already shows the [TP] badge. Nothing to do.");
+
     case "configured-chain":
-      return {
-        write: false,
-        result: {
-          action: "noop",
-          message: "statusLine already uses the token-pilot chain wrapper. Nothing to do.",
-        },
-      };
-    case "configured-other":
-      if (force) {
-        return {
-          write: true,
-          result: {
-            action: "installed",
-            message:
-              "Replaced your custom statusLine with the token-pilot chain wrapper (--force).",
-          },
-        };
+      // Also ours. Switch to tp-only unless the user wants the chain.
+      return opts.chain
+        ? noWrite("noop", "statusLine already uses the chain wrapper. Nothing to do.")
+        : doWrite(
+            "installed",
+            "statusLine switched to the [TP]-only badge (caveman badge removed from the status bar).",
+          );
+
+    case "configured-caveman-only":
+      // Caveman's own statusline — NOT ours. Don't replace it silently.
+      if (opts.chain) {
+        return doWrite(
+          "upgraded",
+          "statusLine upgraded to the chain wrapper — keeps caveman and adds [TP].",
+        );
       }
-      return {
-        write: false,
-        result: {
-          action: "skipped",
-          message:
-            "You already have a custom statusLine — left untouched. " +
-            "To show the [TP] badge too, set statusLine.command to:\n  " +
-            CHAIN_COMMAND +
-            "\nor re-run with --force to replace it.",
-        },
-      };
+      if (opts.force) {
+        return doWrite(
+          "installed",
+          "Replaced caveman's statusLine with the [TP]-only badge (--force).",
+        );
+      }
+      return noWrite(
+        "skipped",
+        "Your statusLine is caveman's. Left untouched. Run with --chain to show " +
+          "both badges, or --force to replace it with [TP] only.",
+      );
+
+    case "configured-other":
+      if (opts.force) {
+        return doWrite(
+          "installed",
+          `Replaced your custom statusLine with the ${badgeDesc} (--force).`,
+        );
+      }
+      return noWrite(
+        "skipped",
+        "You already have a custom statusLine — left untouched. To use the " +
+          `${badgeDesc}, re-run with --force, or set statusLine.command to:\n  ` +
+          command,
+      );
+
     case "unknown":
     default:
-      return {
-        write: false,
-        result: {
-          action: "skipped",
-          message:
-            "Could not read ~/.claude/settings.json as JSON — not modifying it. " +
-            "Add this manually under \"statusLine\":\n  " +
-            CHAIN_COMMAND,
-        },
-      };
+      return noWrite(
+        "skipped",
+        'Could not read ~/.claude/settings.json as JSON — not modifying it. ' +
+          'Add this manually under "statusLine":\n  ' +
+          command,
+      );
   }
 }
 
@@ -145,11 +184,15 @@ export async function handleInstallStatusline(
   opts?: { settingsPath?: string },
 ): Promise<number> {
   const force = argv.includes("--force");
+  const chain = argv.includes("--chain");
   const settingsPath =
     opts?.settingsPath ?? join(homedir(), ".claude", "settings.json");
 
   const status = await classifyStatuslineAt(settingsPath);
-  const { write, result } = decideStatuslineAction(status, force);
+  const { write, command, result } = decideStatuslineAction(status, {
+    force,
+    chain,
+  });
 
   if (!write) {
     process.stdout.write(`[token-pilot] ${result.message}\n`);
@@ -168,7 +211,7 @@ export async function handleInstallStatusline(
     /* fresh file — start clean (only reached when status was safe) */
   }
 
-  settings.statusLine = { type: "command", command: CHAIN_COMMAND };
+  settings.statusLine = { type: "command", command };
 
   try {
     await mkdir(dirname(settingsPath), { recursive: true });
