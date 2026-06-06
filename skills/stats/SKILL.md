@@ -3,6 +3,9 @@ name: stats
 description: Show Token Pilot session analytics — token savings, per-tool breakdown, top files, per-agent grouping
 command: stats
 user_invocable: true
+# v0.43.0 — effort (Claude Code 2.1.16x). stats reads the events log and
+# runs `token-pilot stats` variants — no reasoning, so `low` is enough.
+effort: low
 # v0.36.0 — disallowed-tools (Claude Code 2.1.152+). stats only reads
 # the events log and runs `token-pilot stats` variants. No
 # Edit/Write/Task ever — block them defensively.

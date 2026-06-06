@@ -42,6 +42,7 @@ import { handleRelatedFiles } from "./handlers/related-files.js";
 import { handleOutline } from "./handlers/outline.js";
 import { handleCodeAudit } from "./handlers/code-audit.js";
 import { handleModuleInfo } from "./handlers/module-info.js";
+import { handleModuleRoute } from "./handlers/module-route.js";
 import { handleSmartDiff } from "./handlers/smart-diff.js";
 import { handleExploreArea } from "./handlers/explore-area.js";
 import { handleSmartLog } from "./handlers/smart-log.js";
@@ -85,6 +86,7 @@ import {
   validateCodeAuditArgs,
   validateProjectOverviewArgs,
   validateModuleInfoArgs,
+  validateModuleRouteArgs,
   validateSmartDiffArgs,
   validateExploreAreaArgs,
   validateSmartLogArgs,
@@ -97,6 +99,14 @@ export async function createServer(
   options?: { skipAstIndex?: boolean; enforcementMode?: EnforcementMode },
 ) {
   const mode: EnforcementMode = options?.enforcementMode ?? "deny";
+  // v0.43.0 — the real Claude Code session id. CC exports it to every
+  // child process (MCP server, hooks, Bash) via CLAUDE_CODE_SESSION_ID —
+  // verified against the 2.1.167 bundle, and it is the exact same value
+  // the PreToolUse hooks receive and the statusline payload carries.
+  // Stamping it on each tool-call row lets the statusline badge attribute
+  // MCP-tool savings to the current session; before this the rows carried
+  // an empty session_id and the badge ignored them, undercounting savings.
+  const ccSessionId = process.env.CLAUDE_CODE_SESSION_ID ?? "";
   const config = await loadConfig(projectRoot);
   const astIndex = new AstIndexClient(projectRoot, config.astIndex.timeout, {
     binaryPath: config.astIndex.binaryPath,
@@ -457,7 +467,7 @@ export async function createServer(
     // future prune/fix decision.
     void appendToolCall(projectRoot, {
       ts: rest.timestamp,
-      session_id: call.sessionId ?? "",
+      session_id: call.sessionId ?? ccSessionId,
       tool: rest.tool,
       path: rest.path,
       tokensReturned: rest.tokensReturned,
@@ -1184,6 +1194,50 @@ export async function createServer(
             args: moduleArgs,
           });
           return moduleResult;
+        }
+
+        case "module_route": {
+          const routeArgs = validateModuleRouteArgs(args);
+          const cachedRoute = sessionCache?.get("module_route", routeArgs);
+          if (cachedRoute) {
+            recordWithTrace({
+              tool: "module_route",
+              path: `${routeArgs.from}→${routeArgs.to}`,
+              tokensReturned: cachedRoute.tokenEstimate,
+              tokensWouldBe:
+                cachedRoute.tokensWouldBe ?? cachedRoute.tokenEstimate,
+              timestamp: Date.now(),
+              sessionCacheHit: true,
+              savingsCategory: "cache",
+              args: routeArgs,
+            });
+            return cachedRoute.result;
+          }
+          const routeResult = await handleModuleRoute(
+            routeArgs,
+            projectRoot,
+            astIndex,
+          );
+          const routeText = routeResult.content[0]?.text ?? "";
+          const routeTokens = estimateTokens(routeText);
+          sessionCache?.set(
+            "module_route",
+            routeArgs,
+            routeResult,
+            { dependsOnAst: true },
+            routeTokens,
+            routeTokens,
+          );
+          recordWithTrace({
+            tool: "module_route",
+            path: `${routeArgs.from}→${routeArgs.to}`,
+            tokensReturned: routeTokens,
+            tokensWouldBe: routeTokens,
+            timestamp: Date.now(),
+            savingsCategory: "compression",
+            args: routeArgs,
+          });
+          return routeResult;
         }
 
         case "smart_diff": {

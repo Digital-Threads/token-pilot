@@ -1886,12 +1886,12 @@ Usage:
 Quick start:
   npx token-pilot init              Setup .mcp.json (token-pilot + context-mode)
 
-MCP Tools (22):
+MCP Tools (23):
   smart_read, read_symbol, read_symbols, read_range, read_section, read_diff,
   read_for_edit, smart_read_many, find_usages, find_unused, related_files,
   outline, project_overview, session_analytics, code_audit, module_info,
-  smart_diff, explore_area, smart_log, test_summary, session_snapshot,
-  session_budget
+  module_route, smart_diff, explore_area, smart_log, test_summary,
+  session_snapshot, session_budget
 `);
   process.exit(0);
 }

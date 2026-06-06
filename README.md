@@ -43,7 +43,7 @@ Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https
 
 ## What You Get
 
-- **22 MCP tools** — structural reads, symbol search, git analysis, session analytics → [tools reference](docs/tools.md)
+- **23 MCP tools** — structural reads, symbol search, git analysis, module routing, session analytics → [tools reference](docs/tools.md)
 - **PreToolUse hooks** — block heavy `Grep`/`Bash`/`Read` calls; redirect to efficient alternatives → [hooks & modes](docs/hooks.md)
 - **25 `tp-*` subagents** (Claude Code only) — MCP-first delegates with haiku/sonnet model tiers and budget enforcement → [agents reference](docs/agents.md)
 - **Tool profiles** — trim advertised `tools/list` to save ~2 k tokens per session → [profiles & config](docs/configuration.md)

@@ -583,6 +583,85 @@ export function validateModuleInfoArgs(args: unknown): ModuleInfoArgs {
 }
 
 /**
+ * Validate module_route arguments.
+ *
+ * Wraps ast-index 3.44 `module-route` — the transitive dependency path
+ * between two modules. `from`/`to` are required; everything else mirrors
+ * the CLI flags with sane caps.
+ */
+export interface ModuleRouteArgs {
+  from: string;
+  to: string;
+  all?: boolean;
+  maxPaths?: number;
+  maxDepth?: number;
+  viaKind?: "api" | "implementation" | "all";
+  format?: "text" | "json" | "mermaid" | "dot";
+}
+
+export function validateModuleRouteArgs(args: unknown): ModuleRouteArgs {
+  if (!args || typeof args !== "object") {
+    throw new Error(
+      'Arguments must be an object with "from" and "to" parameters.',
+    );
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.from !== "string" || a.from.length === 0) {
+    throw new Error('Required parameter "from" must be a non-empty string.');
+  }
+  if (typeof a.to !== "string" || a.to.length === 0) {
+    throw new Error('Required parameter "to" must be a non-empty string.');
+  }
+
+  let viaKind: ModuleRouteArgs["viaKind"];
+  if (a.viaKind !== undefined && a.viaKind !== null) {
+    const valid = ["api", "implementation", "all"];
+    if (typeof a.viaKind !== "string" || !valid.includes(a.viaKind)) {
+      throw new Error(`"viaKind" must be one of: ${valid.join(", ")}`);
+    }
+    viaKind = a.viaKind as ModuleRouteArgs["viaKind"];
+  }
+
+  let format: ModuleRouteArgs["format"];
+  if (a.format !== undefined && a.format !== null) {
+    const valid = ["text", "json", "mermaid", "dot"];
+    if (typeof a.format !== "string" || !valid.includes(a.format)) {
+      throw new Error(`"format" must be one of: ${valid.join(", ")}`);
+    }
+    format = a.format as ModuleRouteArgs["format"];
+  }
+
+  // Clamp numeric caps to safe ranges — never trust the caller blindly.
+  let maxPaths: number | undefined;
+  if (a.maxPaths !== undefined && a.maxPaths !== null) {
+    const n = Number(a.maxPaths);
+    if (!Number.isFinite(n) || n < 1) {
+      throw new Error('"maxPaths" must be a positive number.');
+    }
+    maxPaths = Math.min(Math.floor(n), 200);
+  }
+
+  let maxDepth: number | undefined;
+  if (a.maxDepth !== undefined && a.maxDepth !== null) {
+    const n = Number(a.maxDepth);
+    if (!Number.isFinite(n) || n < 1) {
+      throw new Error('"maxDepth" must be a positive number.');
+    }
+    maxDepth = Math.min(Math.floor(n), 50);
+  }
+
+  return {
+    from: a.from,
+    to: a.to,
+    all: a.all === true,
+    maxPaths,
+    maxDepth,
+    viaKind,
+    format,
+  };
+}
+
+/**
  * Validate smart_diff arguments.
  */
 export interface SmartDiffArgs {

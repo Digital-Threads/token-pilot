@@ -5,6 +5,107 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-06-06
+
+Bundled release: everything actionable from **ast-index 3.41→3.45** and
+**Claude Code 2.1.163→2.1.167**, plus a statusline fix.
+
+### Added — `module_route` MCP tool (ast-index 3.44)
+
+New tool wrapping ast-index's `module-route` command: the transitive
+dependency path(s) between two modules. Answers "how does module A reach
+module B through the import graph?", traces coupling, and can emit a
+dependency diagram.
+
+- `from` / `to` (required), plus `all`, `maxPaths` (≤200), `maxDepth`
+  (≤50), `viaKind` (`api`/`implementation`/`all`), `format`
+  (`text`/`json`/`mermaid`/`dot`).
+- Machine formats (json/mermaid/dot) pass through clean — no header that
+  would corrupt a diagram/parse. Text format gets a `MODULE ROUTE: a → b`
+  header.
+- Empty output explains both causes (modules unrelated **or** the
+  module-dependency graph isn't indexed — `ast-index rebuild`).
+- Full-profile only (not in nav/edit/minimal sets) — a specialised
+  analysis tool, like the audit tools.
+- `exec` already sets `AST_INDEX_WALK_UP=1`, so the route resolves from a
+  monorepo subdir without passing `--walk-up`.
+
+### Fixed — statusline now counts MCP-tool savings, not just hook denials
+
+The badge summed only `hook-events.jsonl` (`savedTokens` from intercepted
+raw `Read`/`Grep`). The larger share — savings from the MCP tools
+themselves (`smart_read`, `outline`, `find_usages`, …) — lives in
+`tool-calls.jsonl` and was **invisible** to the badge, so the displayed
+figure undercounted real savings (often by an order of magnitude).
+
+Two changes fix it:
+
+- The MCP server now stamps every `tool-calls.jsonl` row with the real
+  Claude Code session id, read from `CLAUDE_CODE_SESSION_ID` (exported to
+  child processes; verified against the 2.1.167 bundle — the same value
+  the hooks receive and the statusline payload carries). Previously these
+  rows had an empty `session_id`, so they could not be attributed to a
+  session at all.
+- The statusline sums **both** logs: `hook-events.jsonl` `savedTokens`
+  plus `tool-calls.jsonl` (`tokensWouldBe − tokensReturned`), each split
+  into the current session and the project total. Zero/negative deltas
+  (pass-throughs) are ignored.
+
+### Added — statusline Claude.ai rate limits (CC 2.1.80+)
+
+The badge now appends `5h:42% 7d:13%` when the statusline payload carries
+`rate_limits` (subscribers only, after the first API response). Schema
+verified against the 2.1.167 bundle: `rate_limits.five_hour.used_percentage`
+and `rate_limits.seven_day.used_percentage`. Unlike the cumulative token
+total, these numbers move every turn — the badge finally shows something
+live. Parsed with `sed` (no `jq` dependency) and whitelisted to digits.
+
+### Fixed — statusline bare `[TP]` in monorepos / subdirs / worktrees
+
+The badge resolved the events log only at the exact `cwd` from the
+payload. In a monorepo (or worktree, or any session `cd`'d into a
+subpackage) the `.token-pilot/` dir is at the repo root, so the lookup
+failed and rendered a bare `[TP]` with no token count. The script now
+**walks up** to the nearest ancestor with `.token-pilot/` (bounded to 40
+levels), the same way git finds `.git`.
+
+### Changed — statusline shows session + project savings (`s:12.3k · 172.6k`)
+
+The badge now renders **both** the current session's saved tokens (the
+number you watch climb during a run) and the cumulative project total,
+e.g. `[TP s:12.3k · 172.6k]`. A fresh session that hasn't saved anything
+yet falls back to the project total alone (never an empty badge after
+first use). Numbers render with one decimal (`172.6k`, not `172k`) so a
+single turn's ~100-token savings is visible on each render — whole-`k`
+rounding previously made the figure look frozen.
+
+### Added — `effort: low` on the bundled skills (CC 2.1.16x)
+
+`guide` / `install` / `stats` declare `effort: low` — they render static
+output or run one CLI call, so they don't need a high-effort model.
+Faster and cheaper when invoked.
+
+### Notes — Claude Code 2.1.16x integration (no code change required)
+
+- **`additionalContext` no longer dropped on a failed tool call** — our
+  PreToolUse routing guidance now survives a failed call (we benefit
+  automatically).
+- **`SubagentStop` input gained `background_tasks` / `session_crons`** —
+  available to our subagent-stop hook for future budget feedback.
+- **Glob deny rules (`"*"` denies all tools)** — usable as a second
+  enforcement layer on top of our deny hooks for stricter TP adoption.
+
+### Deferred — `MessageDisplay` hook (researched, not shipped)
+
+CC's new `MessageDisplay` hook transforms assistant text *as displayed*.
+Deliberately NOT wired this release: (1) the output contract (the field
+that returns replacement text) is not confirmable from the minified
+2.1.167 bundle — and our rule is never to ship an unverified CC field
+beside working hooks; (2) it is display-only, so it saves no input or
+output tokens (the text is already generated and already in context).
+That is caveman's cosmetic-output domain, not token-pilot's input domain.
+Revisit once a live MessageDisplay payload pins the contract.
+
 ## [0.30.0] - 2026-04-19
 
 ### Added — `minimal` profile (5 tools, near-zero overhead)

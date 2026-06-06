@@ -3,6 +3,10 @@ name: install
 description: Install or check ast-index binary (auto-downloads if missing)
 command: install
 user_invocable: true
+# v0.43.0 — effort (Claude Code 2.1.16x). install drives one
+# `npx token-pilot install-ast-index` Bash call; no reasoning needed,
+# so `low` keeps it fast and cheap.
+effort: low
 # v0.36.0 — disallowed-tools (Claude Code 2.1.152+). The install
 # skill drives one `npx token-pilot install-ast-index` Bash command;
 # nothing else. Keep Bash, block all write/edit/delegation tools so

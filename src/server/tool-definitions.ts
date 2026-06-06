@@ -651,6 +651,51 @@ export const TOOL_DEFINITIONS = [
       required: ["module"],
     },
   },
+  {
+    name: "module_route",
+    description:
+      "Show the transitive dependency path(s) between two modules — how module A reaches module B through the import graph. Use to answer 'how does X depend on Y?', trace coupling, or generate a dependency diagram. format='mermaid'/'dot' emits a diagram; default text lists the hops.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        from: {
+          type: "string",
+          description:
+            'Source module — the one whose dependencies are followed (name or path, e.g. "auth", "apps/api")',
+        },
+        to: {
+          type: "string",
+          description: "Target module to reach",
+        },
+        all: {
+          type: "boolean",
+          description:
+            "Show all simple paths instead of just the shortest (default: false)",
+        },
+        maxPaths: {
+          type: "number",
+          description: "Cap on number of paths returned (default: 50, max: 200)",
+        },
+        maxDepth: {
+          type: "number",
+          description: "Cap on path length in hops (default: 20, max: 50)",
+        },
+        viaKind: {
+          type: "string",
+          enum: ["api", "implementation", "all"],
+          description:
+            'Restrict traversal to a dependency kind (default: "all")',
+        },
+        format: {
+          type: "string",
+          enum: ["text", "json", "mermaid", "dot"],
+          description:
+            'Output format: "text" (default, hop listing), "json", "mermaid" or "dot" (dependency diagram)',
+        },
+      },
+      required: ["from", "to"],
+    },
+  },
   // --- Diff & exploration ---
   {
     name: "smart_diff",

@@ -1,18 +1,15 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { FileStructure, SymbolInfo } from "../types.js";
+import type { FileStructure } from "../types.js";
 import type {
-  AstIndexOutlineEntry,
   AstIndexSymbolRaw,
   AstIndexSymbolDetail,
-  AstIndexSearchResponse,
   AstIndexSearchResult,
   AstIndexUsageRaw,
   AstIndexUsageResult,
   AstIndexImplementation,
   AstIndexHierarchyNode,
   AstIndexRefsResponse,
-  AstIndexRefEntry,
   AstIndexMapResponse,
   AstIndexConventionsResponse,
   AstIndexCallerEntry,
@@ -44,9 +41,6 @@ import {
   parseModuleDepText,
   parseUnusedDepsText,
   parseModuleApiText,
-  mapKind,
-  mapVisibility,
-  detectLanguage,
 } from "./parser.js";
 import { buildFileStructure } from "./enricher.js";
 import { parseTypeScriptRegex } from "./regex-parser.js";
@@ -847,6 +841,42 @@ export class AstIndexClient {
         `[token-pilot] ast-index deps failed: ${err instanceof Error ? err.message : err}`,
       );
       return [];
+    }
+  }
+
+  /**
+   * Transitive dependency path(s) between two modules — ast-index 3.44
+   * `module-route`. Returns the raw CLI output for the requested format
+   * (text/json/mermaid/dot); the handler frames it. Null when the index
+   * is unavailable. `exec` already sets AST_INDEX_WALK_UP=1, so the
+   * `--walk-up` flag is implied and not passed here.
+   */
+  async moduleRoute(opts: {
+    from: string;
+    to: string;
+    all?: boolean;
+    maxPaths?: number;
+    maxDepth?: number;
+    viaKind?: string;
+    format?: string;
+  }): Promise<string | null> {
+    if (this.indexDisabled || this.indexOversized) return null;
+    await this.ensureIndex();
+    try {
+      const cmdArgs = ["module-route", "--from", opts.from, "--to", opts.to];
+      if (opts.all) cmdArgs.push("--all");
+      if (opts.maxPaths != null)
+        cmdArgs.push("--max-paths", String(opts.maxPaths));
+      if (opts.maxDepth != null)
+        cmdArgs.push("--max-depth", String(opts.maxDepth));
+      if (opts.viaKind) cmdArgs.push("--via-kind", opts.viaKind);
+      if (opts.format) cmdArgs.push("--format", opts.format);
+      return await this.exec(cmdArgs, 15000);
+    } catch (err) {
+      console.error(
+        `[token-pilot] ast-index module-route failed: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
     }
   }
 

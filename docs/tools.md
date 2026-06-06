@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-Token Pilot exposes 22 MCP tools. All handlers remain active regardless of [tool profile](configuration.md#tool-profiles) — the profile only trims what appears in `tools/list` at session start.
+Token Pilot exposes 23 MCP tools. All handlers remain active regardless of [tool profile](configuration.md#tool-profiles) — the profile only trims what appears in `tools/list` at session start.
 
 ## Reading
 
@@ -26,6 +26,7 @@ Token Pilot exposes 22 MCP tools. All handlers remain active regardless of [tool
 | `find_unused` | manual | Dead code detection — unreferenced exported symbols |
 | `code_audit` | multiple `Grep` | TODOs, deprecated symbols, structural patterns |
 | `module_info` | manual | Deps, dependents, public API, unused deps |
+| `module_route` | manual | Transitive dependency path(s) between two modules; `format=mermaid`/`dot` emits a diagram |
 | `smart_diff` | raw `git diff` | Structural diff with symbol mapping |
 | `explore_area` | 3–5 calls | Structure + imports + tests + recent changes in one call |
 | `smart_log` | raw `git log` | Structured commits with category detection |

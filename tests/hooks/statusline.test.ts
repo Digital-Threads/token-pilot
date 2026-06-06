@@ -103,8 +103,9 @@ describe("tp-statusline.sh", () => {
       workspace: { current_dir: root },
     });
     const out = strip(runScript(TP_SCRIPT, payload));
-    // v0.42.1 — cumulative across ALL sessions: 5000+3500+9999+2000 = 20499 → "20k"
-    expect(out).toMatch(/\[TP 20k\]/);
+    // v0.43.0 — session (sess-abc: 5000+3500+2000 = 10500) + project
+    // (all sessions: +9999 = 20499) → "s:10.5k · 20.4k".
+    expect(out).toMatch(/\[TP s:10\.5k · 20\.4k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -124,7 +125,8 @@ describe("tp-statusline.sh", () => {
       workspace: { current_dir: root },
     });
     const out = strip(runScript(TP_SCRIPT, payload));
-    expect(out).toMatch(/\[TP 99k\]/);
+    // v0.42.4 — one decimal place → 99999 → "99.9k".
+    expect(out).toMatch(/\[TP 99\.9k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -141,7 +143,29 @@ describe("tp-statusline.sh", () => {
     );
     const payload = JSON.stringify({ session_id: "s", cwd: root });
     const out = strip(runScript(TP_SCRIPT, payload));
-    expect(out).toMatch(/\[TP 42k\]/);
+    // v0.43.0 — the single event belongs to session "s", so session and
+    // project totals are both 42000 → "s:42.0k · 42.0k".
+    expect(out).toMatch(/\[TP s:42\.0k · 42\.0k\]/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("resolves the project by walking UP from a sub-directory cwd (v0.42.4)", async () => {
+    // Monorepo / worktree case: the events log lives at the repo root but
+    // Claude Code's cwd is a nested package dir. The badge must walk up to
+    // find `.token-pilot/`, else it renders a bare [TP] with no count —
+    // the dominant real-world symptom.
+    const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-up`);
+    const subdir = join(root, "apps", "api", "src");
+    await mkdir(join(root, ".token-pilot"), { recursive: true });
+    await mkdir(subdir, { recursive: true });
+    await writeFile(
+      join(root, ".token-pilot", "hook-events.jsonl"),
+      '{"session_id":"s","savedTokens":150000}\n',
+    );
+    const payload = JSON.stringify({ session_id: "s", cwd: subdir });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    expect(out).toMatch(/\[TP s:150\.0k · 150\.0k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -162,7 +186,9 @@ describe("tp-statusline.sh", () => {
       workspace: { current_dir: root },
     });
     const out = strip(runScript(TP_SCRIPT, payload));
-    expect(out).toMatch(/\[TP 500\]/);
+    // The one valid line belongs to session "sess-x" → session & project
+    // both 500 (sub-1k → no decimal): "s:500 · 500".
+    expect(out).toMatch(/\[TP s:500 · 500\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -179,6 +205,104 @@ describe("tp-statusline.sh", () => {
     // The crucial guarantee: no execution of `whoami`.
     expect(out).toBe("[TP]");
     expect(out).not.toContain(process.env.USER ?? "unusedsentinel");
+  });
+
+  it("splits session vs project totals when they differ (v0.43.0)", async () => {
+    const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-sp`);
+    await mkdir(join(root, ".token-pilot"), { recursive: true });
+    await writeFile(
+      join(root, ".token-pilot", "hook-events.jsonl"),
+      [
+        '{"session_id":"now","savedTokens":12300}',
+        '{"session_id":"past","savedTokens":160300}',
+      ].join("\n"),
+    );
+    const payload = JSON.stringify({ session_id: "now", cwd: root });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    // session now = 12300 → 12.3k; project = 172600 → 172.6k.
+    expect(out).toMatch(/\[TP s:12\.3k · 172\.6k\]/);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("counts MCP-tool savings from tool-calls.jsonl too (v0.43.0)", async () => {
+    // tool-calls.jsonl savings = tokensWouldBe − tokensReturned. The badge
+    // must sum these on top of hook-events.jsonl savedTokens, attributing
+    // both to the session_id.
+    const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-tc`);
+    await mkdir(join(root, ".token-pilot"), { recursive: true });
+    await writeFile(
+      join(root, ".token-pilot", "hook-events.jsonl"),
+      '{"session_id":"now","event":"denied","savedTokens":5000}\n',
+    );
+    await writeFile(
+      join(root, ".token-pilot", "tool-calls.jsonl"),
+      [
+        // session "now": 36823 − 2306 = 34517 saved
+        '{"session_id":"now","tool":"outline","tokensReturned":2306,"tokensWouldBe":36823}',
+        // another session: 10139 − 139 = 10000, counts toward project only
+        '{"session_id":"old","tool":"smart_read","tokensReturned":139,"tokensWouldBe":10139}',
+      ].join("\n"),
+    );
+    const payload = JSON.stringify({ session_id: "now", cwd: root });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    // session = 5000 + 34517 = 39517 → 39.5k; project = +10000 = 49517 → 49.5k
+    expect(out).toMatch(/\[TP s:39\.5k · 49\.5k\]/);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("ignores zero/negative tool-call deltas (v0.43.0)", async () => {
+    // A pass-through (tokensWouldBe == tokensReturned) saves nothing and
+    // must not inflate the badge.
+    const root = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-z`);
+    await mkdir(join(root, ".token-pilot"), { recursive: true });
+    await writeFile(
+      join(root, ".token-pilot", "tool-calls.jsonl"),
+      [
+        '{"session_id":"s","tool":"smart_read","tokensReturned":500,"tokensWouldBe":500}',
+        '{"session_id":"s","tool":"read_symbol","tokensReturned":900,"tokensWouldBe":3300}',
+      ].join("\n"),
+    );
+    const payload = JSON.stringify({ session_id: "s", cwd: root });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    // only the second row saves: 3300 − 900 = 2400 → "2.4k" (session == project)
+    expect(out).toMatch(/\[TP s:2\.4k · 2\.4k\]/);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("appends Claude.ai rate limits when present (v0.43.0)", () => {
+    const payload = JSON.stringify({
+      cwd: "/tmp",
+      rate_limits: {
+        five_hour: { used_percentage: 42, resets_at: 1 },
+        seven_day: { used_percentage: 13, resets_at: 2 },
+      },
+    });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    expect(out).toBe("[TP 5h:42% 7d:13%]");
+  });
+
+  it("shows only the 5-hour window when seven_day is absent", () => {
+    const payload = JSON.stringify({
+      cwd: "/tmp",
+      rate_limits: { five_hour: { used_percentage: 7, resets_at: 1 } },
+    });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    expect(out).toBe("[TP 5h:7%]");
+  });
+
+  it("renders the plain badge when rate_limits is absent (non-subscriber)", () => {
+    const out = strip(runScript(TP_SCRIPT, JSON.stringify({ cwd: "/tmp" })));
+    expect(out).toBe("[TP]");
+  });
+
+  it("does not let a non-numeric used_percentage inject (v0.43.0)", () => {
+    const payload = JSON.stringify({
+      cwd: "/tmp",
+      rate_limits: { five_hour: { used_percentage: "; rm -rf /" } },
+    });
+    const out = strip(runScript(TP_SCRIPT, payload));
+    // Non-numeric → sed pattern doesn't match → no rate-limit suffix, no exec.
+    expect(out).toBe("[TP]");
   });
 });
 

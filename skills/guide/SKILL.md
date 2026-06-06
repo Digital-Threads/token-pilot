@@ -3,6 +3,10 @@ name: guide
 description: Show a quick-reference guide for all Token Pilot tools — when to use each one
 command: guide
 user_invocable: true
+# v0.43.0 — effort (Claude Code 2.1.16x) overrides model effort while
+# this skill runs. The guide just renders a static Markdown reference —
+# it needs no reasoning, so `low` keeps it fast and cheap.
+effort: low
 # v0.36.0 — disallowed-tools is a Claude Code 2.1.152+ field that
 # strips the listed tools from the model's surface while this skill
 # is active. The guide just renders Markdown; it never needs Edit /
