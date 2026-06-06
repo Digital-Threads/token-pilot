@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.43.0",
+  "version": "0.43.1",
   "description": "Saves 60-90% tokens on AI code reading. AST-aware lazy reads, symbol navigation, find_usages, structural git diff/log, edit-safety guard, Task-routing matcher, cross-session telemetry (errors + diagnostics), 25 tp-* subagents tiered to haiku/sonnet/opus with budget watchdog.",
   "author": {
     "name": "Digital-Threads",

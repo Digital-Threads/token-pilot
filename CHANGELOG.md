@@ -5,6 +5,14 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.1] - 2026-06-06
+
+### Fixed — `@ast-index/cli` floor raised to `^3.44.0`
+
+`module_route` (0.43.0) needs the ast-index `module-route` command, which
+exists only in ast-index 3.44+. The floor was `^3.38.0`, so an install
+resolving ast-index below 3.44 would have `module_route` fail. No API change.
+
 ## [0.43.0] - 2026-06-06
 
 Bundled release: everything actionable from **ast-index 3.41→3.45** and
