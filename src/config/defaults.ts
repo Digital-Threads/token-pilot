@@ -29,7 +29,11 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
     autoInstall: true,
     denyThreshold: 300,
     mode: "deny-enhanced",
-    adaptiveThreshold: false,
+    // v0.44.0 — ON by default. The curve is a no-op below 30% session
+    // burn (short/light sessions read exactly as before), and only
+    // tightens the deny threshold once an agent has already pulled many
+    // large files — i.e. the long-session degradation users actually hit.
+    adaptiveThreshold: true,
     adaptiveBudgetTokens: 100_000,
   },
   context: {

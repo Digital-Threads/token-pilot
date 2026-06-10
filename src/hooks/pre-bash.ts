@@ -43,6 +43,12 @@ export type PreBashDecision =
 const CODE_EXT_RE =
   /\.(ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|swift|php|cs|cpp|c|h|hpp|scala|clj|ex|exs|elm|ml|fs|dart|lua|sh|bash|zsh)(\s|$|;|\||&|>|<)/;
 
+// v0.44.0 — a `head -n N` / `tail -n N` slice this large on a code file is
+// a whole-file dump in disguise. Mirrors the Read-hook denyThreshold (300)
+// so the two layers agree on what counts as "too big". Smaller slices are
+// the sanctioned bounded alternative and pass through.
+const RAW_SLICE_DENY_LINES = 300;
+
 /** Check whether the command contains a specific utility invocation at
  *  top level (not inside a quoted string). Cheap lexical match. */
 function invokes(command: string, utility: string): boolean {
@@ -162,6 +168,43 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
         "or Read(path, offset, limit) for a bounded slice. " +
         "For head/tail access use `head -n N` or `tail -n N`.",
     };
+  }
+
+  // 3b. sed / head / tail reading a code file as a raw range dump.
+  // v0.44.0 — closes the leak the cat rule left open: an agent under
+  // context pressure reaches for `sed -n '1,500p' file.ts` or
+  // `head -n 500 file.ts` to pull a big slice straight to stdout,
+  // sidestepping both the Read hook and the cat rule. Exempt the same
+  // shapes cat exempts — pipes (processing) and redirects (writing) —
+  // plus `sed -i` (in-place edit, not a read).
+  const dumpsCodeFile =
+    CODE_EXT_RE.test(cmd) && !cmd.includes("|") && !/>/.test(cmd);
+
+  if (dumpsCodeFile && invokes(cmd, "sed") && !/\bsed\b[^|>]*\s-i\b/.test(cmd)) {
+    return {
+      kind: "deny",
+      reason:
+        "`sed` on a code file dumps a raw range into context. " +
+        "Use mcp__token-pilot__read_range(path, start, end) for a bounded slice, " +
+        "read_symbol(path, name) for one function, or smart_read(path) for structure.",
+    };
+  }
+
+  if (dumpsCodeFile && (invokes(cmd, "head") || invokes(cmd, "tail"))) {
+    // Match an explicit line count: `-500`, `-n 500`, `-n500`. A `-c N`
+    // byte count or the default (no flag → 10 lines) never matches, so
+    // genuinely small slices pass through untouched.
+    const m = cmd.match(/(?:^|\s)-(?:n\s*)?(\d+)\b/);
+    const n = m ? parseInt(m[1], 10) : 0;
+    if (n >= RAW_SLICE_DENY_LINES) {
+      return {
+        kind: "deny",
+        reason:
+          "`head`/`tail` with a large line count dumps a big slice into context. " +
+          "Use mcp__token-pilot__read_range(path, start, end) for a bounded slice, " +
+          "or smart_read(path) for a structural overview.",
+      };
+    }
   }
 
   // 4. git log without -n / -N / -<N> (short-form max-count) / --max-count

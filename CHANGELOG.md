@@ -5,6 +5,30 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-06-10
+
+### Changed — adaptive deny threshold ON by default
+
+`hooks.adaptiveThreshold` now defaults to `true`. The curve is a no-op below
+30% session burn, so short / light sessions read exactly as before. Once an
+agent has already pulled many large files — the long-session degradation users
+actually report — the Read-hook deny threshold tightens (300 → 225 → 150 → 90,
+floor 50 lines), pushing the agent back onto `smart_read` / `read_symbol` when
+context is most precious. Opt out with `adaptiveThreshold: false`.
+
+### Added — pre-bash catches `sed` / `head` / `tail` raw-range dumps
+
+The Bash pre-hook already blocked `cat <code-file>`; agents under pressure
+worked around it with `sed -n '1,500p' file.ts` or `head -n 500 file.ts` to
+pull a large slice straight to stdout. These now deny with a pointer to
+`read_range` / `read_symbol` / `smart_read`. Exempt, as before: pipes
+(processing), redirects (writing), `sed -i` (in-place edit), and small
+`head` / `tail` counts (< 300 lines — the sanctioned bounded read).
+
+### Maintenance
+
+`@ast-index/cli` lockfile tracks `3.47.0` (floor `^3.44.0` unchanged).
+
 ## [0.43.1] - 2026-06-06
 
 ### Fixed — `@ast-index/cli` floor raised to `^3.44.0`

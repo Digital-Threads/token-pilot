@@ -89,6 +89,53 @@ describe("detectHeavyPattern — cat on code files", () => {
   });
 });
 
+describe("detectHeavyPattern — sed/head/tail raw range dump (v0.44.0)", () => {
+  it("blocks sed -n range-print on a code file", () => {
+    expect(detectHeavyPattern("sed -n '1,500p' src/foo.ts").kind).toBe("deny");
+    expect(detectHeavyPattern("sed -n 1,400p app/main.py").kind).toBe("deny");
+  });
+
+  it("allows sed -i (in-place edit, not a read)", () => {
+    expect(detectHeavyPattern("sed -i 's/a/b/' src/foo.ts").kind).toBe("allow");
+    expect(detectHeavyPattern("sed -i.bak 's/a/b/g' src/foo.ts").kind).toBe(
+      "allow",
+    );
+  });
+
+  it("allows sed in a pipeline (processing, not dumping)", () => {
+    expect(detectHeavyPattern("cat src/foo.ts | sed -n '1,5p'").kind).toBe(
+      "allow",
+    );
+  });
+
+  it("allows sed with a redirect (writing, not reading into context)", () => {
+    expect(detectHeavyPattern("sed 's/a/b/' src/foo.ts > out.ts").kind).toBe(
+      "allow",
+    );
+  });
+
+  it("allows sed on a non-code file", () => {
+    expect(detectHeavyPattern("sed -n '1,500p' README.md").kind).toBe("allow");
+  });
+
+  it("blocks head/tail with a large line count on a code file", () => {
+    expect(detectHeavyPattern("head -n 500 src/foo.ts").kind).toBe("deny");
+    expect(detectHeavyPattern("head -500 src/foo.ts").kind).toBe("deny");
+    expect(detectHeavyPattern("tail -n 400 app/main.py").kind).toBe("deny");
+  });
+
+  it("allows small head/tail counts (the sanctioned bounded read)", () => {
+    expect(detectHeavyPattern("head -20 src/foo.ts").kind).toBe("allow");
+    expect(detectHeavyPattern("head src/foo.ts").kind).toBe("allow");
+    expect(detectHeavyPattern("tail -n 50 src/foo.ts").kind).toBe("allow");
+  });
+
+  it("allows head -c byte counts and non-code files", () => {
+    expect(detectHeavyPattern("head -c 5000 src/foo.ts").kind).toBe("allow");
+    expect(detectHeavyPattern("head -n 500 README.md").kind).toBe("allow");
+  });
+});
+
 describe("detectHeavyPattern — git log", () => {
   it("blocks git log without -n", () => {
     expect(detectHeavyPattern("git log").kind).toBe("deny");
