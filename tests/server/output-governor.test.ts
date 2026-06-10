@@ -105,6 +105,14 @@ vi.mock("../../src/handlers/smart-log.js", () => ({
   handleSmartLog: mockHandlers.smartLog,
 }));
 
+// token-pilot-m68 — spy on the error log so we can assert tool failures are
+// surfaced. classifyError is passed through with a fixed code.
+const mockErrorLog = vi.hoisted(() => ({ appendError: vi.fn() }));
+vi.mock("../../src/core/error-log.js", () => ({
+  appendError: mockErrorLog.appendError,
+  classifyError: () => "test_error",
+}));
+
 // ── test helpers ──────────────────────────────────────────────────────────
 
 import { createServer } from "../../src/server.js";
@@ -305,6 +313,35 @@ describe("output governor — smart_log", () => {
       expect(mockHandlers.smartLog).toHaveBeenCalledWith(
         expect.objectContaining({ count: undefined }),
         expect.anything(),
+      );
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+// ── m68: tool failures are surfaced in the error log ────────────────────────
+
+describe("tool-error logging (m68)", () => {
+  beforeEach(() => {
+    mockErrorLog.appendError.mockReset();
+  });
+
+  it("logs an unknown tool call that reached the server", async () => {
+    const ctx = await makeClient("advisory");
+    try {
+      const result = await ctx.client.callTool({
+        name: "nonexistent_tool",
+        arguments: {},
+      });
+      const text = result.content?.[0]?.text ?? "";
+      expect(text).toContain("Unknown tool: nonexistent_tool");
+      expect(mockErrorLog.appendError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hook: "mcp-tool:nonexistent_tool",
+          code: "unknown_tool",
+          level: "warn",
+        }),
       );
     } finally {
       await ctx.close();

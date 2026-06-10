@@ -7,6 +7,7 @@ import { AstIndexClient } from "./ast-index/client.js";
 import { FileCache } from "./core/file-cache.js";
 import { ContextRegistry } from "./core/context-registry.js";
 import { SessionRegistryManager } from "./core/session-registry.js";
+import { appendError, classifyError } from "./core/error-log.js";
 import { SymbolResolver } from "./core/symbol-resolver.js";
 import {
   SessionAnalytics,
@@ -1434,6 +1435,17 @@ export async function createServer(
         }
 
         default:
+          // token-pilot-m68 — an unknown tool NAME that still reached the
+          // server (a forwarded call CC didn't reject). Log it so the gap is
+          // visible via `token-pilot errors`.
+          void appendError({
+            ts: Date.now(),
+            hook: `mcp-tool:${name}`,
+            level: "warn",
+            code: "unknown_tool",
+            msg: `Unknown tool: ${name}`,
+            input: { tool: name },
+          });
           return {
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
@@ -1441,6 +1453,23 @@ export async function createServer(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // v0.45.0 (token-pilot-m68) — surface tool failures that REACH the
+      // server (validation errors, handler exceptions) in the same
+      // ~/.token-pilot/hook-errors.jsonl the hooks use, so `token-pilot errors`
+      // shows them. Previously these vanished — telemetry reported "saving
+      // tokens, all ok" while broken tp calls were invisible. Best-effort;
+      // appendError never throws. NOTE: "No such tool available" rejections
+      // happen at the Claude Code layer BEFORE the call reaches us, so those
+      // remain invisible by CC design (mitigated by the full-tool default).
+      void appendError({
+        ts: Date.now(),
+        hook: `mcp-tool:${name}`,
+        level: "error",
+        code: classifyError(err),
+        msg: message,
+        stack: err instanceof Error ? err.stack : undefined,
+        input: { tool: name },
+      });
       return {
         content: [{ type: "text", text: `Error: ${message}` }],
         isError: true,
