@@ -47,6 +47,17 @@ export interface HookEvent {
    */
   parent_agent_id?: string | null;
   /**
+   * v0.45.0 — root/parent SESSION id (distinct from agent_id). Claude Code
+   * exposes `parent_session_id` in subagent hook payloads (binary:
+   * `if(D.parentSessionId) X.parent_session_id = D.parentSessionId`). A
+   * subagent's MCP server is spawned with CLAUDE_CODE_SESSION_ID = the AGENT
+   * session, so its tool-call and denial savings get tagged with that id and
+   * the statusline's main-session filter drops them. Capturing the parent lets
+   * the badge roll subagent savings up to the conversation that spawned them.
+   * Optional — absent on the main thread and on older Claude Code.
+   */
+  parent_session_id?: string | null;
+  /**
    * v0.38.0 — id of the token-pilot workflow this event belongs to,
    * when one is active (TOKEN_PILOT_WORKFLOW_ID set). Lets fleet-level
    * budget + telemetry slice a fan-out run out of the global log.

@@ -41,6 +41,13 @@ export interface SubagentStopInput {
   last_assistant_message?: string;
   session_id?: string;
   parent_agent_id?: string;
+  /**
+   * v0.45.0 — root/parent session id. CC ships this in the SubagentStop
+   * payload (`X.parent_session_id`). Lets the statusline roll a subagent's
+   * savings (tagged with the agent's own session id) up to the parent
+   * conversation. Absent on older CC → field simply not written.
+   */
+  parent_session_id?: string;
 }
 
 /**
@@ -106,6 +113,9 @@ export function buildSubagentTaskEvent(
     agent_type: input.agent_type ?? null,
     agent_id: input.agent_id ?? null,
     ...(input.parent_agent_id ? { parent_agent_id: input.parent_agent_id } : {}),
+    ...(input.parent_session_id
+      ? { parent_session_id: input.parent_session_id }
+      : {}),
     event: "task",
     file: "",
     lines: 0,

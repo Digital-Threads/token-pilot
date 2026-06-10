@@ -59,6 +59,25 @@ describe("buildSubagentTaskEvent", () => {
     );
     expect(ev!.parent_agent_id).toBe("p1");
   });
+
+  it("carries parent_session_id when present (subagent savings rollup)", () => {
+    const ev = buildSubagentTaskEvent(
+      {
+        agent_type: "tp-debugger",
+        session_id: "agent-sess",
+        parent_session_id: "main-sess",
+      },
+      1,
+      0,
+    );
+    expect(ev!.session_id).toBe("agent-sess");
+    expect(ev!.parent_session_id).toBe("main-sess");
+  });
+
+  it("omits parent_session_id when absent (older CC / main thread)", () => {
+    const ev = buildSubagentTaskEvent({ agent_type: "tp-debugger" }, 1, 0);
+    expect(ev!.parent_session_id).toBeUndefined();
+  });
 });
 
 describe("tokensFromTranscript", () => {
