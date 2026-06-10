@@ -2,6 +2,8 @@
 
 **Token-efficient AI coding, enforced.** Cuts context consumption in AI coding assistants by up to **90%** without changing the way you work.
 
+> **Why it matters more now:** as frontier models move up in price — Claude's Fable 5 is the most capable (and most expensive-per-token) tier yet — the tokens you *don't* spend reading code are worth more, not less. The savings are in tokens; the value is in tokens × price. Token Pilot keeps the expensive main thread lean so the premium model spends its budget on reasoning, not on re-reading files.
+
 Three layers, each useful on its own, stronger together:
 
 1. **MCP tools** — structural reads (`smart_read`, `read_symbol`, `read_for_edit`, …). Ask for an outline or load one function by name instead of the whole file.
