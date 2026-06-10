@@ -901,6 +901,32 @@ export async function runHookReadDispatch(
   );
 }
 
+/**
+ * v0.45.0 (token-pilot-xg9) — how many lines a Read actually pulls.
+ *
+ * An unbounded Read (no offset/limit) pulls the whole file. A bounded Read
+ * pulls `limit` lines starting at `offset` — but Claude Code's Read defaults
+ * to a 2000-line page, so `Read(file, limit=2000)` or an offset with no limit
+ * drags a whole big file through. The old hook passed ANY bounded Read
+ * straight through (`hasOffset || hasLimit → return null`), which is the leak:
+ * the model bounds with a large/default limit and reads everything hook-free
+ * AND un-counted in the adaptive burn signal. Comparing the *span* against the
+ * deny threshold closes that while still letting a genuinely narrow slice pass.
+ *
+ * `offset` / `limit` are null when the field is absent on the tool call.
+ */
+export function effectiveReadSpanLines(
+  totalLines: number,
+  offset: number | null,
+  limit: number | null,
+): number {
+  if (offset == null && limit == null) return totalLines;
+  const DEFAULT_READ_PAGE = 2000;
+  const start = offset != null && offset > 0 ? offset : 0;
+  const page = limit != null && limit >= 0 ? limit : DEFAULT_READ_PAGE;
+  return Math.max(0, Math.min(page, totalLines - start));
+}
+
 async function runHookReadDispatchImpl(
   filePathArg: string | undefined,
   mode: HookMode,
@@ -913,8 +939,8 @@ async function runHookReadDispatchImpl(
   // Parse stdin to get tool_input + session/agent metadata, unless a
   // filePath was supplied directly (tests, --filePath invocation).
   let filePath = filePathArg;
-  let hasOffset = false;
-  let hasLimit = false;
+  let offsetVal: number | null = null;
+  let limitVal: number | null = null;
   let sessionId: string = "";
   let agentType: string | null = null;
   let agentId: string | null = null;
@@ -924,8 +950,14 @@ async function runHookReadDispatchImpl(
       const stdin = readFileSync(0, "utf-8");
       const input = JSON.parse(stdin);
       filePath = input?.tool_input?.file_path;
-      hasOffset = input?.tool_input?.offset != null;
-      hasLimit = input?.tool_input?.limit != null;
+      offsetVal =
+        typeof input?.tool_input?.offset === "number"
+          ? input.tool_input.offset
+          : null;
+      limitVal =
+        typeof input?.tool_input?.limit === "number"
+          ? input.tool_input.limit
+          : null;
       sessionId = typeof input?.session_id === "string" ? input.session_id : "";
       agentType =
         typeof input?.agent_type === "string" ? input.agent_type : null;
@@ -939,9 +971,6 @@ async function runHookReadDispatchImpl(
 
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
   if (!CODE_EXTENSIONS.has(ext)) return null;
-
-  // Bounded Reads are always passed through — the agent already narrowed scope.
-  if (hasOffset || hasLimit) return null;
 
   // Path safety: refuse to summarise any file outside the project root
   // (traversal, symlinks pointing outside). Pass-through on failure so the
@@ -973,12 +1002,20 @@ async function runHookReadDispatchImpl(
   try {
     fileContent = readFileSync(filePath, "utf-8");
     lineCount = fileContent.split("\n").length;
-    if (lineCount <= effectiveThreshold) return null;
   } catch {
     return null;
   }
 
-  const charEst = Math.ceil(fileContent.length / 4);
+  // v0.45.0 (token-pilot-xg9) — measure the span the Read actually pulls, not
+  // just the file size. A narrow bounded slice (< threshold) still passes; a
+  // `limit=2000` / offset-no-limit read of a big file no longer slips through.
+  const spanLines = effectiveReadSpanLines(lineCount, offsetVal, limitVal);
+  if (spanLines <= effectiveThreshold) return null;
+
+  // Cost estimate reflects what the read would pull (the span), so a bounded
+  // deny doesn't over-report savings vs the whole-file figure.
+  const spanRatio = lineCount > 0 ? Math.min(1, spanLines / lineCount) : 1;
+  const charEst = Math.ceil((fileContent.length * spanRatio) / 4);
   const wsRatio = (fileContent.match(/\s/g)?.length ?? 0) / fileContent.length;
   const estTokens = Math.ceil(charEst * (1 - wsRatio * 0.3));
 
@@ -1022,7 +1059,7 @@ async function runHookReadDispatchImpl(
     const reason =
       `File "${filePath}" has ${lineCount} lines. Use mcp__token-pilot__smart_read("${filePath}") ` +
       `for a structural overview, or mcp__token-pilot__read_for_edit("${filePath}", symbol="<name>") ` +
-      `for edit context. Bounded Read with offset/limit is still allowed.`;
+      `for edit context. A narrow bounded Read (small limit) is still allowed.`;
     await writeEvent("denied", Math.ceil(reason.length / 4));
     return JSON.stringify({
       hookSpecificOutput: {

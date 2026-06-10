@@ -670,3 +670,36 @@ describe("looksLikePluginCacheDir", () => {
     ).toBe(false);
   });
 });
+
+describe("effectiveReadSpanLines (bounded-read gate, xg9)", () => {
+  const span = indexModule.effectiveReadSpanLines;
+
+  it("unbounded read pulls the whole file", () => {
+    expect(span(1900, null, null)).toBe(1900);
+  });
+
+  it("explicit large limit pulls min(limit, file) — the closed leak", () => {
+    // Read(file, limit=2000) on a 1900-line file = whole file.
+    expect(span(1900, null, 2000)).toBe(1900);
+  });
+
+  it("narrow limit pulls only that span (still passes the gate)", () => {
+    expect(span(1900, null, 50)).toBe(50);
+  });
+
+  it("offset with no limit defaults to a 2000-line page from the offset", () => {
+    // Read(file, offset=100) on a 5000-line file → 2000 lines.
+    expect(span(5000, 100, null)).toBe(2000);
+    // …but on a small tail it is just the remaining lines.
+    expect(span(150, 100, null)).toBe(50);
+  });
+
+  it("offset + limit pulls the bounded window", () => {
+    expect(span(1900, 1500, 500)).toBe(400); // 1900 - 1500 = 400 < 500
+    expect(span(5000, 1000, 300)).toBe(300);
+  });
+
+  it("never returns negative when offset exceeds file length", () => {
+    expect(span(100, 500, 50)).toBe(0);
+  });
+});
