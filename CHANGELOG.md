@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Accumulating; not yet published. `0.44.0` is the published/consumed version —
 the items below live only on `master` until `0.45.0` ships.
 
+### Changed — default tool profile is now `full` (adoption fix)
+
+The advice surface (rules, SessionStart/PostToolUse banners, the pre-edit hook)
+references `read_for_edit`, batch reads, `test_summary` etc. unconditionally,
+but the old default (`edit`) and any trimmed profile hide some of those — so the
+model calls a hidden tool, hits `No such tool available`, and falls back to raw
+`Read`/`Bash`. Those dead round-trips cost far more than the ~2k tokens the trim
+saved. Default is now `full` (advertise everything); trimmed profiles stay
+opt-in via `TOKEN_PILOT_PROFILE=nav|edit|minimal`. When a trimmed profile is
+active the SessionStart banner now prepends a caveat naming what's hidden.
+
+### Added — tool failures are logged (no more silent breakage)
+
+`createServer`'s tool dispatch now writes handler exceptions / validation errors
+(and unknown-tool names that reach the server) to `~/.token-pilot/hook-errors.jsonl`,
+visible via `token-pilot errors`. Previously tp breakage vanished while telemetry
+reported "all ok". (`No such tool available` is rejected at the Claude Code layer
+before reaching us and stays invisible by design — the full default removes its
+main source.)
+
+### Fixed — `read_section` is docs-only
+
+Clarified that `read_section` reads Markdown/YAML/JSON/CSV by heading/key/row —
+**not** code by line/symbol (use `read_range` / `read_symbol`). Removed its
+misleading placement under "Batch variants" in the SessionStart banner.
+
 ### Added — bounded-read leak closed (gate on read span, not bound presence)
 
 `PreToolUse:Read` passed *any* `offset`/`limit` Read straight through, so
