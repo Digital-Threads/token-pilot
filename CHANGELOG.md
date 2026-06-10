@@ -5,6 +5,42 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - unreleased
+
+Accumulating; not yet published. `0.44.0` is the published/consumed version —
+the items below live only on `master` until `0.45.0` ships.
+
+### Added — bounded-read leak closed (gate on read span, not bound presence)
+
+`PreToolUse:Read` passed *any* `offset`/`limit` Read straight through, so
+`Read(file, limit=2000)` (Claude Code's default page) pulled a whole big file
+hook-free **and** un-counted in the adaptive burn signal — the #1 invisible
+leak. The hook now measures the span a Read actually pulls
+(`effectiveReadSpanLines`) and applies the same deny threshold: a default-page
+or offset-no-limit read of a big file denies with a structural summary, while a
+genuinely narrow slice (`limit < threshold`) still passes. Cost estimates are
+scaled by the span so bounded denies don't over-report savings.
+
+### Added — `parent_session_id` capture in SubagentStop (groundwork)
+
+A subagent's MCP server runs with `CLAUDE_CODE_SESSION_ID` = the *agent*
+session, so subagent savings get tagged with that id and the statusline's
+main-session badge drops them (savings look flat when subagents do the reading).
+SubagentStop now captures `parent_session_id` (which CC ships in the payload),
+enabling a future child→parent rollup in the badge. Additive/no-op when absent.
+
+### Security — `vitest` 3.2.4 → 3.2.6
+
+Patches GHSA-5xrq-8626-4rwp (Vitest UI arbitrary file read/exec, critical).
+Dev-only dependency; shipped runtime deps unchanged. The other 32 Dependabot
+alerts were already resolved (installed transitive versions at/above the
+patched version) and auto-close on re-scan.
+
+### Docs
+
+Fable-5 economic positioning in the README — savings are in tokens, value is in
+tokens × price; keep the premium thread lean.
+
 ## [0.44.0] - 2026-06-10
 
 ### Changed — adaptive deny threshold ON by default
