@@ -1520,6 +1520,31 @@ export async function handleDoctor() {
     /* ignore */
   }
 
+  // ── explicit trimmed-profile warning (v0.45.0, token-pilot-26b) ──
+  // An explicit TOKEN_PILOT_PROFILE=nav|edit|minimal hides tools the rules and
+  // the pre-edit hook still reference (read_for_edit / read_range / batch),
+  // trapping edit sessions on "No such tool available". This recurred for two
+  // users. Surface it loudly so they can remove it.
+  try {
+    const raw = process.env.TOKEN_PILOT_PROFILE;
+    if (raw && raw.trim()) {
+      const { parseProfileEnv } = await import("./server/tool-profiles.js");
+      if (parseProfileEnv(raw) !== "full") {
+        console.log(
+          `⚠ TOKEN_PILOT_PROFILE=${raw.trim()} is set — a TRIMMED tool surface.\n` +
+            `  It hides read_for_edit / read_range / batch reads (and code_audit /\n` +
+            `  find_unused / test_summary) that the rules + pre-edit hook still name →\n` +
+            `  calls to them fail with "No such tool available" and the agent falls\n` +
+            `  back to raw Read/Bash.\n` +
+            `  Fix: remove "TOKEN_PILOT_PROFILE" from your .mcp.json env block (or set\n` +
+            `  it to "full"), then restart. Full is the default since v0.45.0.\n`,
+        );
+      }
+    }
+  } catch {
+    /* doctor must never crash over an optional check */
+  }
+
   // ── profile recommendation ──
   // v0.26.4 — data-driven. Reads cumulative tool-calls.jsonl and suggests
   // the narrowest TOKEN_PILOT_PROFILE that wouldn't hide any tool the

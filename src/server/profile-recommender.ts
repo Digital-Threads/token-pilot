@@ -65,17 +65,21 @@ export function recommendProfile(
     };
   }
 
+  // v0.45.0 (token-pilot-26b) — we NO LONGER recommend trimming to nav/edit.
+  // Past tool usage doesn't predict future edits, and a trimmed profile hides
+  // read_for_edit / read_range / batch reads that the rules and the pre-edit
+  // hook still reference — so the agent calls them, hits "No such tool
+  // available", and falls back to raw Read/Bash. That recurring trap cost two
+  // users whole sessions. Full is the recommendation; minimal stays a
+  // self-serve, clearly-warned opt-in for context-critical work only.
   const allInNav = [...used].every((t) => NAV_TOOLS.has(t));
   if (allInNav) {
     return {
-      recommended: "nav",
-      reason: `Every tool you've used (${uniqueToolsSeen} distinct) is part of the nav subset. You're a read-only explorer.`,
+      recommended: "full",
+      reason: `You've used only nav-subset tools so far (${uniqueToolsSeen} distinct), but read_for_edit / read_range / batch reads — named by the rules and the pre-edit hook — live in edit/full. Stay on full so an edit doesn't hit "No such tool available". Set TOKEN_PILOT_PROFILE=minimal yourself ONLY if context is critically tight (it hides edit tools).`,
       uniqueToolsSeen,
       totalCalls,
-      wouldHide: [
-        ...[...EDIT_EXTRAS].filter((t) => !used.has(t)),
-        /* full-only — we don't enumerate here, keep the list short */
-      ],
+      wouldHide: [],
       lowConfidence: false,
     };
   }
@@ -85,8 +89,8 @@ export function recommendProfile(
   );
   if (allInEditOrBelow) {
     return {
-      recommended: "edit",
-      reason: `You use edit-preparation tools (read_for_edit, batch reads) but never reach for full-only tools like code_audit/test_summary/find_unused.`,
+      recommended: "full",
+      reason: `You use edit-prep tools but haven't reached for full-only ones (code_audit/test_summary/find_unused) yet. Stay on full — they cost ~1k tokens to advertise but trimming hides them the moment you need one, and dead calls cost more.`,
       uniqueToolsSeen,
       totalCalls,
       wouldHide: [],
@@ -120,20 +124,16 @@ export function formatRecommendation(rec: ProfileRecommendation): string {
   );
   lines.push(`  recommend:    TOKEN_PILOT_PROFILE=${rec.recommended}`);
   lines.push(`  why:          ${rec.reason}`);
-  if (rec.recommended !== "full") {
+  // v0.45.0 (26b) — we no longer print an "apply nav/edit to .mcp.json"
+  // snippet. recommendProfile always returns `full`; the old snippet trapped
+  // users into trimming, which hid edit tools the rules reference.
+  if (rec.lowConfidence) {
     lines.push(
-      `  savings:      ~${rec.recommended === "nav" ? "2200 tokens (−54%)" : "1000 tokens (−25%)"} on every tools/list response`,
-    );
-    lines.push(
-      `  apply:        add "env": { "TOKEN_PILOT_PROFILE": "${rec.recommended}" } to your token-pilot entry in .mcp.json`,
-    );
-  } else if (rec.lowConfidence) {
-    lines.push(
-      `  action:       keep default (full). Re-run \`token-pilot doctor\` after a few real sessions for a data-backed suggestion.`,
+      `  action:       keep default (full). Re-run \`token-pilot doctor\` after a few real sessions for a data-backed view.`,
     );
   } else {
     lines.push(
-      `  action:       keep default (full). You're using what you have.`,
+      `  action:       keep default (full). Trim to minimal yourself only for context-critical, read-only work.`,
     );
   }
   return lines.join("\n");

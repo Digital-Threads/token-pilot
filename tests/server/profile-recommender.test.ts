@@ -41,22 +41,23 @@ describe("recommendProfile", () => {
     expect(r.reason).toMatch(/too small|≥20|Only/i);
   });
 
-  it("recommends `nav` when every used tool is a nav tool", () => {
-    // 30 calls, only nav tools used
+  it("recommends `full` even for nav-only usage — no trim trap (v0.45.0, 26b)", () => {
+    // 30 calls, only nav tools used — old behaviour recommended `nav`, which
+    // hid edit tools the rules reference and trapped the next edit session.
     const events = [
       ...many("smart_read", 15),
       ...many("outline", 8),
       ...many("find_usages", 7),
     ];
     const r = recommendProfile(events);
-    expect(r.recommended).toBe("nav");
+    expect(r.recommended).toBe("full");
     expect(r.lowConfidence).toBe(false);
     expect(r.uniqueToolsSeen).toBe(3);
     expect(r.totalCalls).toBe(30);
-    expect(r.reason).toMatch(/read-only|nav/i);
+    expect(r.reason).toMatch(/No such tool|stay on full|edit/i);
   });
 
-  it("recommends `edit` when user calls edit-prep tools but never full-only", () => {
+  it("recommends `full` for edit-prep usage (does not push the edit trim)", () => {
     // 25 calls: nav + read_for_edit + read_symbols, no code_audit etc
     const events = [
       ...many("smart_read", 10),
@@ -65,9 +66,9 @@ describe("recommendProfile", () => {
       ...many("smart_diff", 2),
     ];
     const r = recommendProfile(events);
-    expect(r.recommended).toBe("edit");
+    expect(r.recommended).toBe("full");
     expect(r.lowConfidence).toBe(false);
-    expect(r.reason).toMatch(/edit|read_for_edit|batch/i);
+    expect(r.reason).toMatch(/full|audit|edit-prep/i);
   });
 
   it("recommends `full` when user touches any full-only tool", () => {
@@ -94,10 +95,10 @@ describe("recommendProfile", () => {
   });
 
   it("exactly at MIN_SAMPLE_CALLS boundary behaves correctly", () => {
-    // Exactly 20 calls, all nav → should recommend nav (not lowConfidence)
+    // Exactly 20 calls, all nav → enough data, but recommends full (no trim trap)
     const events = many("smart_read", 20);
     const r = recommendProfile(events);
-    expect(r.recommended).toBe("nav");
+    expect(r.recommended).toBe("full");
     expect(r.lowConfidence).toBe(false);
   });
 
@@ -111,22 +112,24 @@ describe("recommendProfile", () => {
 });
 
 describe("formatRecommendation", () => {
-  it("nav recommendation includes env snippet to paste", () => {
+  it("never prints an apply-trim snippet — even for nav-only usage (26b)", () => {
     const rec = recommendProfile(many("smart_read", 30));
     const out = formatRecommendation(rec);
-    expect(out).toMatch(/TOKEN_PILOT_PROFILE=nav/);
-    expect(out).toMatch(/\.mcp\.json/);
-    expect(out).toMatch(/savings:/);
+    expect(out).toMatch(/TOKEN_PILOT_PROFILE=full/);
+    // The old trap: "apply: add env TOKEN_PILOT_PROFILE=nav to .mcp.json".
+    expect(out).not.toMatch(/TOKEN_PILOT_PROFILE=nav/);
+    expect(out).not.toMatch(/apply:/);
+    expect(out).not.toMatch(/savings:/);
   });
 
-  it("edit recommendation advertises the ~1000 token savings", () => {
+  it("edit-prep usage recommends full, not a trim", () => {
     const rec = recommendProfile([
       ...many("smart_read", 15),
       ...many("read_for_edit", 10),
     ]);
     const out = formatRecommendation(rec);
-    expect(out).toMatch(/TOKEN_PILOT_PROFILE=edit/);
-    expect(out).toMatch(/1000 tokens|−25%/);
+    expect(out).toMatch(/TOKEN_PILOT_PROFILE=full/);
+    expect(out).not.toMatch(/TOKEN_PILOT_PROFILE=edit/);
   });
 
   it("low-confidence reco tells user to come back later", () => {
