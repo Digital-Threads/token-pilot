@@ -134,7 +134,15 @@ export function parseProfileEnv(
   envValue: string | undefined,
   warn: (msg: string) => void = () => {},
 ): ToolProfile {
-  if (!envValue) return "edit";
+  // v0.45.0 — default is now `full` (was `edit`). Trimming the advertised
+  // tools/list saved ~2k tokens but created a mismatch: the rules, the
+  // SessionStart/PostToolUse banners and the pre-edit hook all reference tools
+  // (read_for_edit, test_summary, batch reads) that a trimmed profile hides —
+  // so the model calls them, hits "No such tool available", and falls back to
+  // raw Read/Bash. Those dead round-trips cost far more than the 2k saved.
+  // Advertise everything by default; users who truly need the smaller surface
+  // opt in with TOKEN_PILOT_PROFILE=nav|edit|minimal.
+  if (!envValue) return "full";
   const lower = envValue.trim().toLowerCase();
   if (
     lower === "full" ||
@@ -145,7 +153,7 @@ export function parseProfileEnv(
     return lower;
   }
   warn(
-    `[token-pilot] Unknown TOKEN_PILOT_PROFILE="${envValue}". Expected full|nav|edit|minimal. Falling back to edit.`,
+    `[token-pilot] Unknown TOKEN_PILOT_PROFILE="${envValue}". Expected full|nav|edit|minimal. Falling back to full.`,
   );
-  return "edit";
+  return "full";
 }

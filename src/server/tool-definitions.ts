@@ -8,8 +8,8 @@
  *
  *   minimal — 5 core tools, minimal context overhead
  *   nav     — 10 exploration tools, no editing
- *   edit    — nav + 6 edit-prep tools (DEFAULT)
- *   full    — everything including audit tools
+ *   edit    — nav + 6 edit-prep tools
+ *   full    — everything including audit tools (DEFAULT since v0.45.0)
  */
 import type { ToolProfile } from "./tool-profiles.js";
 
@@ -59,7 +59,7 @@ const MCP_INSTRUCTIONS_NAV = [
 ].join("\n");
 
 // ---------------------------------------------------------------------------
-// Edit profile — nav + batch reads + edit-prep (DEFAULT)
+// Edit profile — nav + batch reads + edit-prep
 // ---------------------------------------------------------------------------
 const MCP_INSTRUCTIONS_EDIT = [
   "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
@@ -105,7 +105,7 @@ const MCP_INSTRUCTIONS_EDIT = [
 ].join("\n");
 
 // ---------------------------------------------------------------------------
-// Full profile — all tools including audit (code_audit, find_unused, test_summary)
+// Full profile — all tools including audit (code_audit, find_unused, test_summary) — DEFAULT since v0.45.0
 // ---------------------------------------------------------------------------
 const MCP_INSTRUCTIONS_FULL = [
   "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",

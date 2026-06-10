@@ -158,15 +158,15 @@ describe("filterToolsByProfile", () => {
 });
 
 describe("parseProfileEnv", () => {
-  it("undefined env → edit (default since v0.30.0, no warning)", () => {
+  it("undefined env → full (default since v0.45.0, no warning)", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv(undefined, warn)).toBe("edit");
+    expect(parseProfileEnv(undefined, warn)).toBe("full");
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("empty string env → edit (default since v0.30.0, no warning)", () => {
+  it("empty string env → full (default since v0.45.0, no warning)", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv("", warn)).toBe("edit");
+    expect(parseProfileEnv("", warn)).toBe("full");
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -177,9 +177,9 @@ describe("parseProfileEnv", () => {
     expect(parseProfileEnv("MINIMAL")).toBe("minimal");
   });
 
-  it("unknown value falls back to edit AND emits a warning", () => {
+  it("unknown value falls back to full AND emits a warning", () => {
     const warn = vi.fn();
-    expect(parseProfileEnv("readonly", warn)).toBe("edit");
+    expect(parseProfileEnv("readonly", warn)).toBe("full");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/TOKEN_PILOT_PROFILE="readonly"/);
   });

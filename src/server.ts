@@ -383,9 +383,9 @@ export async function createServer(
   );
 
   const advertisedTools = filterToolsByProfile(TOOL_DEFINITIONS, activeProfile);
-  if (activeProfile !== "edit") {
+  if (activeProfile !== "full") {
     process.stderr.write(
-      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools. Set TOKEN_PILOT_PROFILE=edit for the default set.\n`,
+      `[token-pilot] Profile: ${activeProfile} — advertising ${advertisedTools.length}/${TOOL_DEFINITIONS.length} tools (full is the default). A trimmed profile hides tools the rules/hooks still reference; unset TOKEN_PILOT_PROFILE to advertise all.\n`,
     );
   }
   server.setRequestHandler(ListToolsRequestSchema, () => ({
