@@ -21,6 +21,13 @@ saved. Default is now `full` (advertise everything); trimmed profiles stay
 opt-in via `TOKEN_PILOT_PROFILE=nav|edit|minimal`. When a trimmed profile is
 active the SessionStart banner now prepends a caveat naming what's hidden.
 
+The profile **recommender** no longer pushes a trim: it used to suggest
+`TOKEN_PILOT_PROFILE=nav` for read-heavy usage and print an "apply to
+`.mcp.json`" snippet — users applied it, then the next edit session hit the
+trimmed-away `read_for_edit` / `read_range` / batch reads. It now always
+recommends `full`. And `token-pilot doctor` loudly flags an explicit trimmed
+profile, names the hidden tools, and tells you to remove it.
+
 ### Added — tool failures are logged (no more silent breakage)
 
 `createServer`'s tool dispatch now writes handler exceptions / validation errors
