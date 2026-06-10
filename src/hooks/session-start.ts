@@ -184,7 +184,8 @@ MANDATORY — use these BEFORE raw Read / Grep / git:
   smart_log(path?)             — git log with symbol context (INSTEAD of raw git log)
   test_summary(command)        — test runs without dumping full output
   project_overview             — unfamiliar repo top-level map (first step)
-Batch variants (prefer over loops): read_symbols, smart_read_many, read_section.
+Batch variants (prefer over loops): read_symbols, smart_read_many.
+read_section — Markdown/YAML/JSON/CSV ONLY (by heading/key/row); for CODE use read_range / read_symbol.
 Also available: read_range, read_diff, module_info, related_files, explore_area,
 code_audit, find_unused, session_snapshot, session_budget, session_analytics.
 Raw Read/Grep allowed only with offset/limit / narrow regex / non-code files,

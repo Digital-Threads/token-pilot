@@ -332,7 +332,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "read_section",
     description:
-      "Read a specific section from Markdown, YAML, JSON, or CSV files. Markdown: by heading name. YAML/JSON: by top-level key. CSV: by row range (rows:1-50). Much cheaper than reading the whole file.",
+      "Read a specific section from Markdown, YAML, JSON, or CSV files. Markdown: by heading name. YAML/JSON: by top-level key. CSV: by row range (rows:1-50). Much cheaper than reading the whole file. DOCS/DATA ONLY — `heading` is required; this does NOT read code by line/symbol. For source files use read_range (line range) or read_symbol (one symbol).",
     inputSchema: {
       type: "object" as const,
       properties: {
