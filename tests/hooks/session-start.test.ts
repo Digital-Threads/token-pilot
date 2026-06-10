@@ -298,3 +298,20 @@ describe("handleSessionStart", () => {
     );
   });
 });
+
+import { profileBannerNote } from "../../src/hooks/session-start.js";
+
+describe("profileBannerNote (2fd part 2 — profile-aware banner)", () => {
+  it("is empty for the default full profile (no caveat needed)", () => {
+    expect(profileBannerNote("full")).toBe("");
+  });
+
+  it("warns on a trimmed profile and names it", () => {
+    for (const p of ["nav", "edit", "minimal"] as const) {
+      const note = profileBannerNote(p);
+      expect(note).toContain(`TOKEN_PILOT_PROFILE=${p}`);
+      expect(note).toContain("No such tool available");
+      expect(note).toContain("unset TOKEN_PILOT_PROFILE");
+    }
+  });
+});

@@ -12,6 +12,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
 import { loadEvents, type HookEvent } from "../core/event-log.js";
+import { parseProfileEnv, type ToolProfile } from "../server/tool-profiles.js";
 
 const SNAPSHOT_FRESH_MS = 2 * 3600 * 1000; // 2h — enough to cover compaction/restart, tight enough that a new day's unrelated work doesn't inherit yesterday's thread
 
@@ -296,6 +297,22 @@ export function buildReminderMessage(
  * Returns the JSON string to write to stdout, or null for silent exit.
  * Never throws — any error → null (fail-safe pass-through).
  */
+/**
+ * v0.45.0 (token-pilot-2fd part 2) — when a trimmed TOOL profile is active,
+ * the banner still names tools that profile hides. The full default advertises
+ * everything, but an explicit nav/edit/minimal does not, so warn the agent
+ * before it calls a hidden tool, hits "No such tool available", and falls back
+ * to raw Read/Bash. Empty string for the default `full` profile.
+ */
+export function profileBannerNote(profile: ToolProfile): string {
+  if (profile === "full") return "";
+  return (
+    `⚠ TOKEN_PILOT_PROFILE=${profile} — trimmed tool surface active. Some tools named below are NOT advertised this session ` +
+    `(test_summary / code_audit / find_unused always; read_for_edit / read_range / read_diff / batch reads on nav & minimal). ` +
+    `Calling them returns "No such tool available" — use the listed alternatives or unset TOKEN_PILOT_PROFILE to advertise all.\n\n`
+  );
+}
+
 export async function handleSessionStart(
   opts: HandleSessionStartOptions,
 ): Promise<string | null> {
@@ -309,6 +326,10 @@ export async function handleSessionStart(
       agents,
       opts.sessionStartConfig.maxReminderTokens,
     );
+    // Prepend a profile caveat when a trimmed surface hides referenced tools.
+    message =
+      profileBannerNote(parseProfileEnv(process.env.TOKEN_PILOT_PROFILE)) +
+      message;
 
     // TP-340: surface a fresh snapshot so the new session can resume.
     const snap = await loadLatestSnapshot(opts.projectRoot);
