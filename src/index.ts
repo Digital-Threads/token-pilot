@@ -53,7 +53,7 @@ import {
   isNewerVersion,
 } from "./ast-index/binary-manager.js";
 import { loadConfig } from "./config/loader.js";
-import { isDangerousRoot } from "./core/validation.js";
+import { isDangerousRoot, isMultiRepoParent } from "./core/validation.js";
 import type { HookMode } from "./types.js";
 import { runSummaryPipeline } from "./hooks/summary-pipeline.js";
 import { formatDenyMessage } from "./hooks/format-deny-message.js";
@@ -775,6 +775,22 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
     );
   }
 
+  // Guard: refuse a non-git workspace parent that nests multiple sibling
+  // git repos. start.sh always passes an explicit root, so the git-detect
+  // narrowing above is skipped; without this guard a parent like
+  // `/work/loom` (holding several project repos) would be indexed whole,
+  // bleeding symbols across unrelated projects.
+  const multiRepoParent =
+    !isDangerousRoot(projectRoot) && isMultiRepoParent(projectRoot);
+  if (multiRepoParent) {
+    console.error(
+      `[token-pilot] WARNING: project root "${projectRoot}" contains multiple git repos.\n` +
+        `  ast-index will be disabled to avoid cross-project index bleed.\n` +
+        `  Fix: set CLAUDE_PROJECT_DIR to the specific project, or\n` +
+        `  configure mcpServers with "args": ["/path/to/project"].`,
+    );
+  }
+
   // Non-blocking update check for all components (logs to stderr, never blocks startup)
   const config = await loadConfig(projectRoot);
   const binaryStatus = await findBinary(config.astIndex.binaryPath);
@@ -831,7 +847,7 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
     });
 
   const server = await createServer(projectRoot, {
-    skipAstIndex: isDangerousRoot(projectRoot),
+    skipAstIndex: isDangerousRoot(projectRoot) || multiRepoParent,
     enforcementMode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
   });
   const transport = new StdioServerTransport();
