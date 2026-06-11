@@ -31,7 +31,8 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Verify tag matches package.json version
+      - name: Verify tag matches package.json (tag runs only)
+        if: github.ref_type == 'tag'
         run: |
           PKG="$(node -p "require('./package.json').version")"
           TAG="${GITHUB_REF_NAME#v}"
@@ -57,10 +58,9 @@ jobs:
           curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
 
-      - name: Sync server.json version to tag
+      - name: Sync server.json version to package.json
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          node -e "const fs=require('fs');const p='server.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='$VERSION';if(Array.isArray(j.packages))for(const x of j.packages)x.version='$VERSION';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+          node -e "const fs=require('fs');const v=require('./package.json').version;const p='server.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=v;if(Array.isArray(j.packages))for(const x of j.packages)x.version=v;fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
 
       - name: Login to MCP Registry (GitHub OIDC)
         run: mcp-publisher login github-oidc
