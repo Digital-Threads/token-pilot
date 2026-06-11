@@ -5,7 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.45.0] - 2026-06-11
+## [0.45.1] - 2026-06-11
+
+### Fixed — refuse a multi-repo workspace parent (cross-project index bleed)
+
+`start.sh` always passes an explicit project root (`${CLAUDE_PROJECT_DIR:-$USER_CWD}`)
+to the server, so `startServer`'s git-root **narrowing only runs in the
+`!explicitRoot` branch — which is never taken**. When the session is launched
+from a non-git workspace parent that nests several project repos (e.g.
+`/work/loom` holding `token-pilot`, `loom-host`, `aimux`, …), the raw parent was
+used verbatim and ast-index indexed **every** sibling into one index. Symbol
+lookups then bled across projects — `find_usages` / `read_symbol` returning
+matches from the wrong repo, or `symbol not found`. `isDangerousRoot` only
+caught system/home dirs, so the parent slipped through.
+
+New guard `isMultiRepoParent(root)` (in `core/validation.ts`) detects a non-git
+directory with ≥2 immediate child git repos. When the resolved root matches,
+ast-index is disabled (`skipAstIndex`) and a warning tells the user to set
+`CLAUDE_PROJECT_DIR` to the specific project — fail safe instead of bleeding.
+Wired into `startServer` and the `server.ts` MCP-roots auto-detect. Single-repo
+roots, monorepos, and roots that are themselves a git repo are unaffected.
+
+
 
 ### Changed — default tool profile is now `full` (adoption fix)
 

@@ -21,7 +21,7 @@ import { loadConfig } from "./config/loader.js";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFile } from "node:child_process";
-import { isDangerousRoot } from "./core/validation.js";
+import { isDangerousRoot, isMultiRepoParent } from "./core/validation.js";
 import { promisify } from "node:util";
 import { GitWatcher } from "./git/watcher.js";
 
@@ -213,7 +213,11 @@ export async function createServer(
         for (const root of roots) {
           if (root.uri.startsWith("file://")) {
             const rootPath = decodeURIComponent(new URL(root.uri).pathname);
-            if (rootPath && !isDangerousRoot(rootPath)) {
+            if (
+              rootPath &&
+              !isDangerousRoot(rootPath) &&
+              !isMultiRepoParent(rootPath)
+            ) {
               await applyDetectedRoot(rootPath, "MCP roots");
               return;
             }

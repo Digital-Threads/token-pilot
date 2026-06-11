@@ -1,4 +1,5 @@
 import { resolve, relative } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
 
 /**
  * v0.33.0 (B9) — coerce an `unknown` argument value to an integer.
@@ -849,5 +850,42 @@ export function isDangerousRoot(root: string): boolean {
   // Common dangerous patterns: /Users, /home, /root, C:\, C:\Users
   if (/^\/(?:Users|home|root)$/.test(normalized)) return true;
   if (/^[A-Z]:\\(?:Users)?$/i.test(normalized)) return true;
+  return false;
+}
+
+/**
+ * Detect a non-git workspace parent that nests multiple sibling git
+ * repos. Handing such a directory to ast-index would index every
+ * sibling into one index, bleeding symbols across unrelated projects
+ * (find_usages / read_symbol returning matches from the wrong repo).
+ *
+ * Returns true only when BOTH hold:
+ *   - `root` itself is NOT a git repo (no `.git` entry), AND
+ *   - `root` has >= 2 immediate child directories that each contain a
+ *     `.git` entry — a directory for a normal repo, a file for a
+ *     submodule / worktree.
+ *
+ * Fail-open: a missing path, an unreadable directory, a single child
+ * repo, or a root that is itself a repo all return false, so legitimate
+ * single-project and monorepo layouts are never disabled.
+ */
+export function isMultiRepoParent(root: string): boolean {
+  if (!root) return false;
+  let entries;
+  try {
+    // A root that is itself a git repo is a single project — vendored
+    // repos or submodules underneath are intentional, not a parent.
+    if (existsSync(resolve(root, ".git"))) return false;
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  let repoChildren = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (existsSync(resolve(root, entry.name, ".git"))) {
+      if (++repoChildren >= 2) return true;
+    }
+  }
   return false;
 }
