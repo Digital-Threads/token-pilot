@@ -1,16 +1,52 @@
-name: Publish to MCP Registry
+name: Publish (npm + MCP Registry)
 
+# Fires on a version tag. Two ordered jobs:
+#   1. npm   — publish the package to npmjs (MCP Registry validates that the
+#              referenced npm version exists, so this must run first).
+#   2. mcp   — sync server.json to the tag version, authenticate via GitHub
+#              OIDC, and publish the server entry to the MCP Registry.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # npm provenance + mcp-publisher github-oidc
 
 jobs:
-  publish:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG="$(node -p "require('./package.json').version")"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  mcp:
+    needs: npm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,5 +57,13 @@ jobs:
           curl -sL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
 
+      - name: Sync server.json version to tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "const fs=require('fs');const p='server.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='$VERSION';if(Array.isArray(j.packages))for(const x of j.packages)x.version='$VERSION';fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+
+      - name: Login to MCP Registry (GitHub OIDC)
+        run: mcp-publisher login github-oidc
+
       - name: Publish to MCP Registry
-        run: mcp-publisher publish --github-oidc
+        run: mcp-publisher publish
