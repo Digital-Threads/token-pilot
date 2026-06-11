@@ -5,10 +5,7 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.45.0] - unreleased
-
-Accumulating; not yet published. `0.44.0` is the published/consumed version —
-the items below live only on `master` until `0.45.0` ships.
+## [0.45.0] - 2026-06-11
 
 ### Changed — default tool profile is now `full` (adoption fix)
 
