@@ -5,6 +5,20 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — dev-dependency security + decoupled registry publish (no shipped change)
+
+- Bump `vitest` / `@vitest/coverage-v8` to 4.x — clears the 6 remaining
+  dev-only high advisories in the vitest/vite/esbuild chain. `npm audit` now
+  reports **0 vulnerabilities** (dev + prod). No runtime/package change: dev
+  deps are not shipped to npm consumers; the full 1402-test suite is green on
+  vitest 4.
+- `publish-mcp.yml`: the MCP Registry job no longer hard-depends on npm-job
+  **success** (`if: !cancelled()`). A failed npm publish (e.g. EOTP on a
+  manual-token release) no longer blocks the registry update; re-run the job
+  via `workflow_dispatch` after a manual `npm publish`.
+
 ## [0.46.0] - 2026-06-13
 
 ### Added — UserPromptSubmit per-turn reinforcement (caveman-style awareness)

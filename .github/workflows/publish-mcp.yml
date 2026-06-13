@@ -48,6 +48,12 @@ jobs:
 
   mcp:
     needs: npm
+    # Decoupled from npm SUCCESS — the registry publish must proceed even when
+    # the npm job fails (EOTP on manual-token publishes). Ordering is kept so
+    # npm runs first on the happy path; the MCP Registry validates the npm
+    # version independently, so a manual `npm publish` satisfies it. Re-run this
+    # job via workflow_dispatch after a manual publish to update the registry.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
