@@ -5,6 +5,29 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-06-13
+
+### Added — UserPromptSubmit per-turn reinforcement (caveman-style awareness)
+
+The `SessionStart` reminder injects the full mandatory-tool ruleset exactly
+once (start / `/clear` / `/compact`). Over a long conversation that block decays
+out of the model's attention and competing instructions crowd it out, so
+sessions drift back to raw `Read` / `Grep` and stop using token-pilot — even
+with hooks and CLAUDE.md rules in place. The caveman plugin solves the identical
+problem with a `UserPromptSubmit` hook that re-injects a tiny anchor on every
+user message; we now do the same.
+
+New `hook-user-prompt` (`UserPromptSubmit`) emits a one-line **minimal anchor**
+(~30 tokens) on every prompt — the floor that keeps token-pilot in the working
+set. Deliberately a single short line: the heavy full ruleset stays in
+`SessionStart`, so this per-turn channel never undercuts the tool's own token
+budget (no event-log reads, no per-turn growth).
+
+`additionalContext` only — never blocks the prompt. Safe-runner wrapped (always
+exits 0). Respects `sessionStart.enabled`, `TOKEN_PILOT_BYPASS=1`, and a
+dedicated `TOKEN_PILOT_PROMPT_REMINDER=0` opt-out. Wired into `hooks/hooks.json`,
+the `install-hook` installer, and the typo-guard command allowlist.
+
 ## [0.45.1] - 2026-06-11
 
 ### Fixed — refuse a multi-repo workspace parent (cross-project index bleed)

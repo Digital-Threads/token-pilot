@@ -78,6 +78,10 @@ import {
   applyRetention,
   type HookEvent,
 } from "./core/event-log.js";
+import {
+  buildPromptReminder,
+  formatPromptReminderOutput,
+} from "./hooks/user-prompt.js";
 import { handleStats } from "./cli/stats.js";
 import { handleToolAudit } from "./cli/tool-audit.js";
 import { promptYesNo } from "./cli/install-agents.js";
@@ -461,6 +465,28 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         });
         if (result) {
           process.stdout.write(result);
+        }
+      });
+      return;
+    }
+    case "hook-user-prompt": {
+      // UserPromptSubmit per-turn reinforcement. SessionStart injects the
+      // full ruleset once; this re-injects a tiny anchor on every user
+      // message so token-pilot stays in the model's working set instead of
+      // decaying out of attention (the failure mode caveman fixes the same
+      // way). additionalContext only — never blocks the prompt.
+      await runHookEntryPoint({ hook: "hook-user-prompt" }, async () => {
+        const cfg = await loadConfig(process.cwd());
+        // Reuse the awareness toggle — disabling SessionStart reminders
+        // disables per-turn too. TOKEN_PILOT_PROMPT_REMINDER=0 turns off
+        // just the per-turn channel while keeping SessionStart.
+        const enabled =
+          cfg.sessionStart.enabled &&
+          process.env.TOKEN_PILOT_PROMPT_REMINDER !== "0";
+        const bypass = process.env.TOKEN_PILOT_BYPASS === "1";
+        const message = buildPromptReminder(enabled, bypass);
+        if (message) {
+          process.stdout.write(formatPromptReminderOutput(message));
         }
       });
       return;
