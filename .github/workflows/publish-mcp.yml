@@ -1,10 +1,11 @@
-name: Publish (npm + MCP Registry)
+name: Publish (MCP Registry)
 
-# Fires on a version tag. Two ordered jobs:
-#   1. npm   — publish the package to npmjs (MCP Registry validates that the
-#              referenced npm version exists, so this must run first).
-#   2. mcp   — sync server.json to the tag version, authenticate via GitHub
-#              OIDC, and publish the server entry to the MCP Registry.
+# Publishes the server entry to the MCP Registry. npm is published manually
+# (the org's npm account enforces 2FA/OTP, which a CI token can't satisfy), so
+# this workflow no longer attempts npm — it only syncs server.json to the
+# package version, authenticates via GitHub OIDC, and publishes to the registry.
+# The registry validates that the referenced npm version already exists, so run
+# this AFTER the manual `npm publish` (tag push, or workflow_dispatch).
 on:
   push:
     tags:
@@ -13,23 +14,14 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance + mcp-publisher github-oidc
+  id-token: write # mcp-publisher github-oidc
 
 jobs:
-  npm:
+  mcp:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install deps
-        run: npm ci
 
       - name: Verify tag matches package.json (tag runs only)
         if: github.ref_type == 'tag'
@@ -40,24 +32,6 @@ jobs:
             echo "::error::tag v$TAG does not match package.json version $PKG"
             exit 1
           fi
-
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  mcp:
-    needs: npm
-    # Decoupled from npm SUCCESS — the registry publish must proceed even when
-    # the npm job fails (EOTP on manual-token publishes). Ordering is kept so
-    # npm runs first on the happy path; the MCP Registry validates the npm
-    # version independently, so a manual `npm publish` satisfies it. Re-run this
-    # job via workflow_dispatch after a manual publish to update the registry.
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
 
       - name: Install mcp-publisher
         run: |
