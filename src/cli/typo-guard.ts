@@ -39,6 +39,8 @@ export const KNOWN_COMMANDS = [
   "hook-bootstrap",
   // v0.40.0 — canonical subagent-completion capture
   "hook-subagent-stop",
+  // UserPromptSubmit per-turn reinforcement (caveman-style awareness)
+  "hook-user-prompt",
   // v0.42.0 — one-command statusline badge installer
   "install-statusline",
   "install-hook",

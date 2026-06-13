@@ -45,4 +45,7 @@ jobs:
         run: npm pack --dry-run
 
       - name: Audit
-        run: npm audit --audit-level=moderate
+        # Gate on what we ship — production deps only. Dev-tooling
+        # advisories (vitest/vite chain) don't reach published users and
+        # are tracked separately for a deliberate major bump.
+        run: npm audit --omit=dev --audit-level=moderate

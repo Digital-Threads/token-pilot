@@ -157,6 +157,14 @@ function createHookConfig(options?: HookInstallOptions) {
           hooks: [hookEntry("hook-session-start", options)],
         },
       ],
+      // Per-turn reinforcement — re-injects a tiny anchor on every user
+      // message so the mandatory-tool rules don't decay out of attention
+      // over a long session (SessionStart fires only once).
+      UserPromptSubmit: [
+        {
+          hooks: [hookEntry("hook-user-prompt", options)],
+        },
+      ],
       PostToolUse: [
         {
           matcher: "Bash",
