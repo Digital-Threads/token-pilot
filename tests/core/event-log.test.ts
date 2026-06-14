@@ -222,6 +222,59 @@ describe("appendEvent / loadEvents", () => {
   });
 });
 
+// ─── appendEvent — Loom spine tagging (task_id / workflow_id from env) ─────────
+
+describe("appendEvent — Loom spine tagging", () => {
+  const base: HookEvent = {
+    ts: 1_700_000_000_000,
+    session_id: "s1",
+    agent_type: null,
+    agent_id: null,
+    event: "denied",
+    file: "src/big.ts",
+    lines: 500,
+    estTokens: 2000,
+    summaryTokens: 400,
+    savedTokens: 1600,
+  };
+
+  it("tags task_id from LOOM_TASK_ID when set", async () => {
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    process.env.LOOM_TASK_ID = "tj-xyz";
+    try {
+      await appendEvent(project, { ...base });
+    } finally {
+      delete process.env.LOOM_TASK_ID;
+    }
+    const events = await loadEvents(project);
+    expect(events[0].task_id).toBe("tj-xyz");
+  });
+
+  it("tags workflow_id from LOOM_WORKFLOW_ID when set", async () => {
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    process.env.LOOM_WORKFLOW_ID = "wf-1";
+    try {
+      await appendEvent(project, { ...base });
+    } finally {
+      delete process.env.LOOM_WORKFLOW_ID;
+    }
+    const events = await loadEvents(project);
+    expect(events[0].workflow_id).toBe("wf-1");
+  });
+
+  it("adds no task_id field when LOOM_TASK_ID is unset (back-compat)", async () => {
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    delete process.env.LOOM_TASK_ID;
+    await appendEvent(project, { ...base });
+    const events = await loadEvents(project);
+    expect(events[0].task_id).toBeUndefined();
+    expect("task_id" in events[0]).toBe(false);
+  });
+});
+
 // ─── applyRetention ──────────────────────────────────────────────────────────
 
 describe("applyRetention", () => {

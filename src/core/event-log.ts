@@ -64,6 +64,13 @@ export interface HookEvent {
    * Optional — absent when no workflow is active.
    */
   workflow_id?: string;
+  /**
+   * Loom spine link — id of the Loom task this event belongs to, when the
+   * session was launched by Loom (LOOM_TASK_ID set). Lets Loom attribute token
+   * savings to a task exactly. Optional — absent outside Loom, so standalone
+   * token-pilot events stay byte-identical to before.
+   */
+  task_id?: string;
   event:
     | "denied"
     | "allowed"
@@ -235,8 +242,14 @@ export async function appendEvent(
       event.workflow_id ??
       process.env.TOKEN_PILOT_WORKFLOW_ID ??
       process.env.CLAUDE_CODE_WORKFLOW_ID ??
+      process.env.LOOM_WORKFLOW_ID ??
       undefined;
-    const tagged = wf ? { ...event, workflow_id: wf } : event;
+    // Loom spine: tag the task id when the session was launched by Loom.
+    // Env-driven so call sites stay unchanged; absent outside Loom → no field.
+    const taskId = event.task_id ?? process.env.LOOM_TASK_ID ?? undefined;
+    let tagged = event;
+    if (wf) tagged = { ...tagged, workflow_id: wf };
+    if (taskId) tagged = { ...tagged, task_id: taskId };
     await ensureLogDir(projectRoot);
     await rotateIfNeeded(projectRoot);
     const line = JSON.stringify(tagged) + "\n";
