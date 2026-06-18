@@ -182,3 +182,52 @@ describe('handleTestSummary', () => {
     expect(text).toContain('boom');
   });
 });
+
+describe('parseTestOutput — node:test (TAP)', () => {
+  // Real `node --test` output footer.
+  const passing = [
+    'ok 1 - a',
+    'ok 2 - b',
+    '1..2',
+    '# tests 2',
+    '# suites 0',
+    '# pass 2',
+    '# fail 0',
+    '# cancelled 0',
+    '# skipped 0',
+    '# todo 0',
+    '# duration_ms 41.305043',
+  ].join('\n');
+
+  it('detects node:test from command', () => {
+    expect(detectRunner('node --test', '')).toBe('node');
+    expect(detectRunner('node --test test/*.mjs', '')).toBe('node');
+  });
+
+  it('detects node:test from the TAP footer when the command is generic', () => {
+    expect(detectRunner('npm test', passing)).toBe('node');
+  });
+
+  it('parses all-passing node:test output (regression: was 0/2)', () => {
+    const r = parseTestOutput(passing, 'node');
+    expect(r.passed).toBe(2);
+    expect(r.failed).toBe(0);
+    expect(r.total).toBe(2);
+  });
+
+  it('parses failures with their names', () => {
+    const failing = [
+      'ok 1 - a',
+      'not ok 2 - b',
+      '1..2',
+      '# tests 2',
+      '# pass 1',
+      '# fail 1',
+      '# skipped 0',
+    ].join('\n');
+    const r = parseTestOutput(failing, 'node');
+    expect(r.passed).toBe(1);
+    expect(r.failed).toBe(1);
+    expect(r.failures.map((f) => f.name)).toContain('b');
+  });
+});

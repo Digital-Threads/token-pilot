@@ -101,6 +101,7 @@ export function detectRunner(command: string, output: string): string {
   if (cmd.includes('go test')) return 'go';
   if (cmd.includes('rspec')) return 'rspec';
   if (cmd.includes('mocha')) return 'mocha';
+  if (cmd.includes('node --test') || cmd.includes('node:test')) return 'node';
 
   // Detect from output
   const lower = output.toLowerCase();
@@ -109,6 +110,8 @@ export function detectRunner(command: string, output: string): string {
   if (lower.includes('pytest') || (lower.includes('=== ') && lower.includes(' passed'))) return 'pytest';
   if (lower.includes('phpunit')) return 'phpunit';
   if (lower.includes('--- fail:') || lower.includes('--- pass:') || lower.includes('ok  \t')) return 'go';
+  // node:test prints a TAP summary footer: "# tests N" + "# pass N" + "# fail N".
+  if (/^#\s*tests\s+\d+/m.test(output) && /^#\s*pass\s+\d+/m.test(output)) return 'node';
 
   return 'generic';
 }
@@ -130,6 +133,8 @@ export function parseTestOutput(output: string, runner: string): TestResult {
       return parseGoTest(output);
     case 'cargo':
       return parseCargoTest(output);
+    case 'node':
+      return parseNodeTest(output);
     default:
       return parseGeneric(output);
   }
@@ -288,6 +293,45 @@ function parseGoTest(output: string): TestResult {
     result.passed = okCount;
     result.failed = failCount;
     result.total = okCount + failCount;
+  }
+
+  return result;
+}
+
+function parseNodeTest(output: string): TestResult {
+  const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
+
+  // node:test (`node --test`) prints a TAP summary footer:
+  //   # tests 2
+  //   # pass 2
+  //   # fail 0
+  //   # skipped 0
+  const num = (re: RegExp): number | null => {
+    const m = output.match(re);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const pass = num(/^#\s*pass\s+(\d+)/m);
+  const fail = num(/^#\s*fail\s+(\d+)/m);
+  const skip = num(/^#\s*skipped\s+(\d+)/m);
+  const tests = num(/^#\s*tests\s+(\d+)/m);
+
+  if (pass !== null || fail !== null) {
+    result.passed = pass ?? 0;
+    result.failed = fail ?? 0;
+    result.skipped = skip ?? 0;
+    result.total = tests ?? result.passed + result.failed + result.skipped;
+  } else {
+    // No footer (truncated output) — count the TAP point lines instead.
+    result.passed = (output.match(/^ok\s+\d+/gm) ?? []).length;
+    result.failed = (output.match(/^not ok\s+\d+/gm) ?? []).length;
+    result.total = result.passed + result.failed + result.skipped;
+  }
+
+  // Failure names come from the TAP point: "not ok 3 - the test name".
+  const failPattern = /^not ok\s+\d+\s*-\s*(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = failPattern.exec(output)) !== null) {
+    result.failures.push({ name: match[1].trim(), error: '' });
   }
 
   return result;
