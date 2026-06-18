@@ -5,7 +5,19 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.46.1] - 2026-06-18
+
+### Fixed — node:test (`node --test`) TAP output parsing
+
+`test_summary` did not recognise `node --test`: `detectRunner` had no `node`
+case, so node:test output fell through to the generic parser. node:test emits a
+TAP footer (`# pass N` / `# fail N`, number after the word) and `ok N - name`
+points (`ok` before the number), which the generic `<N> passed` regex never
+matches — a green 2/2 run was reported as 0 passed. Added a `node` runner:
+detected by command (`node --test` / `node:test`) or by the TAP footer, parsing
+pass/fail/skipped/tests from the footer with a fallback to counting `ok` /
+`not ok` lines; failure names come from `not ok N - name`. Purely additive — no
+existing parser touched.
 
 ### Changed — dev-dependency security + decoupled registry publish (no shipped change)
 
