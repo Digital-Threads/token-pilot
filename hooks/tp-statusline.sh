@@ -64,6 +64,12 @@ sum_log() {
         if (match($0, /"savedTokens"[[:space:]]*:[[:space:]]*-?[0-9]+/)) {
           t = substr($0, RSTART, RLENGTH); gsub(/[^0-9-]/, "", t); total += t + 0
         }
+      } else if (mode == "wouldbe") {
+        # Raw-equivalent tokens the structural reads stood in for (the baseline
+        # the savings % is measured against): sum of tokensWouldBe.
+        if (match($0, /"tokensWouldBe"[[:space:]]*:[[:space:]]*-?[0-9]+/)) {
+          t = substr($0, RSTART, RLENGTH); gsub(/[^0-9-]/, "", t); total += t + 0
+        }
       } else {
         rw = 0; rt = 0
         if (match($0, /"tokensWouldBe"[[:space:]]*:[[:space:]]*-?[0-9]+/)) {
@@ -165,13 +171,25 @@ if [ -n "$PROJECT_ROOT" ]; then
 		SESSION_TOTAL=$(($(sum_log "$EVENTS_FILE" saved "$SESSION_ID") + $(sum_log "$TOOLS_FILE" delta "$SESSION_ID")))
 	fi
 
+	# Efficiency of the structural reads: saved ÷ would-be-raw (tool-calls — the
+	# source with a real baseline). Shown as a % so the savings number reads as a
+	# RATIO of what those reads WOULD have cost, not a fraction of the whole context.
+	WOULDBE=$(sum_log "$TOOLS_FILE" wouldbe "")
+	TOOLS_SAVED=$(sum_log "$TOOLS_FILE" delta "")
+	EFF=""
+	if [ "$WOULDBE" -gt 0 ] 2>/dev/null; then
+		EFF=" $((TOOLS_SAVED * 100 / WOULDBE))%"
+	fi
+
+	# Label the cumulative number "saved" + append the efficiency %, so it can't be
+	# misread as "saved / total-context". `s:` is the live per-session figure.
 	if [ "$SESSION_TOTAL" -gt 0 ] 2>/dev/null && [ "$PROJECT_TOTAL" -gt 0 ] 2>/dev/null; then
-		SAVED_SUFFIX=" s:$(fmt_tokens "$SESSION_TOTAL") · $(fmt_tokens "$PROJECT_TOTAL")"
+		SAVED_SUFFIX=" s:$(fmt_tokens "$SESSION_TOTAL") · saved $(fmt_tokens "$PROJECT_TOTAL")$EFF"
 	elif [ "$PROJECT_TOTAL" -gt 0 ] 2>/dev/null; then
 		# Fresh session, nothing saved yet — show the project total alone.
-		SAVED_SUFFIX=" $(fmt_tokens "$PROJECT_TOTAL")"
+		SAVED_SUFFIX=" saved $(fmt_tokens "$PROJECT_TOTAL")$EFF"
 	elif [ "$SESSION_TOTAL" -gt 0 ] 2>/dev/null; then
-		SAVED_SUFFIX=" s:$(fmt_tokens "$SESSION_TOTAL")"
+		SAVED_SUFFIX=" s:$(fmt_tokens "$SESSION_TOTAL") saved"
 	fi
 fi
 
