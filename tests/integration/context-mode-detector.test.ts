@@ -6,14 +6,31 @@ import { detectContextMode } from '../../src/integration/context-mode-detector.j
 
 describe('detectContextMode', () => {
   let testDir: string;
+  let homeDir: string;
+  let savedHome: string | undefined;
+  let savedUserProfile: string | undefined;
 
   beforeEach(async () => {
     testDir = resolve(tmpdir(), `tp-cm-test-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
+    // detectContextMode falls back to ~/.mcp.json (HOME/USERPROFILE). Point
+    // those at a clean temp home with no .mcp.json so a real one on the dev
+    // machine can't make the "no detection" cases report detected=true.
+    homeDir = resolve(tmpdir(), `tp-cm-home-${Date.now()}`);
+    await mkdir(homeDir, { recursive: true });
+    savedHome = process.env.HOME;
+    savedUserProfile = process.env.USERPROFILE;
+    process.env.HOME = homeDir;
+    delete process.env.USERPROFILE;
   });
 
   afterEach(async () => {
     await rm(testDir, { recursive: true, force: true });
+    await rm(homeDir, { recursive: true, force: true });
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
   });
 
   it('returns detected=false when no .mcp.json exists', async () => {
