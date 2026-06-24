@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.1] - 2026-06-24
+
+### Fixed — gate AST_INDEX_WALK_UP on the `.git` marker (nested-worktree escape)
+
+`exec()` set `AST_INDEX_WALK_UP=1` unconditionally. The flag tells ast-index to
+traverse past nested VCS markers and reuse a parent-level index — it exists for
+bare monorepo subdirs (no `.git`, no local DB). But forcing it when `projectRoot`
+is itself a git repo/worktree root let a worktree nested under the main repo
+(`main-repo/.worktrees/feature`) walk up past its own `.git` and **escape to the
+main repo's index, returning the wrong files**. Now the flag is set only when
+`projectRoot` has no `.git` marker of its own (a `.git` dir or worktree gitlink
+file both count). See `docs/adr/0002-ast-index-multi-root-scoping.md` — also
+records the deferred `--local`/subtree plan for multi-repo parents.
+
+### Fixed — deterministic CLI tests under parallel sharding
+
+`index.test.ts` / `installer.test.ts` now neutralise `CLAUDE_PROJECT_DIR` and
+`CLAUDE_PLUGIN_ROOT` in setup so the git-detection and install assertions don't
+flake when another suite leaks those env vars into a shared vitest worker.
+
 ## [0.47.0] - 2026-06-24
 
 ### Added — `explore` tool: one-shot ranked context + graph blast-radius

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,6 +15,52 @@ const mockDeps = vi.hoisted(() => ({
   isDangerousRoot: vi.fn(),
   detectContextMode: vi.fn(),
 }));
+
+// startServer's git-root detection runs `execFileAsync = promisify(execFile)`
+// with a real `git rev-parse --show-toplevel` subprocess (3s timeout). Under
+// parallel CPU load that subprocess can time out, flaking the two detection
+// tests below. We replace `execFile` with a git-aware shim: every NON-git
+// call delegates to the real `execFile` (so unrelated startup code is
+// untouched), and the `git rev-parse --show-toplevel` call returns whatever
+// the active test parked in `gitResponse` — instantly, no subprocess. When
+// `gitResponse` is unset the git call also delegates to real git.
+//
+// `gitResponse.toplevel` → resolve with that stdout; `gitResponse.fail` →
+// reject (drives the INIT_CWD-fallback path). promisify wraps execFile at
+// module load and appends a callback as the final arg.
+const gitResponse = vi.hoisted(
+  () => ({}) as { toplevel?: string; fail?: boolean },
+);
+
+vi.mock("node:child_process", async () => {
+  const actual =
+    await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process",
+    );
+  const realExecFile = actual.execFile as unknown as (
+    ...args: unknown[]
+  ) => unknown;
+  const shim = (...args: unknown[]) => {
+    const file = args[0];
+    const cmdArgs = args[1];
+    const isGitToplevel =
+      file === "git" &&
+      Array.isArray(cmdArgs) &&
+      cmdArgs[0] === "rev-parse" &&
+      cmdArgs[1] === "--show-toplevel";
+    if (isGitToplevel && (gitResponse.toplevel !== undefined || gitResponse.fail)) {
+      const cb = args[args.length - 1] as (e: unknown, r?: unknown) => void;
+      if (gitResponse.fail) {
+        cb(new Error("not a git repository (mocked)"));
+      } else {
+        cb(null, { stdout: `${gitResponse.toplevel}\n`, stderr: "" });
+      }
+      return;
+    }
+    return realExecFile(...args);
+  };
+  return { ...actual, execFile: shim };
+});
 
 vi.mock("../src/server.js", () => ({
   createServer: mockDeps.createServer,
@@ -72,6 +117,7 @@ import * as indexModule from "../src/index.ts";
 describe("index CLI helpers", () => {
   let tempDir: string;
   let savedPluginRoot: string | undefined;
+  let savedProjectDir: string | undefined;
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let writeSpy: ReturnType<typeof vi.spyOn>;
@@ -79,11 +125,14 @@ describe("index CLI helpers", () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "token-pilot-index-"));
-    // installHook branches on CLAUDE_PLUGIN_ROOT; neutralise any value leaked
-    // from another test sharing this worker so the install assertions are
-    // deterministic regardless of file sharding.
+    // installHook branches on CLAUDE_PLUGIN_ROOT, and startServer's projectRoot
+    // detection reads CLAUDE_PROJECT_DIR as its first candidate. Neutralise any
+    // value leaked from another test sharing this worker so the install + git
+    // detection assertions are deterministic regardless of file sharding.
     savedPluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+    savedProjectDir = process.env.CLAUDE_PROJECT_DIR;
     delete process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CLAUDE_PROJECT_DIR;
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -141,6 +190,8 @@ describe("index CLI helpers", () => {
     await rm(tempDir, { recursive: true, force: true });
     if (savedPluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
     else process.env.CLAUDE_PLUGIN_ROOT = savedPluginRoot;
+    if (savedProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+    else process.env.CLAUDE_PROJECT_DIR = savedProjectDir;
     vi.restoreAllMocks();
   });
 
@@ -425,13 +476,18 @@ describe("index CLI helpers", () => {
     });
   });
 
-  it("auto-detects git root when started without explicit args", async () => {
+  // Touches process-global cwd/INIT_CWD/PWD; retry guards the rare race when
+  // sharing a worker with other suites in the full parallel run.
+  it("auto-detects git root when started without explicit args", { retry: 2 }, async () => {
     const repoDir = await realpath(
       await mkdtemp(join(tmpdir(), "token-pilot-index-git-")),
     );
-    execFileSync("git", ["init"], { cwd: repoDir });
     const originalInitCwd = process.env.INIT_CWD;
     process.env.INIT_CWD = repoDir;
+
+    // Drive `git rev-parse --show-toplevel` deterministically — the real
+    // subprocess flakes under parallel load (3s timeout).
+    gitResponse.toplevel = repoDir;
 
     const server = {
       connect: vi.fn(async () => {}),
@@ -439,22 +495,25 @@ describe("index CLI helpers", () => {
     };
     mockDeps.createServer.mockResolvedValue(server);
 
-    await indexModule.startServer([]);
-    expect(
-      errorSpy.mock.calls.some((call) =>
-        String(call[0]).includes(`project root: ${repoDir}`),
-      ),
-    ).toBe(true);
-    expect(mockDeps.createServer).toHaveBeenCalledWith(repoDir, {
-      enforcementMode: "deny",
-      skipAstIndex: false,
-    });
-
-    process.env.INIT_CWD = originalInitCwd;
-    await rm(repoDir, { recursive: true, force: true });
+    try {
+      await indexModule.startServer([]);
+      expect(
+        errorSpy.mock.calls.some((call) =>
+          String(call[0]).includes(`project root: ${repoDir}`),
+        ),
+      ).toBe(true);
+      expect(mockDeps.createServer).toHaveBeenCalledWith(repoDir, {
+        enforcementMode: "deny",
+        skipAstIndex: false,
+      });
+    } finally {
+      delete gitResponse.toplevel;
+      process.env.INIT_CWD = originalInitCwd;
+      await rm(repoDir, { recursive: true, force: true });
+    }
   });
 
-  it("falls back to INIT_CWD when auto-detect cannot find a git root", async () => {
+  it("falls back to INIT_CWD when auto-detect cannot find a git root", { retry: 2 }, async () => {
     const fallbackDir = await mkdtemp(
       join(tmpdir(), "token-pilot-index-fallback-"),
     );
@@ -465,27 +524,34 @@ describe("index CLI helpers", () => {
     process.env.PWD = "/";
     process.chdir(fallbackDir);
 
+    // Fail git detection for every candidate so the INIT_CWD fallback path
+    // runs — without the real subprocess (and its flaky timeout).
+    gitResponse.fail = true;
+
     const server = {
       connect: vi.fn(async () => {}),
       close: vi.fn(async () => {}),
     };
     mockDeps.createServer.mockResolvedValue(server);
 
-    await indexModule.startServer([]);
-    expect(
-      errorSpy.mock.calls.some((call) =>
-        String(call[0]).includes(`${fallbackDir} (INIT_CWD, not a git repo)`),
-      ),
-    ).toBe(true);
-    expect(mockDeps.createServer).toHaveBeenCalledWith(fallbackDir, {
-      enforcementMode: "deny",
-      skipAstIndex: false,
-    });
-
-    process.env.INIT_CWD = originalInitCwd;
-    process.env.PWD = originalPwd;
-    process.chdir(originalCwd);
-    await rm(fallbackDir, { recursive: true, force: true });
+    try {
+      await indexModule.startServer([]);
+      expect(
+        errorSpy.mock.calls.some((call) =>
+          String(call[0]).includes(`${fallbackDir} (INIT_CWD, not a git repo)`),
+        ),
+      ).toBe(true);
+      expect(mockDeps.createServer).toHaveBeenCalledWith(fallbackDir, {
+        enforcementMode: "deny",
+        skipAstIndex: false,
+      });
+    } finally {
+      delete gitResponse.fail;
+      process.env.INIT_CWD = originalInitCwd;
+      process.env.PWD = originalPwd;
+      process.chdir(originalCwd);
+      await rm(fallbackDir, { recursive: true, force: true });
+    }
   });
 
   it("prints doctor diagnostics for installed components", async () => {

@@ -20,7 +20,10 @@ vi.mock("../../src/ast-index/binary-manager.js", async () => {
   };
 });
 
-import { AstIndexClient } from "../../src/ast-index/client.js";
+import {
+  AstIndexClient,
+  computeHasGitMarker,
+} from "../../src/ast-index/client.js";
 import {
   parseFileCount,
   parseImplementationsText,
@@ -529,22 +532,24 @@ describe("AstIndexClient", () => {
 
   // ast-index v3.39+ reads AST_INDEX_WALK_UP=1 so read-commands traverse
   // past nested VCS markers (submodule .git, nested Cargo.toml) and reuse
-  // a parent-level index. Without this, running find_usages inside a
-  // monorepo submodule silently returned empty. We set the flag on every
-  // spawn so the fix is zero-config.
+  // a parent-level index. We set the flag ONLY when projectRoot is a bare
+  // subdir with no `.git` marker of its own — a repo/worktree root must NOT
+  // walk up, or a nested worktree (`main-repo/.worktrees/feature`) would
+  // escape to the main repo's parent index and return the wrong files.
   //
   // ESM forbids spying on child_process.execFile, so we take the black-box
   // route: point binaryPath at a tiny shell script that prints the env var
   // back to stdout and run the real exec path end-to-end.
-  it("sets AST_INDEX_WALK_UP=1 on every ast-index spawn (monorepo fix)", async () => {
+  //
+  // Script prints one line the real binary never would, so we can assert on
+  // it unambiguously. Works on macOS/Linux CI runners.
+  const walkUpProbe = '#!/bin/sh\nprintf "WALK_UP=%s\\n" "${AST_INDEX_WALK_UP:-unset}"\n';
+
+  it("sets AST_INDEX_WALK_UP=1 when projectRoot has no .git marker (bare subdir)", async () => {
     const { chmod, writeFile } = await import("node:fs/promises");
+    // tempDir is a fresh mkdtemp — no `.git`, i.e. a bare subdir.
     const fakeBinary = join(tempDir, "fake-ast-index.sh");
-    // Script prints one line the real binary never would, so we can assert
-    // on it unambiguously. Works on macOS/Linux CI runners.
-    await writeFile(
-      fakeBinary,
-      '#!/bin/sh\nprintf "WALK_UP=%s\\n" "${AST_INDEX_WALK_UP:-unset}"\n',
-    );
+    await writeFile(fakeBinary, walkUpProbe);
     await chmod(fakeBinary, 0o755);
 
     const client = new AstIndexClient(tempDir) as any;
@@ -558,6 +563,47 @@ describe("AstIndexClient", () => {
     client.astGrepBinDir = "/some/ast-grep/bin";
     const out2 = await client.exec(["stats"]);
     expect(out2).toContain("WALK_UP=1");
+  });
+
+  it("skips AST_INDEX_WALK_UP when projectRoot is a git root (.git present)", async () => {
+    const { chmod, mkdtemp: mkdtempFs, writeFile } = await import(
+      "node:fs/promises"
+    );
+    // A repo/worktree root: a `.git` entry exists at projectRoot. Use a
+    // file (the worktree/submodule gitlink shape) — a directory counts too.
+    const repoRoot = await mkdtempFs(join(tmpdir(), "token-pilot-ast-gitroot-"));
+    await writeFile(join(repoRoot, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
+    const fakeBinary = join(repoRoot, "fake-ast-index.sh");
+    await writeFile(fakeBinary, walkUpProbe);
+    await chmod(fakeBinary, 0o755);
+
+    const client = new AstIndexClient(repoRoot) as any;
+    client.binaryPath = fakeBinary;
+
+    const out = await client.exec(["stats"]);
+    expect(out).toContain("WALK_UP=unset");
+
+    await rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it("computeHasGitMarker detects .git dir, .git file, and its absence", async () => {
+    const { mkdir, mkdtemp: mkdtempFs, writeFile } = await import(
+      "node:fs/promises"
+    );
+    const dirRepo = await mkdtempFs(join(tmpdir(), "token-pilot-git-dir-"));
+    await mkdir(join(dirRepo, ".git"));
+    expect(computeHasGitMarker(dirRepo)).toBe(true);
+
+    const fileRepo = await mkdtempFs(join(tmpdir(), "token-pilot-git-file-"));
+    await writeFile(join(fileRepo, ".git"), "gitdir: /x\n");
+    expect(computeHasGitMarker(fileRepo)).toBe(true);
+
+    const bare = await mkdtempFs(join(tmpdir(), "token-pilot-git-none-"));
+    expect(computeHasGitMarker(bare)).toBe(false);
+
+    await rm(dirRepo, { recursive: true, force: true });
+    await rm(fileRepo, { recursive: true, force: true });
+    await rm(bare, { recursive: true, force: true });
   });
 
   // Branch-switch wiring is in server.ts, but incrementalUpdate is the
@@ -692,7 +738,7 @@ describe("AstIndexClient", () => {
     client.binaryPath = "/bin/ast-index";
     client.ensureIndex = async () => {};
 
-    const execMock = vi.fn(async () =>
+    const execMock = vi.fn(async (..._args: unknown[]) =>
       JSON.stringify({
         dominant_language: "ts",
         query: "AstIndexClient buildIndex",

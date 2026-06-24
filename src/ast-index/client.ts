@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
 import type { FileStructure } from "../types.js";
 import type {
@@ -53,11 +55,23 @@ const PYTHON_EXTENSIONS = new Set(["py", "pyw"]);
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * True when `projectRoot` is itself a git repo or worktree root. A `.git`
+ * entry counts whether it's a directory (normal repo) or a file (worktree /
+ * submodule gitlink). Used to gate AST_INDEX_WALK_UP — see exec().
+ */
+export function computeHasGitMarker(projectRoot: string): boolean {
+  return existsSync(resolve(projectRoot, ".git"));
+}
+
 export class AstIndexClient {
   private static readonly MAX_INDEX_FILES = 50_000;
 
   private binaryPath: string | null = null;
   private projectRoot: string;
+  // True when projectRoot is itself a git repo/worktree root (has a `.git`
+  // marker). Gates AST_INDEX_WALK_UP in exec() — see the comment there.
+  private hasGitMarker: boolean;
   private indexed = false;
   private indexOversized = false;
   private indexDisabled = false;
@@ -77,6 +91,7 @@ export class AstIndexClient {
     options?: { binaryPath?: string | null; autoInstall?: boolean },
   ) {
     this.projectRoot = projectRoot;
+    this.hasGitMarker = computeHasGitMarker(projectRoot);
     this.timeout = timeout;
     this.configBinaryPath = options?.binaryPath ?? null;
     this.autoInstall = options?.autoInstall ?? true;
@@ -1031,6 +1046,7 @@ export class AstIndexClient {
 
   updateProjectRoot(newRoot: string): void {
     this.projectRoot = newRoot;
+    this.hasGitMarker = computeHasGitMarker(newRoot);
     this.indexed = false;
   }
 
@@ -1061,14 +1077,22 @@ export class AstIndexClient {
     // ast-index v3.39+ honours AST_INDEX_WALK_UP=1 — read-commands then
     // traverse past nested VCS markers (submodule .git, inner Cargo.toml,
     // nested settings.gradle) to reuse a parent-level index if one exists.
-    // Without this, running `search`/`outline` from a monorepo subdir stops
-    // at the nearest marker and finds nothing when the subdir has no DB.
-    // Safe default: pure-additive, no effect when projectRoot already sits
-    // at the index root.
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      AST_INDEX_WALK_UP: "1",
-    };
+    // We only want this for a BARE SUBDIR that has no VCS marker of its own
+    // and no local DB — without walk-up, `search`/`outline` from a monorepo
+    // subdir stops at the nearest marker and finds nothing.
+    //
+    // We must NOT force it when projectRoot is itself a git repo/worktree
+    // root: a git worktree nested under the main repo (e.g.
+    // `main-repo/.worktrees/feature`) would walk up past its own `.git`
+    // marker and escape to the MAIN repo's parent index, returning the
+    // wrong files. Repo/worktree roots already own their index, so walk-up
+    // is at best a no-op and at worst that escape bug — skip it. When the
+    // user set AST_INDEX_WALK_UP themselves and a marker is present, we
+    // leave their value untouched (we only refrain from forcing it).
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    if (!this.hasGitMarker) {
+      env.AST_INDEX_WALK_UP = "1";
+    }
     if (this.astGrepBinDir) {
       env.PATH = `${this.astGrepBinDir}:${process.env.PATH ?? ""}`;
     }
