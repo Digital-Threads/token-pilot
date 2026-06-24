@@ -747,6 +747,32 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "explore",
+    description:
+      "One-shot ranked context + call/inheritance graph blast-radius for a query. Returns ranked symbols, the source heads of the top-ranked files, graph neighbours (callers + subclasses — the blast radius), and related test files in a single compact block. Use INSTEAD OF separate find_usages + read_symbol + call_tree when you need to understand an area fast — cheaper than chaining those three.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Search terms (the binary splits the string into terms itself), e.g. \"AstIndexClient buildIndex\"",
+        },
+        max_files: {
+          type: "number",
+          description:
+            "Cap on the number of source file heads returned (default: binary's own limit)",
+        },
+        graph: {
+          type: "boolean",
+          description:
+            "Include call/inheritance graph neighbours (blast radius). Default: true. Set false to skip the graph walk.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "smart_log",
     description:
       "Use INSTEAD OF raw git log. Structured commit history with category detection (feat/fix/refactor/docs), file stats, author breakdown. Filters by path and ref. HEADS UP: two verification runs measured this tool at ~39% token reduction (borderline — vs 95-99% for outline/smart_diff). Cumulative data being gathered — tool may be dropped or redesigned in v0.30.0 if numbers don't improve. Prefer scoping with `path` or `count` to tighten savings.",

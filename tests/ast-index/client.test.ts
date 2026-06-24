@@ -654,4 +654,115 @@ describe("AstIndexClient", () => {
     client.stopPeriodicUpdate();
     expect(client.periodicTimer).toBeNull();
   });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // ast-index 3.46+ — swap-and-restore: a rebuild that aborts keeps the
+  // previous index. buildIndex must detect a usable preserved index in its
+  // failure path and use it instead of throwing (which would drop us to raw
+  // reads). Mirrors the existing lock-case recovery already in that catch.
+  // ──────────────────────────────────────────────────────────────────────
+  it("recovers a preserved index when rebuild fails (3.46+ swap-and-restore)", async () => {
+    const client = new AstIndexClient(tempDir) as any;
+    client.binaryPath = "/bin/ast-index";
+
+    // First stats (top of buildIndex) → no index yet, forcing the rebuild
+    // path. rebuild rejects, but the next stats reports a healthy index that
+    // the binary preserved. buildIndex should use it, not rethrow.
+    let statsCalls = 0;
+    client.exec = vi.fn(async (args: string[]) => {
+      if (args.includes("stats")) {
+        statsCalls += 1;
+        if (statsCalls === 1) return '{"stats":{"file_count":0}}';
+        return '{"stats":{"file_count":123}}';
+      }
+      if (args[0] === "rebuild") {
+        throw new Error("candidate scan aborted");
+      }
+      return "";
+    });
+
+    await expect(client.buildIndex()).resolves.toBeUndefined();
+    expect(client.indexed).toBe(true);
+  });
+
+  // explore() maps the ast-index 3.48 JSON (snake_case) into the typed
+  // result, tolerating missing arrays and passing --rwr by default.
+  it("explore() maps json to the typed result and passes --rwr by default", async () => {
+    const client = new AstIndexClient(tempDir) as any;
+    client.binaryPath = "/bin/ast-index";
+    client.ensureIndex = async () => {};
+
+    const execMock = vi.fn(async () =>
+      JSON.stringify({
+        dominant_language: "ts",
+        query: "AstIndexClient buildIndex",
+        files: [
+          { line: 54, path: "src/ast-index/client.ts", source: "   54\tclass" },
+        ],
+        symbols: [
+          {
+            kind: "class",
+            line: 54,
+            name: "AstIndexClient",
+            path: "src/ast-index/client.ts",
+            score: 1000,
+            vendor: false,
+          },
+        ],
+        neighbours: [
+          {
+            kind: "function",
+            line: 69,
+            link: "caller",
+            name: "runSummaryPipeline",
+            path: "src/hooks/summary-pipeline.ts",
+          },
+        ],
+        tests: [
+          {
+            source: "src/ast-index/client.ts",
+            tests: ["tests/ast-index/client.test.ts"],
+          },
+        ],
+      }),
+    );
+    client.exec = execMock;
+
+    const result = await client.explore("AstIndexClient buildIndex");
+    expect(result.dominantLanguage).toBe("ts");
+    expect(result.symbols[0].name).toBe("AstIndexClient");
+    expect(result.symbols[0].vendor).toBe(false);
+    expect(result.files[0].path).toBe("src/ast-index/client.ts");
+    expect(result.neighbours[0].link).toBe("caller");
+    expect(result.tests[0].tests).toEqual(["tests/ast-index/client.test.ts"]);
+
+    // Default graph ON → --rwr present; query passed as a single string.
+    const args = execMock.mock.calls[0][0] as string[];
+    expect(args).toContain("--rwr");
+    expect(args).toContain("AstIndexClient buildIndex");
+
+    // graph: false → no --rwr
+    execMock.mockClear();
+    await client.explore("x", { graph: false });
+    expect(execMock.mock.calls[0][0]).not.toContain("--rwr");
+  });
+
+  it("explore() returns an empty result on exec failure", async () => {
+    const client = new AstIndexClient(tempDir) as any;
+    client.binaryPath = "/bin/ast-index";
+    client.ensureIndex = async () => {};
+    client.exec = vi.fn(async () => {
+      throw new Error("boom");
+    });
+
+    const result = await client.explore("x");
+    expect(result).toEqual({
+      query: "x",
+      dominantLanguage: "",
+      symbols: [],
+      files: [],
+      neighbours: [],
+      tests: [],
+    });
+  });
 });

@@ -234,3 +234,71 @@ export interface AstIndexModuleApi {
   file: string;
   line: number;
 }
+
+/** ast-index explore — one ranked symbol */
+export interface AstIndexExploreSymbol {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+  score: number;
+  vendor: boolean;
+}
+
+/** ast-index explore — one ranked file head (source is line-numbered) */
+export interface AstIndexExploreFile {
+  path: string;
+  line: number;
+  source: string;
+}
+
+/** ast-index explore — one graph neighbour (blast radius, requires --rwr) */
+export interface AstIndexExploreNeighbour {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+  /** "caller" | "subclass" | string */
+  link: string;
+}
+
+/** ast-index explore — tests grouped by source file */
+export interface AstIndexExploreTestGroup {
+  source: string;
+  tests: string[];
+}
+
+/** ast-index explore — mapped result */
+export interface AstIndexExploreResult {
+  query: string;
+  dominantLanguage: string;
+  symbols: AstIndexExploreSymbol[];
+  files: AstIndexExploreFile[];
+  neighbours: AstIndexExploreNeighbour[];
+  tests: AstIndexExploreTestGroup[];
+  /** Set when the run failed (e.g. binary too old for `explore`). */
+  error?: string;
+}
+
+/** ast-index explore — raw json shape from the binary (snake_case) */
+export interface AstIndexExploreRaw {
+  query?: string;
+  dominant_language?: string;
+  symbols?: Array<{
+    name: string;
+    kind: string;
+    path: string;
+    line: number;
+    score: number;
+    vendor?: boolean;
+  }>;
+  files?: Array<{ path: string; line: number; source: string }>;
+  neighbours?: Array<{
+    name: string;
+    kind: string;
+    path: string;
+    line: number;
+    link: string;
+  }>;
+  tests?: Array<{ source: string; tests?: string[] }>;
+}

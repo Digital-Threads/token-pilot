@@ -66,6 +66,7 @@ export const NAV_TOOLS: ReadonlySet<string> = new Set([
   "module_info",
   "related_files",
   "explore_area",
+  "explore",
   "smart_log",
   "smart_diff",
   "read_section", // v0.30.0: section reading is nav-class (read-only, no edit prep)

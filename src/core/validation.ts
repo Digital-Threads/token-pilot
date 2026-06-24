@@ -740,6 +740,35 @@ export function validateExploreAreaArgs(args: unknown): ExploreAreaArgs {
   return { path: a.path };
 }
 
+// ── explore ──
+
+export interface ExploreArgs {
+  query: string;
+  max_files?: number;
+  graph?: boolean;
+}
+
+export function validateExploreArgs(args: unknown): ExploreArgs {
+  if (!args || typeof args !== "object") {
+    throw new Error('Arguments must be an object with a "query" parameter.');
+  }
+  const a = args as Record<string, unknown>;
+  if (typeof a.query !== "string" || a.query.length === 0) {
+    throw new Error('Required parameter "query" must be a non-empty string.');
+  }
+
+  const max_files = optionalNumber(a.max_files, "max_files");
+  if (max_files !== undefined && max_files < 1) {
+    throw new Error('"max_files" must be at least 1.');
+  }
+
+  return {
+    query: a.query,
+    max_files,
+    graph: optionalBool(a.graph, "graph"),
+  };
+}
+
 // ── smart_log ──
 
 export interface SmartLogArgs {

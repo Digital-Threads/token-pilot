@@ -46,6 +46,7 @@ import { handleModuleInfo } from "./handlers/module-info.js";
 import { handleModuleRoute } from "./handlers/module-route.js";
 import { handleSmartDiff } from "./handlers/smart-diff.js";
 import { handleExploreArea } from "./handlers/explore-area.js";
+import { handleExplore } from "./handlers/explore.js";
 import { handleSmartLog } from "./handlers/smart-log.js";
 import { handleTestSummary } from "./handlers/test-summary.js";
 import { handleSessionSnapshot } from "./handlers/session-snapshot.js";
@@ -90,6 +91,7 @@ import {
   validateModuleRouteArgs,
   validateSmartDiffArgs,
   validateExploreAreaArgs,
+  validateExploreArgs,
   validateSmartLogArgs,
   validateTestSummaryArgs,
   validateReadSectionArgs,
@@ -1325,6 +1327,48 @@ export async function createServer(
             };
           }
           return eaResult;
+        }
+
+        case "explore": {
+          const exArgs = validateExploreArgs(args);
+          const cachedEx = sessionCache?.get("explore", exArgs);
+          if (cachedEx) {
+            recordWithTrace({
+              tool: "explore",
+              path: exArgs.query,
+              tokensReturned: cachedEx.tokenEstimate,
+              tokensWouldBe: cachedEx.tokensWouldBe ?? cachedEx.tokenEstimate,
+              timestamp: Date.now(),
+              sessionCacheHit: true,
+              savingsCategory: "cache",
+              args: exArgs,
+            });
+            return cachedEx.result;
+          }
+          const exResult = await handleExplore(exArgs, projectRoot, astIndex);
+          const exText = exResult.content[0]?.text ?? "";
+          const exTokens = estimateTokens(exText);
+          // explore replaces a find_usages + read_symbol + call_tree chain;
+          // approximate that baseline as ~3x the compacted output.
+          const exWouldBe = exTokens * 3;
+          sessionCache?.set(
+            "explore",
+            exArgs,
+            exResult,
+            { dependsOnAst: true },
+            exTokens,
+            exWouldBe || exTokens,
+          );
+          recordWithTrace({
+            tool: "explore",
+            path: exArgs.query,
+            tokensReturned: exTokens,
+            tokensWouldBe: exWouldBe || exTokens,
+            timestamp: Date.now(),
+            savingsCategory: "compression",
+            args: exArgs,
+          });
+          return exResult;
         }
 
         case "smart_log": {

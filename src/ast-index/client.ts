@@ -25,6 +25,8 @@ import type {
   AstIndexModuleDep,
   AstIndexUnusedDep,
   AstIndexModuleApi,
+  AstIndexExploreResult,
+  AstIndexExploreRaw,
 } from "./types.js";
 import { findBinary, installBinary } from "./binary-manager.js";
 import {
@@ -214,20 +216,27 @@ export class AstIndexClient {
     } catch (buildErr) {
       const errMsg =
         buildErr instanceof Error ? buildErr.message : String(buildErr);
-      if (errMsg.includes("lock") || errMsg.includes("already running")) {
-        const count = parseFileCount(
-          await this.exec(["--format", "json", "stats"]).catch(() => ""),
+      // ast-index 3.46+ preserves the previous index when a rebuild aborts
+      // (swap-and-restore guard). Before giving up, query stats once: if a
+      // usable index survived, use it instead of losing all indexed tools and
+      // falling back to raw reads. Covers both the lock / already-running case
+      // and any generic rebuild failure the binary recovered from.
+      const lockCase =
+        errMsg.includes("lock") || errMsg.includes("already running");
+      const count = parseFileCount(
+        await this.exec(["--format", "json", "stats"]).catch(() => ""),
+      );
+      if (count > 0 && count <= AstIndexClient.MAX_INDEX_FILES) {
+        this.indexed = true;
+        console.error(
+          lockCase
+            ? `[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`
+            : `[token-pilot] ast-index: rebuild failed but previous index preserved (${count} files) — using it`,
         );
-        if (count > 0 && count <= AstIndexClient.MAX_INDEX_FILES) {
-          this.indexed = true;
-          console.error(
-            `[token-pilot] ast-index: using existing index (${count} files, rebuild skipped due to lock)`,
-          );
-          return;
-        }
-        if (count > AstIndexClient.MAX_INDEX_FILES) {
-          return this.handleOversizedIndex(count);
-        }
+        return;
+      }
+      if (count > AstIndexClient.MAX_INDEX_FILES) {
+        return this.handleOversizedIndex(count);
       }
       console.error(`[token-pilot] ast-index: rebuild failed — ${errMsg}`);
       throw buildErr;
@@ -449,6 +458,82 @@ export class AstIndexClient {
         `[token-pilot] ast-index usages failed: ${err instanceof Error ? err.message : err}`,
       );
       return [];
+    }
+  }
+
+  async explore(
+    query: string,
+    options?: { maxFiles?: number; graph?: boolean },
+  ): Promise<AstIndexExploreResult> {
+    await this.ensureIndex();
+    const empty: AstIndexExploreResult = {
+      query,
+      dominantLanguage: "",
+      symbols: [],
+      files: [],
+      neighbours: [],
+      tests: [],
+    };
+    const args = ["explore", query, "--format", "json"];
+    if (options?.maxFiles) args.push("-f", String(options.maxFiles));
+    // Default graph ON — call/inheritance blast-radius is the value-add;
+    // callers opt out with graph: false.
+    if (options?.graph !== false) args.push("--rwr");
+    try {
+      const result = await this.exec(args);
+      const parsed: AstIndexExploreRaw = JSON.parse(result);
+      return {
+        query: typeof parsed.query === "string" ? parsed.query : query,
+        dominantLanguage:
+          typeof parsed.dominant_language === "string"
+            ? parsed.dominant_language
+            : "",
+        symbols: Array.isArray(parsed.symbols)
+          ? parsed.symbols.map((s) => ({
+              name: s.name,
+              kind: s.kind,
+              path: s.path,
+              line: s.line,
+              score: s.score,
+              vendor: s.vendor === true,
+            }))
+          : [],
+        files: Array.isArray(parsed.files)
+          ? parsed.files.map((f) => ({
+              path: f.path,
+              line: f.line,
+              source: f.source,
+            }))
+          : [],
+        neighbours: Array.isArray(parsed.neighbours)
+          ? parsed.neighbours.map((n) => ({
+              name: n.name,
+              kind: n.kind,
+              path: n.path,
+              line: n.line,
+              link: n.link,
+            }))
+          : [],
+        tests: Array.isArray(parsed.tests)
+          ? parsed.tests.map((t) => ({
+              source: t.source,
+              tests: Array.isArray(t.tests) ? t.tests : [],
+            }))
+          : [],
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[token-pilot] ast-index explore failed: ${msg}`);
+      // `explore` landed in ast-index 3.48. An older resolved binary reports
+      // "unrecognized subcommand 'explore'" — surface that instead of an
+      // indistinguishable empty result, so the caller knows to update.
+      if (/unrecognized subcommand|unexpected argument/.test(msg)) {
+        return {
+          ...empty,
+          error: "explore requires ast-index >= 3.48 — update the binary",
+        };
+      }
+      return empty;
     }
   }
 
