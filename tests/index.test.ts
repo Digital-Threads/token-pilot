@@ -71,6 +71,7 @@ import * as indexModule from "../src/index.ts";
 
 describe("index CLI helpers", () => {
   let tempDir: string;
+  let savedPluginRoot: string | undefined;
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let writeSpy: ReturnType<typeof vi.spyOn>;
@@ -78,6 +79,11 @@ describe("index CLI helpers", () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "token-pilot-index-"));
+    // installHook branches on CLAUDE_PLUGIN_ROOT; neutralise any value leaked
+    // from another test sharing this worker so the install assertions are
+    // deterministic regardless of file sharding.
+    savedPluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CLAUDE_PLUGIN_ROOT;
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -133,6 +139,8 @@ describe("index CLI helpers", () => {
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+    if (savedPluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+    else process.env.CLAUDE_PLUGIN_ROOT = savedPluginRoot;
     vi.restoreAllMocks();
   });
 

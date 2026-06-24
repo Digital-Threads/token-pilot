@@ -105,7 +105,7 @@ describe("tp-statusline.sh", () => {
     const out = strip(runScript(TP_SCRIPT, payload));
     // v0.43.0 — session (sess-abc: 5000+3500+2000 = 10500) + project
     // (all sessions: +9999 = 20499) → "s:10.5k · 20.4k".
-    expect(out).toMatch(/\[TP s:10\.5k · 20\.4k\]/);
+    expect(out).toMatch(/\[TP s:10\.5k · saved 20\.4k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -126,7 +126,7 @@ describe("tp-statusline.sh", () => {
     });
     const out = strip(runScript(TP_SCRIPT, payload));
     // v0.42.4 — one decimal place → 99999 → "99.9k".
-    expect(out).toMatch(/\[TP 99\.9k\]/);
+    expect(out).toMatch(/\[TP saved 99\.9k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -145,7 +145,7 @@ describe("tp-statusline.sh", () => {
     const out = strip(runScript(TP_SCRIPT, payload));
     // v0.43.0 — the single event belongs to session "s", so session and
     // project totals are both 42000 → "s:42.0k · 42.0k".
-    expect(out).toMatch(/\[TP s:42\.0k · 42\.0k\]/);
+    expect(out).toMatch(/\[TP s:42\.0k · saved 42\.0k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -165,7 +165,7 @@ describe("tp-statusline.sh", () => {
     );
     const payload = JSON.stringify({ session_id: "s", cwd: subdir });
     const out = strip(runScript(TP_SCRIPT, payload));
-    expect(out).toMatch(/\[TP s:150\.0k · 150\.0k\]/);
+    expect(out).toMatch(/\[TP s:150\.0k · saved 150\.0k\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -188,7 +188,7 @@ describe("tp-statusline.sh", () => {
     const out = strip(runScript(TP_SCRIPT, payload));
     // The one valid line belongs to session "sess-x" → session & project
     // both 500 (sub-1k → no decimal): "s:500 · 500".
-    expect(out).toMatch(/\[TP s:500 · 500\]/);
+    expect(out).toMatch(/\[TP s:500 · saved 500\]/);
 
     await rm(root, { recursive: true, force: true });
   });
@@ -220,7 +220,7 @@ describe("tp-statusline.sh", () => {
     const payload = JSON.stringify({ session_id: "now", cwd: root });
     const out = strip(runScript(TP_SCRIPT, payload));
     // session now = 12300 → 12.3k; project = 172600 → 172.6k.
-    expect(out).toMatch(/\[TP s:12\.3k · 172\.6k\]/);
+    expect(out).toMatch(/\[TP s:12\.3k · saved 172\.6k\]/);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -246,7 +246,7 @@ describe("tp-statusline.sh", () => {
     const payload = JSON.stringify({ session_id: "now", cwd: root });
     const out = strip(runScript(TP_SCRIPT, payload));
     // session = 5000 + 34517 = 39517 → 39.5k; project = +10000 = 49517 → 49.5k
-    expect(out).toMatch(/\[TP s:39\.5k · 49\.5k\]/);
+    expect(out).toMatch(/\[TP s:39\.5k · saved 49\.5k \d+%\]/);
     await rm(root, { recursive: true, force: true });
   });
 
@@ -265,7 +265,7 @@ describe("tp-statusline.sh", () => {
     const payload = JSON.stringify({ session_id: "s", cwd: root });
     const out = strip(runScript(TP_SCRIPT, payload));
     // only the second row saves: 3300 − 900 = 2400 → "2.4k" (session == project)
-    expect(out).toMatch(/\[TP s:2\.4k · 2\.4k\]/);
+    expect(out).toMatch(/\[TP s:2\.4k · saved 2\.4k \d+%\]/);
     await rm(root, { recursive: true, force: true });
   });
 

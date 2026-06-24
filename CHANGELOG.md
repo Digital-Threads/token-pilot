@@ -5,6 +5,34 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] - 2026-06-24
+
+### Added — `explore` tool: one-shot ranked context + graph blast-radius
+
+New MCP tool **`explore`** wraps ast-index 3.48's `explore` command: for a query
+it returns ranked relevant symbols, the source heads of the top files, **graph
+neighbours (callers + subclasses — the blast radius, via RWR over the
+call/inheritance graph)**, and related test files — in a single compact block.
+Replaces the common `find_usages` → `read_symbol` → `call_tree` chain with one
+call. `graph` defaults on; `max_files` caps the source heads. Falls back to a
+clear "requires ast-index >= 3.48" message when an older binary is resolved.
+
+### Changed — bump `@ast-index/cli` to 3.48.1
+
+Picks up the upstream TypeScript-indexing fix, the rebuild **swap-and-restore**
+guard (a failed rebuild no longer wipes the index), memory caps, and FUSE-safe
+canonicalisation. `npm audit` stays at 0 vulnerabilities.
+
+### Changed — `buildIndex` trusts swap-and-restore
+
+When a rebuild fails, `buildIndex` now checks for the index the binary preserved
+and uses it (instead of throwing and falling back to raw reads). The lock-case
+and generic-failure recovery paths are unified.
+
+_Deferred:_ `--local` / subtree query scoping (to re-enable ast-index on
+multi-repo / worktree parents instead of disabling it) needs a rooting-model
+rework and ships separately.
+
 ## [0.46.1] - 2026-06-18
 
 ### Fixed — node:test (`node --test`) TAP output parsing

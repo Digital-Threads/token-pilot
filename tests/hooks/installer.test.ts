@@ -6,13 +6,21 @@ import { installHook, uninstallHook } from "../../src/hooks/installer.js";
 
 describe("Hook Installer", () => {
   let tempDir: string;
+  let savedPluginRoot: string | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "token-pilot-test-"));
+    // installHook branches on CLAUDE_PLUGIN_ROOT (plugin vs standalone mode).
+    // These tests assert standalone behaviour, so neutralise any value leaked
+    // from another test sharing this worker. Plugin-mode tests set it locally.
+    savedPluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+    delete process.env.CLAUDE_PLUGIN_ROOT;
   });
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+    if (savedPluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+    else process.env.CLAUDE_PLUGIN_ROOT = savedPluginRoot;
   });
 
   it("installs hook in fresh project (no .claude dir)", async () => {
