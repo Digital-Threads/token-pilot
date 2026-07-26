@@ -5,6 +5,26 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.1] - 2026-07-26
+
+### Fixed — two guard-clause defects in dispatch routing
+
+Both found by tp-run agents auditing the 0.50.0 change, and both in the
+code that change introduced.
+
+**An empty description switched prompt-matching back off.** The
+blank-input guard tested `description` rather than the haystack built one
+line above it, so a dispatch carrying an empty description and a fully
+descriptive prompt returned early with soft advice — skipping escape
+detection, agent matching and blocking. That is exactly the case
+prompt-matching was added to catch. The guard now tests the haystack.
+
+**A non-string description threw.** `description` was read with `?? ""`
+while `prompt` was type-guarded. A number survives `!description`, has no
+`.length`, and reached `containsEscape` as a non-string, where
+`.toLowerCase()` throws. Hook input is external data; it is now
+type-guarded the same way the prompt is.
+
 ## [0.50.0] - 2026-07-26
 
 ### Fixed — dispatch routing now enforces instead of suggesting
