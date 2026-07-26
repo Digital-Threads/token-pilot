@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-read"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-read"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-edit"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-edit"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-edit"
           }
         ]
       },
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-bash"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-pre-bash"
           }
         ]
       },
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-grep"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-pre-grep"
           }
         ]
       },
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-pre-task"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-pre-task"
           }
         ]
       }
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-bootstrap",
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-bootstrap",
             "once": true,
             "statusMessage": "Bootstrapping token-pilot..."
           }
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-session-start"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-session-start"
           }
         ]
       }
@@ -81,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-user-prompt"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-user-prompt"
           }
         ]
       }
@@ -92,7 +92,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-bash",
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-post-bash",
             "async": true
           }
         ]
@@ -102,7 +102,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-post-task"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-post-task"
           }
         ]
       }
@@ -112,7 +112,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-subagent-stop"
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/run.sh hook-subagent-stop"
           }
         ]
       }

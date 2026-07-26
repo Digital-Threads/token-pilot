@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.50.1",
+  "version": "0.50.2",
   "description": "Save up to 80% tokens when AI reads code \u2014 MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
     "start.sh",
     ".claude-plugin/",
     "hooks/hooks.json",
+    "hooks/run.sh",
     ".mcp.json",
     "skills/",
     "README.md",
