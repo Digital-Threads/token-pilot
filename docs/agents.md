@@ -64,11 +64,23 @@ Every agent carries an explicit `model:` field:
 
 | Model | Count | Used for |
 |-------|------:|---------|
-| `haiku` | 9 | Structured / format-bound output (commit messages, onboarding maps, ADRs, session briefings) |
-| `sonnet` | 15 | Reasoning tasks (review, debug, test, plan, audit, spec, profile, ship) |
-| `inherit` | 1 | Deep correlation needing the main thread's model (`tp-incident-timeline`) |
+| `haiku` | 5 | Mechanical work — extract, list, reformat against a fixed shape |
+| `sonnet` | 20 | Judgement — decide what matters, what breaks, why it is so |
 
-Under Opus 4.7's +35% tokenizer tax, keeping the majority of agent spawns on haiku/sonnet saves 5–10× model cost vs an all-Opus baseline.
+### How the line is drawn
+
+Measured on identical prompts through `tp-run`:
+
+| Task | Haiku | Sonnet |
+|------|------:|-------:|
+| List exported symbols in a file (strict output format) | **19,020 tok · 9.4s**, format followed exactly | 25,798 tok · 12.6s, added a verdict line the prompt forbade |
+| Find a defect in a decision function | 27,916 tok · 89s, found a narrow type issue | **30,307 tok · 50s**, found the functional defect and answered the follow-up |
+
+So haiku is the better tool for shape-bound work — cheaper, quicker, and more literal about the format. Sonnet is the better tool the moment the answer requires deciding what is important, because that is exactly where haiku's answer was narrower.
+
+Two things follow. First, most of the cost is subagent startup, not generation: the gap between models is 8–26%, while dispatching to `general-purpose` instead of a specialist costs 3x. Picking the model is a small optimisation; picking the agent is a large one. Second, because the gap is small, **when a task is borderline, choose sonnet** — a wrong answer costs more than the model does.
+
+The five on haiku all produce output with a predetermined shape: a commit message, an orientation map, a session briefing, a coverage list, a chain of commits quoted without interpretation. Anything that weighs, ranks, or explains is on sonnet — including `tp-run`, whose whole purpose is to take work no specialist claimed, so its difficulty is unknown in advance.
 
 ## Third-party Agent Integration (bless-agents)
 

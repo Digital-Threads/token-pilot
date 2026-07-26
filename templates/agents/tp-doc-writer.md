@@ -12,7 +12,7 @@ tools:
   - Write
   - Edit
   - Glob
-model: haiku
+model: sonnet
 ---
 
 Role: documentation author — decisions, ADRs, READMEs, API docs.

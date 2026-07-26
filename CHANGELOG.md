@@ -5,6 +5,40 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.0] - 2026-07-26
+
+### Changed — model assignment now follows a measured rule
+
+Five agents move from haiku to sonnet: `tp-run`, `tp-api-surface-tracker`,
+`tp-dep-health`, `tp-doc-writer`, and `tp-incident-timeline` (which was
+`inherit`, so it silently took whatever the session ran and could land on
+haiku for a production incident).
+
+The old split had no stated basis. Two measurements on identical prompts
+through `tp-run` gave one:
+
+| Task | Haiku | Sonnet |
+|------|------:|-------:|
+| List exported symbols, strict output format | **19,020 tok · 9.4s**, format exact | 25,798 tok · 12.6s, added a verdict line the prompt forbade |
+| Find a defect in a decision function | 27,916 tok · 89s, narrow type issue | **30,307 tok · 50s**, the functional defect plus the follow-up |
+
+Haiku wins shape-bound work outright — cheaper, quicker, more literal.
+Sonnet wins the moment the answer requires deciding what matters, which
+is where haiku's answer came back narrower.
+
+The rule now written down: haiku for output with a predetermined shape
+(commit message, orientation map, session briefing, coverage list, a
+chain of commits quoted without interpretation); sonnet for anything that
+weighs, ranks or explains. `tp-run` belongs in the second group because
+it exists to take work no specialist claimed — its difficulty is unknown
+when it is dispatched.
+
+Worth keeping in proportion: the gap between models is 8–26%, while
+dispatching to `general-purpose` instead of a specialist costs 3x. The
+model is a small optimisation; the agent is a large one. And because the
+gap is small, a borderline task should go to sonnet — a wrong answer
+costs more than the model does.
+
 ## [0.50.2] - 2026-07-26
 
 ### Fixed — hooks were dead on a freshly installed plugin

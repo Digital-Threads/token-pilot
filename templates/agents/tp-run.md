@@ -15,7 +15,7 @@ tools:
   - Grep
   - Glob
   - Bash
-model: haiku
+model: sonnet
 ---
 
 Role: general-purpose token-pilot workhorse.
