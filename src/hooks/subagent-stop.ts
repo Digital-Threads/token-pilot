@@ -32,6 +32,13 @@
 
 import { readFileSync } from "node:fs";
 import type { HookEvent } from "../core/event-log.js";
+import { estimateTokens } from "../core/token-estimator.js";
+import {
+  parseAgentBudget,
+  decideBudgetAdvice,
+  appendOverBudgetLog,
+  loadAgentBody,
+} from "./post-task.js";
 
 export interface SubagentStopInput {
   hook_event_name?: string;
@@ -101,6 +108,110 @@ export function tokensFromTranscript(path: string | undefined): number {
   }
   // Prefer summed output tokens; fall back to the last cumulative total.
   return out > 0 ? out : lastTotal;
+}
+
+/**
+ * Size of the subagent's FINAL reply, in tokens.
+ *
+ * Distinct from `tokensFromTranscript`, which sums everything the agent
+ * ever emitted. The tp-* agents declare "Response budget: ~N tokens",
+ * and that budget is about the answer handed back to the caller — not
+ * about the thinking and tool calls along the way. So we take the last
+ * assistant turn carrying text and measure only that.
+ *
+ * The SubagentStop payload also has a `last_assistant_message` field
+ * (present in the 2.1.220 bundle), but nothing in this codebase has ever
+ * read it, so we have no evidence it is populated. The transcript is the
+ * source we already rely on, so it stays the single source here.
+ *
+ * Returns 0 when the path is missing, unreadable, or the agent finished
+ * without a text reply — never throws.
+ */
+export function finalResponseTokens(path: string | undefined): number {
+  if (!path || typeof path !== "string") return 0;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf-8");
+  } catch {
+    return 0;
+  }
+  let lastText = "";
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let rec: unknown;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const msg = (
+      rec as {
+        message?: { role?: string; content?: unknown };
+      }
+    ).message;
+    if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    const text = msg.content
+      .filter(
+        (b): b is { type: string; text: string } =>
+          typeof b === "object" &&
+          b !== null &&
+          (b as { type?: unknown }).type === "text" &&
+          typeof (b as { text?: unknown }).text === "string",
+      )
+      .map((b) => b.text)
+      .join("");
+    if (text.trim()) lastText = text;
+  }
+  return lastText ? estimateTokens(lastText) : 0;
+}
+
+/**
+ * Response-budget watchdog for tp-* subagents.
+ *
+ * Lived in PostToolUse:Task since v0.37.0, but that hook does not fire
+ * for the dispatch tool on current Claude Code — so the check never ran,
+ * `over-budget.log` never appeared, and every recorded task event carried
+ * a null budget. SubagentStop is where completions actually arrive.
+ *
+ * Returns an advisory string when the reply overran the declared budget,
+ * or null in every other case (non-tp agent, no budget declared, agent
+ * file missing, transcript unreadable). Never throws: a watchdog must not
+ * be able to break subagent completion.
+ */
+export async function checkSubagentBudget(
+  projectRoot: string,
+  homeDir: string,
+  input: Pick<SubagentStopInput, "agent_type" | "agent_transcript_path">,
+): Promise<string | null> {
+  try {
+    const agent = input.agent_type;
+    if (typeof agent !== "string" || !agent.startsWith("tp-")) return null;
+
+    const actualTokens = finalResponseTokens(input.agent_transcript_path);
+    if (actualTokens <= 0) return null;
+
+    const body = await loadAgentBody(projectRoot, homeDir, agent);
+    const budget = body ? parseAgentBudget(body) : null;
+    if (budget == null) return null;
+
+    const decision = decideBudgetAdvice({
+      agentName: agent,
+      budget,
+      actualTokens,
+    });
+    if (!decision.overBudget) return null;
+
+    await appendOverBudgetLog(projectRoot, {
+      ts: Date.now(),
+      agent,
+      budget,
+      actualTokens,
+      overByRatio: decision.overByRatio,
+    });
+    return decision.message;
+  } catch {
+    return null;
+  }
 }
 
 /**

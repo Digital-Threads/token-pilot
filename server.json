@@ -6,12 +6,12 @@
     "url": "https://github.com/Digital-Threads/token-pilot",
     "source": "github"
   },
-  "version": "0.48.0",
+  "version": "0.49.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "token-pilot",
-      "version": "0.48.0",
+      "version": "0.49.0",
       "transport": {
         "type": "stdio"
       },
