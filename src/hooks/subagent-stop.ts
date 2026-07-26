@@ -51,10 +51,24 @@ export interface SubagentStopInput {
 }
 
 /**
- * Best-effort token total from a subagent transcript (JSONL of CC
- * messages). Sums `usage.output_tokens` across assistant messages, or
- * takes a cumulative `usage.total_tokens` when present. Returns 0 on
- * any read/parse failure — never throws.
+ * Best-effort output-token total from a subagent transcript (JSONL of CC
+ * messages). Returns 0 on any read/parse failure — never throws.
+ *
+ * This is the *output* axis only, which is the one the tp-* agents are
+ * measured on ("Response budget: ~N tokens"). It is not a cost figure:
+ * input and cache-read tokens dominate real usage by two orders of
+ * magnitude and are deliberately not counted here.
+ *
+ * Note for anyone extending this: Claude Code writes one record per
+ * content block (thinking / text / tool_use) and repeats the same usage
+ * object on each, so summing a field across lines double-counts within a
+ * request. That costs ~1.4% on `output_tokens` (blocks carry differing
+ * values) but would be a clean ~2x error on any input-side field — group
+ * by `requestId` first if you add one.
+ *
+ * The `usage.total_tokens` fallback below never fired on six real
+ * transcripts sampled in July 2026 — none carried that field. Kept
+ * anyway: it costs nothing and older or future CC builds may emit it.
  */
 export function tokensFromTranscript(path: string | undefined): number {
   if (!path || typeof path !== "string") return 0;
