@@ -48,4 +48,27 @@ jobs:
         # Gate on what we ship — production deps only. Dev-tooling
         # advisories (vitest/vite chain) don't reach published users and
         # are tracked separately for a deliberate major bump.
-        run: npm audit --omit=dev --audit-level=moderate
+        #
+        # npm is retiring the audit endpoint this step used, and it now
+        # answers 400 ("Invalid package tree") for the npm shipped with
+        # Node 20/22 — which failed every build regardless of the code,
+        # master included. Read the report ourselves so a registry outage
+        # is a warning while real advisories still fail the build.
+        # Dependabot covers the same ground and does not depend on this.
+        run: |
+          report=$(npm audit --omit=dev --json 2>/dev/null) || true
+          if ! printf '%s' "$report" | jq -e 'has("vulnerabilities")' >/dev/null 2>&1; then
+            echo "::warning::npm audit endpoint unavailable — skipping this run"
+            exit 0
+          fi
+          printf '%s' "$report" | jq -r '
+            [.vulnerabilities[]
+             | select(.severity == "moderate" or .severity == "high" or .severity == "critical")]
+            | if length == 0 then "clean: no production advisories at moderate or above"
+              else (map("  \(.severity)\t\(.name)") | join("\n")) + "\n" end'
+          count=$(printf '%s' "$report" | jq '[.vulnerabilities[]
+            | select(.severity == "moderate" or .severity == "high" or .severity == "critical")] | length')
+          if [ "$count" -gt 0 ]; then
+            echo "::error::$count production advisories at moderate or above"
+            exit 1
+          fi
