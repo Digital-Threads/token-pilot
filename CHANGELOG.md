@@ -5,6 +5,39 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.2] - 2026-07-26
+
+### Fixed — hooks were dead on a freshly installed plugin
+
+`dist/` is a build artifact and is not in git, but the marketplace
+installs this plugin **from git**. `start.sh` builds it — except
+`start.sh` only runs when the MCP server starts, and hooks are invoked
+directly as `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js hook-*`. So on a
+freshly installed or freshly updated plugin, every hook fired before the
+first MCP server start hit a missing entry point and died.
+
+It died quietly, which is the worst part. Claude Code treats a failed
+hook as no decision, so enforcement did not warn or error — it just
+stopped existing until something else happened to build `dist`. Found on
+a real machine: an updated 0.50.1 had no `dist` at all, while a months-old
+0.47.1 had one only because past sessions had built it. This is the most
+likely explanation for "it doesn't always work".
+
+Hooks now go through `hooks/run.sh`, which builds `dist` if it is missing
+(~3s; `node_modules` ships with the plugin, so no install is needed),
+guards that build with a lock so the several hooks a session start fires
+cannot run `tsc` into the same directory at once, and — if the build
+fails anyway — exits 0 rather than failing the user's tool call. A hook
+that cannot decide must not become a hook that refuses.
+
+Verified against a dist-less copy: a single hook builds and returns its
+decision; six concurrent hooks all return decisions and leave no stale
+lock; relative paths still resolve from the caller's directory, since the
+launcher deliberately does not `cd`.
+
+The npm install path is untouched — it writes its own absolute-path hook
+commands and never reads `hooks/hooks.json`.
+
 ## [0.50.1] - 2026-07-26
 
 ### Fixed — two guard-clause defects in dispatch routing
