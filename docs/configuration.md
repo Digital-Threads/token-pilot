@@ -113,6 +113,30 @@ python3 -c "import json,os; p=os.path.expanduser('~/.claude/settings.json'); d=j
 - If you have a custom `statusLine` already, token-pilot respects it — no override.
 - Colours: `[TP]` is blue (`38;5;39`), caveman's `[CAVEMAN]` is orange (`38;5;172`) — deliberately distinct.
 
+## Large repositories
+
+The first tool call in a fresh checkout builds the ast-index, and on a big
+repository that build is the slowest thing token-pilot ever does. Two limits
+meet around the same point, so it helps to know both:
+
+- **`rebuild` is capped at 120 s.** Past that the build is abandoned and the
+  tools fall back to plain reads. A previously usable index is kept rather
+  than discarded (ast-index 3.46+ swaps atomically), so a failed rebuild
+  degrades rather than breaks.
+- **Claude Code 2.1.212+ moves any MCP call past 2 minutes to the
+  background** so the session stays usable. Since our own cap is the same
+  120 s, a build that runs long usually hits our limit first — but a call
+  that also does real work after the build can cross the line and finish in
+  the background. Raise or disable the threshold with
+  `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`.
+
+Repositories over **50 000 indexed files** are refused outright — that count
+almost always means `node_modules` or a build directory slipped in. Check
+what ast-index is walking before raising anything.
+
+The build is paid once. Later calls reuse the index, and updates are
+incremental.
+
 ## CLI Reference
 
 ```bash
