@@ -618,3 +618,78 @@ export async function isTokenPilotPluginEnabled(
       val === true && typeof key === "string" && key.startsWith("token-pilot@"),
   );
 }
+
+export interface DuplicateHookSource {
+  /** Settings file carrying the entries. */
+  path: string;
+  /** How many token-pilot hook commands it declares. */
+  count: number;
+}
+
+export interface DuplicateHookReport {
+  /** Only files that actually carry entries, in the order given. */
+  sources: DuplicateHookSource[];
+  /** Sum of `count` across sources. */
+  total: number;
+}
+
+/**
+ * v0.48.0 — count token-pilot hook entries declared in settings files.
+ *
+ * `installHook` already refuses to write a second registration once the
+ * plugin is enabled, but that guard only runs when the user invokes
+ * `install-hook`. Someone who installed by hand first and enabled the
+ * plugin later keeps both live forever: Claude Code fires every hook
+ * once per registration, so each Read spawns N node processes and the
+ * event log gains N rows per subagent. Nothing surfaces it.
+ *
+ * This is detection only — it never writes. `cleanStaleHookEntries` is
+ * the write path, and it deliberately stays narrower (stale command
+ * paths, three hook events). Here every event counts, because the
+ * duplicate that produced doubled event-log rows in practice lived
+ * under `SubagentStop`.
+ *
+ * Unreadable or malformed files are skipped: a bootstrap hint must
+ * never be the reason a session fails to start.
+ */
+export async function detectDuplicateHookRegistrations(
+  settingsPaths: string[],
+): Promise<DuplicateHookReport> {
+  const sources: DuplicateHookSource[] = [];
+  const seen = new Set<string>();
+
+  for (const path of settingsPaths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+
+    let settings: any;
+    try {
+      settings = JSON.parse(await readFile(path, "utf-8"));
+    } catch {
+      continue;
+    }
+
+    const hooks = settings?.hooks;
+    if (!hooks || typeof hooks !== "object") continue;
+
+    let count = 0;
+    for (const groups of Object.values(hooks)) {
+      if (!Array.isArray(groups)) continue;
+      for (const group of groups) {
+        const inner = Array.isArray((group as any)?.hooks)
+          ? (group as any).hooks
+          : [];
+        for (const hook of inner) {
+          if (String(hook?.command ?? "").includes("token-pilot")) count++;
+        }
+      }
+    }
+
+    if (count > 0) sources.push({ path, count });
+  }
+
+  return {
+    sources,
+    total: sources.reduce((sum, s) => sum + s.count, 0),
+  };
+}
