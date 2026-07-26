@@ -9,7 +9,8 @@
  */
 
 import { readdir, readFile } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join, basename, resolve } from "node:path";
+import { detectDuplicateHookRegistrations } from "./installer.js";
 import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
 import { loadEvents, type HookEvent } from "../core/event-log.js";
 import { parseProfileEnv, type ToolProfile } from "../server/tool-profiles.js";
@@ -352,6 +353,37 @@ export async function handleSessionStart(
       if (nudge) message += `\n\n${nudge}`;
     } catch {
       /* silent — telemetry nudge is strictly opt-in */
+    }
+
+    // v0.48.0 — flag a token-pilot that is registered more than once.
+    // As a plugin, hooks/hooks.json already registers every hook; a
+    // leftover entry in some settings.json is a second registration, so
+    // Claude Code fires each hook once per copy — several node processes
+    // per Read, several event-log rows per subagent. `installHook`
+    // refuses to write a duplicate, but that guard only runs when the
+    // user invokes `install-hook`; entries written before the plugin was
+    // enabled survive untouched. This lives here rather than in
+    // hook-bootstrap because bootstrap carries `once: true` and the
+    // people who need the warning ran it long ago.
+    if (process.env.CLAUDE_PLUGIN_ROOT) {
+      try {
+        const report = await detectDuplicateHookRegistrations([
+          resolve(opts.homeDir, ".claude", "settings.json"),
+          resolve(opts.projectRoot, ".claude", "settings.json"),
+          resolve(opts.projectRoot, ".claude", "settings.local.json"),
+        ]);
+        if (report.total > 0) {
+          const where = report.sources
+            .map((s) => `${s.path} (${s.count})`)
+            .join(", ");
+          message +=
+            `\n\n[token-pilot] registered ${report.total} time(s) outside the plugin: ${where}. ` +
+            `Claude Code runs a hook once per registration, so hooks fire repeatedly and the event log double-counts. ` +
+            `Delete the token-pilot entries from those files — the plugin already provides every hook.`;
+        }
+      } catch {
+        /* silent — a stale-install warning must never break startup */
+      }
     }
 
     // v0.35.0 — watchPaths is an undocumented SessionStart return key

@@ -5,6 +5,56 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] - 2026-07-26
+
+Catches up with Claude Code 2.1.188 → 2.1.220. Every breaking change in
+that range was checked against our hooks and none of it reaches us: our
+matchers are plain tool names, our hook commands use exec form without
+`${user_config}`, the decide-functions only ever return `allow`/`deny`,
+`session-start` does not branch on `input.source`, and `runHookEntryPoint`
+always exits 0.
+
+### Added — warn when token-pilot is registered more than once
+
+Anyone who installed by hand and later enabled the plugin keeps both
+registrations live. Claude Code fires a hook once per registration, so
+every `Read` spawns several node processes and each subagent lands in the
+event log more than once — silently. Found in the wild at 31 entries across
+three settings files, with two different versions of the code running side
+by side.
+
+`installHook` already refuses to write a duplicate, but that guard only
+runs when the user invokes `install-hook`; entries written before the
+plugin was enabled survive untouched. Session start now counts the
+registrations outside the plugin and names the files holding them. The
+warning clears itself once the entries are gone.
+
+Detection only — it never edits settings. It also declines to match a hook
+that merely lives under a `token-pilot/` path, which is every hook a
+contributor runs inside this repo.
+
+### Added — re-detect the project root when the session's directories change
+
+Root detection is one-shot and lazy: it runs on the first tool call and
+marks itself done either way. A session starting under a dangerous root
+(`/`, home) spends that attempt before the user has opened anything, so a
+project added afterwards through `/add-dir` stayed invisible and ast-index
+sat disabled for the rest of the session.
+
+Claude Code 2.1.203+ sends `notifications/roots/list_changed` when the
+working-directory set changes (verified in the installed 2.1.220 bundle).
+Subscribing to it re-arms detection. A session that already resolved its
+root is left alone — adding a directory never re-points working state.
+
+The subtree model deferred in ADR 0002 is untouched.
+
+### Documentation
+
+Added a "Large repositories" section covering the 120 s `rebuild` cap, the
+50 000-file refusal, and Claude Code 2.1.212+ moving MCP calls past two
+minutes into the background (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`) — our
+own cap sits at the same 120 s, so the two limits meet.
+
 ## [0.47.1] - 2026-06-24
 
 ### Fixed — gate AST_INDEX_WALK_UP on the `.git` marker (nested-worktree escape)

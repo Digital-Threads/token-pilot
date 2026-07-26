@@ -2,6 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  RootsListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { AstIndexClient } from "./ast-index/client.js";
 import { FileCache } from "./core/file-cache.js";
@@ -185,6 +186,9 @@ export async function createServer(
   // Strategy 1: MCP roots from client (Claude Code sends workspace root)
   // Strategy 2: Git detect from file path in tool args
   let autoDetectDone = false;
+  // Distinct from autoDetectDone: that records "we tried", this records
+  // "we succeeded". Only the failed case is worth retrying later.
+  let rootResolved = false;
 
   async function applyDetectedRoot(
     rootPath: string,
@@ -193,6 +197,7 @@ export async function createServer(
     projectRoot = rootPath;
     astIndex.updateProjectRoot(rootPath);
     astIndex.enableIndex();
+    rootResolved = true;
     console.error(`[token-pilot] project root: ${rootPath} (${source})`);
     try {
       await astIndex.ensureIndex();
@@ -398,6 +403,28 @@ export async function createServer(
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: advertisedTools,
   }));
+
+  // v0.48.0 — Claude Code 2.1.203+ puts the session's additional working
+  // directories in roots/list and sends notifications/roots/list_changed
+  // when that set changes (confirmed present in the 2.1.220 bundle).
+  // Detection is one-shot and lazy: a session starting under a dangerous
+  // root spends its single attempt on the first tool call, so a project
+  // added later via /add-dir stayed invisible and ast-index stayed off for
+  // the rest of the session. Re-arm on the notification — but only while no
+  // root has been resolved, so adding a directory never re-points a session
+  // that already works.
+  try {
+    server.setNotificationHandler(
+      RootsListChangedNotificationSchema,
+      async () => {
+        if (!needsAutoDetect || rootResolved) return;
+        autoDetectDone = false;
+        await tryAutoDetectRoot();
+      },
+    );
+  } catch {
+    // Older SDK without the schema — this is purely additive.
+  }
 
   // Token estimation functions (extracted to server/token-estimates.ts)
   const {
