@@ -7,7 +7,7 @@ tools:
   - mcp__token-pilot__find_usages
   - mcp__token-pilot__read_symbol
   - Bash
-model: inherit
+model: sonnet
 ---
 
 Role: incident post-mortem timeline builder.
