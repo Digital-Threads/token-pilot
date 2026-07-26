@@ -415,12 +415,25 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           buildSubagentTaskEvent,
           decideSubagentFeedback,
           renderSubagentFeedback,
+          checkSubagentBudget,
         } = await import("./hooks/subagent-stop.js");
         const ev = buildSubagentTaskEvent(input, Date.now());
         if (ev) {
           const { appendEvent } = await import("./core/event-log.js");
           await appendEvent(process.cwd(), ev);
         }
+
+        // v0.49.0 — the tp-* response-budget watchdog. It used to hang off
+        // PostToolUse:Task, which never fires here, so it has been silently
+        // dead: no over-budget.log, every task event with a null budget.
+        // The log write is unconditional (that is the record); surfacing it
+        // in the transcript rides the same feature gate as the feedback
+        // below, since SubagentStop additionalContext needs CC 2.1.163+.
+        const budgetMessage = await checkSubagentBudget(
+          process.cwd(),
+          homedir(),
+          input,
+        );
 
         // v0.41.0 — optional SubagentStop feedback. Returning
         // hookSpecificOutput.additionalContext from SubagentStop is a
@@ -445,9 +458,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
               };
             }
           }
-          const rendered = renderSubagentFeedback(
+          const combined = [
+            budgetMessage,
             decideSubagentFeedback(input, { workflow: wf }),
-          );
+          ]
+            .filter(Boolean)
+            .join("\n");
+          const rendered = renderSubagentFeedback(combined || null);
           if (rendered) process.stdout.write(rendered);
         }
       });

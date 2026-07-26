@@ -5,6 +5,61 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.49.0] - 2026-07-26
+
+### Fixed — the tp-* response-budget watchdog was dead
+
+Every tp-* agent declares a `Response budget: ~N tokens`, and a watchdog
+was supposed to flag replies that overran it. It never ran. The check
+lived in `PostToolUse:Task`, which does not fire for the dispatch tool on
+current Claude Code — something this codebase already knew and noted in a
+comment back in v0.39.3, without connecting it to the budget path.
+
+The symptoms were quiet and complete: `.token-pilot/over-budget.log` did
+not exist on any machine, and every recorded task event carried a null
+budget. Months of nothing.
+
+Moved the check to `SubagentStop`, where subagent completions actually
+arrive, and corrected what it measures. It now sizes the agent's **final
+reply** rather than everything the agent emitted along the way — a
+response budget is about the answer handed back, not about the thinking
+and tool calls on the way there. Summing all output would have flagged
+essentially every agent.
+
+The log write is unconditional. Surfacing the warning in the transcript
+rides the existing `TOKEN_PILOT_SUBAGENT_FEEDBACK=1` gate, because
+`additionalContext` on `SubagentStop` needs Claude Code 2.1.163+.
+
+### Security
+
+Cleared all 48 open dependency advisories, every one transitive through
+`@modelcontextprotocol/sdk` (27 were `hono` alone). The SDK moves 1.27.1 →
+1.29.0, which carries current `hono`, `qs`, `path-to-regexp`,
+`ip-address`, `vite` and `vitest`. Two packages needed a major the SDK
+does not request and are pinned through `overrides`: `fast-uri` 4.1.1 —
+which is on our path, since the SDK's server imports the ajv validator
+under stdio — and `@hono/node-server` 2.0.12.
+
+### Documentation
+
+Corrected the advertised tool count, which had drifted in three places
+(README said 23, marketplace 24, docs 23; there are 25), and documented
+`call_tree`, which was missing from the tools reference.
+
+Corrected `tokensFromTranscript`'s docstring: it sums every line carrying
+a usage object, not "across assistant messages" as claimed. Claude Code
+writes one record per content block and repeats the usage on each, so a
+per-line sum double-counts within a request — ~1.4% on output tokens, a
+clean ~2x on any input-side field.
+
+### CI
+
+npm is retiring the audit endpoint the pipeline used; it now answers 400
+for the npm shipped with Node 20 and 22, which failed every build
+regardless of the code. The step now reads the JSON report itself: a
+missing or malformed report is a warning, real advisories at moderate or
+above still fail the build.
+
 ## [0.48.0] - 2026-07-26
 
 Catches up with Claude Code 2.1.188 → 2.1.220. Every breaking change in
