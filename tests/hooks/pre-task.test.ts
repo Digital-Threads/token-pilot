@@ -119,15 +119,20 @@ describe("decidePreTask — allow cases", () => {
 });
 
 describe("decidePreTask — advise cases (default deny-mode)", () => {
-  it("advises on clear match (high confidence) in deny mode", () => {
+  // v0.50.0 — this used to expect "advise". Deny mode now blocks a
+  // high-confidence match, because advising did not work: an advisory is
+  // delivered as permissionDecision=allow and was ignored on ten of
+  // eleven dispatches in a measured session, each one costing ~3x what
+  // the matched specialist would have.
+  it("hard-denies a clear match (high confidence) in deny mode", () => {
     const d = decidePreTask(
       input("general-purpose", "please review these changes"),
       ctx({ mode: "deny" }),
     );
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("tp-pr-reviewer");
-      expect(d.message).toContain("confidence: high");
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") {
+      expect(d.reason).toContain("tp-pr-reviewer");
+      expect(d.reason).toContain("confidence: high");
     }
   });
 

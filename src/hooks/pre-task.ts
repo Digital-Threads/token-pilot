@@ -133,6 +133,15 @@ export function decidePreTask(
     };
   }
 
+  // v0.50.0 — match against the prompt as well as the description.
+  // Descriptions are a few words ("Reuse check") and score 1, which is
+  // always low confidence; the prompt carries the actual task and takes
+  // the same dispatch to 3. Without this the high-confidence tier below
+  // almost never fires on real traffic.
+  const prompt =
+    typeof input.tool_input?.prompt === "string" ? input.tool_input.prompt : "";
+  const haystack = prompt ? `${description} ${prompt}` : description;
+
   // No description → nothing to match against. Inject the generic
   // tool-guide so the subagent still picks tp-tools (B14).
   if (!description || description.length === 0) {
@@ -141,11 +150,13 @@ export function decidePreTask(
 
   // Author-blessed escape clauses — user is explicitly saying
   // "this is broad". Inject the tool-guide but no agent suggestion.
-  if (containsEscape(description)) {
+  // Checked across the prompt too, so an escape written there is honoured
+  // now that the prompt can trigger a block.
+  if (containsEscape(haystack)) {
     return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
   }
 
-  const hit = matchTpAgent(description, ctx.agentIndex);
+  const hit = matchTpAgent(haystack, ctx.agentIndex);
   if (!hit) {
     // No specific tp-* match. Still send the generic tool-guide so
     // the subagent learns about smart_read / read_symbol — covers the
@@ -162,10 +173,21 @@ export function decidePreTask(
     `TOKEN_PILOT_MODE=advisory for warn-only behaviour.\n\n` +
     SUBAGENT_TOOL_GUIDE;
 
+  // v0.50.0 — deny mode now blocks a high-confidence match instead of
+  // only advising. An advisory rides along as permissionDecision=allow,
+  // which the model is free to ignore, and it did: measured over one
+  // session, ten of eleven dispatches went to general-purpose while the
+  // matcher named a specialist every time. The same question costs 57,921
+  // tokens through general-purpose and 18,677 through tp-run. Reads are
+  // disciplined because they come back denied; dispatches were not,
+  // because they came back allowed.
+  //
+  // Low-confidence matches still only advise — a weak keyword must never
+  // cost someone their dispatch — and both escape routes are unchanged.
   const hardBlock =
     ctx.force ||
     ctx.mode === "strict" ||
-    (ctx.mode === "deny" && hit.confidence === "high" && ctx.force);
+    (ctx.mode === "deny" && hit.confidence === "high");
 
   if (hardBlock) {
     return {

@@ -5,6 +5,38 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.50.0] - 2026-07-26
+
+### Fixed — dispatch routing now enforces instead of suggesting
+
+Sending a task to `general-purpose` when a tp-* specialist covers it is
+the single most expensive mistake in a session. Measured on the same
+question: **57,921 tokens through `general-purpose` against 18,677
+through `tp-run`** — 3.1x, about 39k wasted per launch. Most of that is
+startup: a general agent pays ~35k just to exist, before doing any work.
+
+token-pilot has matched dispatches to specialists since v0.31.0, and the
+matcher works — it named the right agent on five of seven real
+descriptions. The suggestion simply never landed. It was delivered as
+`permissionDecision=allow` with the advice in the reason, and an allow is
+something the model may ignore. It did: over one measured session, ten of
+eleven dispatches went to `general-purpose` anyway.
+
+Reads are disciplined because a wasteful read comes back **denied**.
+Dispatches were not, because they came back allowed. So deny mode — the
+default — now blocks a high-confidence match and names the agent to use.
+
+Matching also reads the `prompt`, not just the `description`. Real
+descriptions are two or three words ("Reuse check") and score as low
+confidence; the prompt carries the actual task and takes the same
+dispatch to high. Without that, the blocking tier would almost never fire.
+
+Unchanged: a low-confidence match still only advises, because a weak
+keyword must never cost you a dispatch. Escape phrases ("ad-hoc",
+"open-ended") still pass — now recognised in the prompt as well —
+`TOKEN_PILOT_MODE=advisory` still turns blocking off entirely, and tp-*
+dispatches are never touched.
+
 ## [0.49.0] - 2026-07-26
 
 ### Fixed — the tp-* response-budget watchdog was dead
