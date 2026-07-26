@@ -91,6 +91,29 @@ describe("detectDuplicateHookRegistrations", () => {
     expect(report.sources).toEqual([]);
   });
 
+  // Anyone working inside a checkout of this repo has "token-pilot" in the
+  // path of every hook they run, so a bare substring test flags unrelated
+  // tools. Our own registrations always name a hook- subcommand.
+  it("does not count another tool that merely lives under a token-pilot path", async () => {
+    const path = await writeSettings("false-positive", {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "node /home/u/www/token-pilot/scripts/other-tool.mjs",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const report = await detectDuplicateHookRegistrations([path]);
+    expect(report.total).toBe(0);
+  });
+
   // cleanStaleHookEntries only scans PreToolUse/PostToolUse/SessionStart.
   // The real-world duplicate that produced double event-log rows lived in
   // SubagentStop, so the detector must cover every hook event.

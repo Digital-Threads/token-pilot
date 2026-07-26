@@ -387,36 +387,6 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         } catch {
           /* skip silently */
         }
-        // v0.48.0 — running as a plugin means hooks/hooks.json is already
-        // registering every hook. Any leftover entry in a settings.json is
-        // a second registration, so Claude Code fires each hook twice: two
-        // node processes per Read, two event-log rows per subagent. The
-        // `install-hook` guard can't catch this — it only runs when the
-        // user invokes it, and these leftovers predate enabling the plugin.
-        if (process.env.CLAUDE_PLUGIN_ROOT) {
-          try {
-            const { detectDuplicateHookRegistrations } = await import(
-              "./hooks/installer.js"
-            );
-            const report = await detectDuplicateHookRegistrations([
-              resolve(homedir(), ".claude", "settings.json"),
-              resolve(cwd, ".claude", "settings.json"),
-              resolve(cwd, ".claude", "settings.local.json"),
-            ]);
-            if (report.total > 0) {
-              const where = report.sources
-                .map((s) => `${s.path} (${s.count})`)
-                .join(", ");
-              hints.push(
-                `token-pilot is registered ${report.total} extra time(s) outside the plugin: ${where}. ` +
-                  "Claude Code runs every hook once per registration, so hooks fire repeatedly and the event log double-counts. " +
-                  "Run `npx token-pilot uninstall-hook` in each listed scope to leave the plugin as the only source.",
-              );
-            }
-          } catch {
-            /* skip silently */
-          }
-        }
         if (hints.length > 0) {
           const message = `[token-pilot] bootstrap notes:\n  - ${hints.join("\n  - ")}`;
           process.stdout.write(

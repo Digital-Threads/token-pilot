@@ -619,6 +619,17 @@ export async function isTokenPilotPluginEnabled(
   );
 }
 
+/**
+ * A command is ours only when it names the package AND dispatches one of
+ * our `hook-*` subcommands. Matching on the package name alone flags any
+ * unrelated tool whose script happens to live under a `token-pilot/`
+ * checkout — which is every hook a contributor runs inside this repo.
+ */
+function isTokenPilotHookCommand(command: unknown): boolean {
+  const cmd = String(command ?? "");
+  return cmd.includes("token-pilot") && /\bhook-[a-z-]+/.test(cmd);
+}
+
 export interface DuplicateHookSource {
   /** Settings file carrying the entries. */
   path: string;
@@ -680,7 +691,7 @@ export async function detectDuplicateHookRegistrations(
           ? (group as any).hooks
           : [];
         for (const hook of inner) {
-          if (String(hook?.command ?? "").includes("token-pilot")) count++;
+          if (isTokenPilotHookCommand(hook?.command)) count++;
         }
       }
     }
