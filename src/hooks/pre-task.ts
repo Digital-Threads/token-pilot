@@ -109,7 +109,13 @@ export function decidePreTask(
   if (input.tool_name !== "Task") return { kind: "allow" };
 
   const subagentType = input.tool_input?.subagent_type ?? "";
-  const description = input.tool_input?.description ?? "";
+  // Type-guarded, not just defaulted: a non-string description survives
+  // `!description`, has no `.length`, and reaches containsEscape as a
+  // non-string — which throws. Hook input is external data.
+  const description =
+    typeof input.tool_input?.description === "string"
+      ? input.tool_input.description
+      : "";
 
   // Already a tp-* — routing intent matches catalog. Let it run.
   if (typeof subagentType === "string" && subagentType.startsWith("tp-")) {
@@ -142,9 +148,12 @@ export function decidePreTask(
     typeof input.tool_input?.prompt === "string" ? input.tool_input.prompt : "";
   const haystack = prompt ? `${description} ${prompt}` : description;
 
-  // No description → nothing to match against. Inject the generic
-  // tool-guide so the subagent still picks tp-tools (B14).
-  if (!description || description.length === 0) {
+  // Nothing to match against at all. Tests the haystack, not the
+  // description: a dispatch can carry an empty description and a fully
+  // descriptive prompt, and that is precisely the case prompt-matching
+  // was added for. Guarding on description alone returned soft advice
+  // and skipped escape detection, matching and blocking entirely.
+  if (haystack.trim().length === 0) {
     return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
   }
 
