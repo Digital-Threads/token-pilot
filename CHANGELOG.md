@@ -33,10 +33,19 @@ whole-drive case — the most dangerous one in the set — would have
 started returning `false`.
 
 `isDangerousRoot` had no test coverage, which is how this shipped. It
-now has seven cases: both separator styles, trailing separators,
+now has eight cases: both separator styles, trailing separators,
 lower-cased drive paths, the posix roots and home directory, and the
 project paths that must keep working (`C:\Users\<name>\proj`,
 `D:\work\repo`).
+
+### Fixed — two production advisories the overrides missed
+
+`npm audit --omit=dev` had turned red on every pull request. `fast-uri`
+was pinned at `^4.1.1`, which sits inside the vulnerable `4.0.0-4.1.1`
+range it was meant to escape, and the `hono` override targeted
+`@hono/node-server` while the MCP SDK depends on `hono` directly too.
+Raised to `^4.1.3` and `^4.13.5` — the audit is clean again. No source
+change.
 
 ## [0.51.0] - 2026-07-26
 
