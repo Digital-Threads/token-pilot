@@ -16,7 +16,7 @@ tools:
   - Glob
   - Bash
 model: sonnet
-token_pilot_version: "0.51.0"
+token_pilot_version: "0.51.1"
 token_pilot_body_hash: 2b08618d34a61f00aafccbda9fed6d83243296dedb83440edbd2d5c28bb6dbc4
 requiredMcpServers:
   - "token-pilot"

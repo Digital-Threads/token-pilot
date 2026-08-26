@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   resolveSafePath,
   validateSmartReadArgs,
@@ -11,6 +11,7 @@ import {
   validateProjectOverviewArgs,
   validateModuleInfoArgs,
   validateCodeAuditArgs,
+  isDangerousRoot,
 } from '../../src/core/validation.js';
 
 describe('resolveSafePath', () => {
@@ -260,5 +261,76 @@ describe('validateCodeAuditArgs', () => {
 
   it('throws on invalid check value', () => {
     expect(() => validateCodeAuditArgs({ check: 'invalid' })).toThrow('check');
+  });
+});
+
+describe('isDangerousRoot', () => {
+  const savedHome = process.env.HOME;
+  const savedUserProfile = process.env.USERPROFILE;
+
+  const setHome = (home: string | undefined, userProfile: string | undefined) => {
+    if (home === undefined) delete process.env.HOME;
+    else process.env.HOME = home;
+    if (userProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = userProfile;
+  };
+
+  afterEach(() => {
+    setHome(savedHome, savedUserProfile);
+  });
+
+  it('flags posix system roots', () => {
+    setHome('/home/me', undefined);
+    for (const root of ['/', '/tmp', '/var', '/Users', '/home', '/root']) {
+      expect(isDangerousRoot(root), root).toBe(true);
+    }
+  });
+
+  it('flags posix roots with a trailing separator', () => {
+    setHome('/home/me', undefined);
+    expect(isDangerousRoot('/tmp/')).toBe(true);
+    expect(isDangerousRoot('/var//')).toBe(true);
+  });
+
+  it('flags the posix home directory, with or without a trailing separator', () => {
+    setHome('/home/me', undefined);
+    expect(isDangerousRoot('/home/me')).toBe(true);
+    expect(isDangerousRoot('/home/me/')).toBe(true);
+  });
+
+  it('allows a real posix project directory', () => {
+    setHome('/home/me', undefined);
+    expect(isDangerousRoot('/home/me/proj')).toBe(false);
+    expect(isDangerousRoot('/Users/me/proj')).toBe(false);
+  });
+
+  // Issue #65 — Windows roots reached the indexer because the guard only
+  // stripped forward slashes and compared the raw string.
+  it('flags a whole Windows drive in either separator style', () => {
+    setHome(undefined, 'C:\\Users\\TAKUMA');
+    expect(isDangerousRoot('C:\\')).toBe(true);
+    expect(isDangerousRoot('C:/')).toBe(true);
+  });
+
+  it('flags C:\\Users in either separator style', () => {
+    setHome(undefined, 'C:\\Users\\TAKUMA');
+    expect(isDangerousRoot('C:\\Users')).toBe(true);
+    expect(isDangerousRoot('C:/Users')).toBe(true);
+    expect(isDangerousRoot('C:\\Users\\')).toBe(true);
+  });
+
+  it('flags the Windows home directory regardless of separator or case', () => {
+    setHome(undefined, 'C:\\Users\\TAKUMA');
+    expect(isDangerousRoot('C:\\Users\\TAKUMA')).toBe(true);
+    expect(isDangerousRoot('C:/Users/TAKUMA')).toBe(true);
+    expect(isDangerousRoot('C:\\Users\\TAKUMA\\')).toBe(true);
+    expect(isDangerousRoot('c:\\users\\takuma')).toBe(true);
+  });
+
+  it('allows a real Windows project directory', () => {
+    setHome(undefined, 'C:\\Users\\TAKUMA');
+    expect(isDangerousRoot('C:\\Users\\TAKUMA\\proj')).toBe(false);
+    expect(isDangerousRoot('C:/Users/TAKUMA/proj')).toBe(false);
+    expect(isDangerousRoot('D:\\work\\repo')).toBe(false);
   });
 });
