@@ -867,18 +867,36 @@ export function validateReadSectionArgs(args: unknown): {
   return { path: a.path, heading: a.heading };
 }
 
+/**
+ * Bring a root into one comparable form before matching it against the
+ * dangerous-root list: forward slashes, no trailing separator.
+ *
+ * A drive-letter path is additionally lower-cased — Windows filesystems
+ * are case-insensitive, so a guard that depends on case is no guard at
+ * all. Posix paths keep their case, where it is significant.
+ *
+ * Without this, a root that arrives forward-slashed (`C:/Users/me`) or
+ * with a trailing backslash (`C:\Users\`) slipped past the guard and
+ * ast-index went on to scan the whole drive — GitHub issue #65.
+ */
+function normalizeRootForCompare(root: string): string {
+  const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+
+  return /^[A-Za-z]:/.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
 /** Detect roots that would cause ast-index to scan the entire filesystem */
 export function isDangerousRoot(root: string): boolean {
-  const normalized = root.replace(/\/+$/, "") || "/";
+  const normalized = normalizeRootForCompare(root);
   // System roots
   if (normalized === "/" || normalized === "/tmp" || normalized === "/var")
     return true;
-  // Home directories (macOS, Linux)
+  // Home directories (macOS, Linux, Windows)
   const home = process.env.HOME || process.env.USERPROFILE || "";
-  if (home && normalized === home.replace(/\/+$/, "")) return true;
+  if (home && normalized === normalizeRootForCompare(home)) return true;
   // Common dangerous patterns: /Users, /home, /root, C:\, C:\Users
   if (/^\/(?:Users|home|root)$/.test(normalized)) return true;
-  if (/^[A-Z]:\\(?:Users)?$/i.test(normalized)) return true;
+  if (/^[a-z]:(?:\/users)?$/.test(normalized)) return true;
   return false;
 }
 

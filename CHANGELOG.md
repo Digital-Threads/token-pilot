@@ -5,6 +5,48 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.51.1] - 2026-08-26
+
+### Fixed — the dangerous-root guard was blind to half of Windows
+
+`isDangerousRoot()` exists to stop ast-index from being pointed at a
+whole drive or a home directory. It compared paths as raw strings and
+stripped only forward slashes from the end — fine on posix, wrong on
+Windows: `C:/Users`, `C:/Users/<name>`, `C:\Users\` and `C:/` all walked
+straight through. Reported in #65 with a reproduction; four of the eight
+cases returned `false` where `true` was expected.
+
+The consequence is not cosmetic. A root that arrives forward-slashed is
+ordinary — plenty of tools normalize to `/` internally — and when the
+guard misses there is nothing else between the indexer and the whole
+`C:\Users` tree.
+
+Both sides of every comparison now go through one normalization:
+backslashes to forward slashes, no trailing separator, and drive-letter
+paths lower-cased, because a case-sensitive guard on a case-insensitive
+filesystem is not a guard. The drive pattern matches that normalized
+form (`c:`, `c:/users`) instead of requiring a literal backslash.
+
+The fix suggested in the issue was not taken as written. It normalizes
+`C:/` to `C:` while still requiring a slash after the colon, so the
+whole-drive case — the most dangerous one in the set — would have
+started returning `false`.
+
+`isDangerousRoot` had no test coverage, which is how this shipped. It
+now has eight cases: both separator styles, trailing separators,
+lower-cased drive paths, the posix roots and home directory, and the
+project paths that must keep working (`C:\Users\<name>\proj`,
+`D:\work\repo`).
+
+### Fixed — two production advisories the overrides missed
+
+`npm audit --omit=dev` had turned red on every pull request. `fast-uri`
+was pinned at `^4.1.1`, which sits inside the vulnerable `4.0.0-4.1.1`
+range it was meant to escape, and the `hono` override targeted
+`@hono/node-server` while the MCP SDK depends on `hono` directly too.
+Raised to `^4.1.3` and `^4.13.5` — the audit is clean again. No source
+change.
+
 ## [0.51.0] - 2026-07-26
 
 ### Changed — model assignment now follows a measured rule
