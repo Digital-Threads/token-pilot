@@ -3,13 +3,18 @@ name: tp-review-impact
 description: PROACTIVELY use this when the user asks "will this PR break production", "what's the blast radius of these changes", or is about to merge into a main branch. Combines diff analysis with dependent discovery — flags risky public-API changes BEFORE they land.
 tools:
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__module_info
+  - mcp__plugin_token-pilot_token-pilot__module_info
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 8ef3c3341cbfed4eb8dd130126a9683edc57e378c92ff0ca764d584fd941c55c
 requiredMcpServers:
   - "token-pilot"

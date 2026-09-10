@@ -3,17 +3,23 @@ name: tp-context-engineer
 description: PROACTIVELY use this when the user says "setup this project for AI-assisted coding", "agent is producing wrong patterns", "new session keeps hallucinating APIs", or asks how to structure CLAUDE.md / AGENTS.md / rules files. Audits the current context setup, proposes improvements, and writes the rules file. Do NOT use for implementing features.
 tools:
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__module_info
+  - mcp__plugin_token-pilot_token-pilot__module_info
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - Read
   - Write
   - Edit
   - Glob
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 68b32af2dacd82ebe52c4eec93edb903d452688274c3065218270627c564d8b0
 requiredMcpServers:
   - "token-pilot"

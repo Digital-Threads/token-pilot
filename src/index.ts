@@ -269,6 +269,10 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
             mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
             agentIndex,
             force,
+            // Plugin agents are dispatched as `token-pilot:tp-*`.
+            agentNamePrefix: process.env.CLAUDE_PLUGIN_ROOT
+              ? "token-pilot:"
+              : "",
           });
 
           // v0.34.2 — emit a diagnostic for every non-allow Task decision

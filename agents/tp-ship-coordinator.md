@@ -3,15 +3,20 @@ name: tp-ship-coordinator
 description: PROACTIVELY use this before a production release — "prepare to ship", "pre-launch check", "rollout plan needed". Runs the pre-launch checklist, plans staged rollout, defines rollback. Do NOT use for day-to-day deploys of a trusted pipeline (they should pass the checklist automatically).
 tools:
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - mcp__token-pilot__code_audit
+  - mcp__plugin_token-pilot_token-pilot__code_audit
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - Bash
   - Read
   - Grep
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: a60f6ae110eb3138064bce074e8ba26fa0ce5f4659df1624a9d9d3646803391b
 requiredMcpServers:
   - "token-pilot"

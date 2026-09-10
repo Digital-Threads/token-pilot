@@ -3,17 +3,23 @@ name: tp-test-writer
 description: PROACTIVELY use this when the user asks to write, add, or cover a SPECIFIC function / method / class with tests ("add test for X", "cover Y"). Mirrors project's existing test style; runs the tests before declaring done. Do NOT use for diagnosing failures (that's tp-test-triage).
 tools:
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - Read
   - Write
   - Edit
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 269f2fe22ff4517c277d3f56ca67d8a5527b93290ab21079a83ba7af22c1b5a9
 requiredMcpServers:
   - "token-pilot"

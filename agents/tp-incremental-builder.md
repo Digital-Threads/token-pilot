@@ -3,17 +3,23 @@ name: tp-incremental-builder
 description: PROACTIVELY use this when the user starts implementing a multi-file feature from a task breakdown, or says "build X" / "implement Y" with more than one file involved. Executes in thin vertical slices with test-pass between each. Do NOT use for single-function changes, docs, or config tweaks.
 tools:
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - Read
   - Write
   - Edit
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 375a824d0d847bb5453ec594c7a62ad566ee7e4d92717b0473f771f1a0477c60
 requiredMcpServers:
   - "token-pilot"

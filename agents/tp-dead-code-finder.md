@@ -3,15 +3,20 @@ name: tp-dead-code-finder
 description: Use this when the user asks to find or remove dead / unused code ("clean up this file", "find unused exports", "pre-release cleanup"). Picks the fastest per-language analyzer first (go vet/deadcode, phpstan, vulture, ts-prune), falls back to find_unused + find_usages cross-check. Output-only — NEVER deletes code itself.
 tools:
   - mcp__token-pilot__find_unused
+  - mcp__plugin_token-pilot_token-pilot__find_unused
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - Bash
   - Grep
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: d9b7f5b7ae6f4ae21305c775361bcab097cc774370a6d976c093571d46d55021
 requiredMcpServers:
   - "token-pilot"

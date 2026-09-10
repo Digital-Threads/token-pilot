@@ -72,3 +72,33 @@ describe("build-agents.mjs stampFrontmatter", () => {
     expect(hashOf(a)).toBe(hashOf(b));
   });
 });
+
+// A plugin install exposes the MCP server as `mcp__plugin_token-pilot_token-pilot__*`,
+// an npm install as `mcp__token-pilot__*`. An agent that lists only the npm
+// names is refused outright on a plugin-only install ("tools list resolved
+// to nothing"), so every token-pilot tool is listed under both names.
+describe("build-agents.mjs stampFrontmatter — tool names for both installs", () => {
+  const withTools =
+    "---\n" +
+    "name: tp-demo\n" +
+    "description: Demo.\n" +
+    "tools:\n" +
+    "  - mcp__token-pilot__read_symbol\n" +
+    "  - Read\n" +
+    "---\n" +
+    "Body content.\n";
+
+  it("adds the plugin-namespaced name next to each token-pilot tool", () => {
+    const stamped = stampFrontmatter(withTools, "9.9.9");
+    expect(stamped).toContain(
+      "  - mcp__token-pilot__read_symbol\n" +
+        "  - mcp__plugin_token-pilot_token-pilot__read_symbol\n",
+    );
+  });
+
+  it("leaves other tools and the body alone", () => {
+    const stamped = stampFrontmatter(withTools, "9.9.9");
+    expect(stamped.match(/^  - Read$/gm)).toHaveLength(1);
+    expect(stamped.endsWith("---\nBody content.\n")).toBe(true);
+  });
+});

@@ -4,13 +4,20 @@ model: haiku
 description: PROACTIVELY use this when the user is exploring an unfamiliar codebase — asks "how is this organised", "what does this project do", "where do I start reading", or starts any conversation in a repo the main agent doesn't know. Orientation map only (layout, entry points, modules); does NOT drill into implementation.
 tools:
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - mcp__token-pilot__explore_area
+  - mcp__plugin_token-pilot_token-pilot__explore_area
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__smart_read_many
+  - mcp__plugin_token-pilot_token-pilot__smart_read_many
   - mcp__token-pilot__read_section
-token_pilot_version: "0.51.1"
+  - mcp__plugin_token-pilot_token-pilot__read_section
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 832e95633fbc8e9b0c10f3e540a327d4be062fb4b3f17a6cce6be13f414e2927
 requiredMcpServers:
   - "token-pilot"

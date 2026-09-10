@@ -21,6 +21,7 @@ import {
   buildAgentIndex,
   matchTpAgent,
   type AgentIndex,
+  bareAgentName,
 } from "../core/agent-matcher.js";
 import { appendEvent } from "../core/event-log.js";
 
@@ -158,18 +159,24 @@ export async function appendOverBudgetLog(
 
 /**
  * Locate the markdown body for a `tp-*` subagent — project-level first,
- * then user-level. Returns null when neither exists. Non-tp-* subagents
- * are rejected up front so we never peek outside our namespace.
+ * then user-level, then the agents shipped with the plugin itself (a
+ * plugin install has no copy under .claude/agents). Returns null when
+ * none exists. Non-tp-* subagents are rejected up front so we never peek
+ * outside our namespace; a plugin namespace (`token-pilot:`) is dropped
+ * before that check.
  */
 export async function loadAgentBody(
   projectRoot: string,
   homeDir: string,
   agentName: string,
 ): Promise<string | null> {
-  if (!agentName.startsWith("tp-")) return null;
+  const name = bareAgentName(agentName);
+  if (!name.startsWith("tp-")) return null;
+
   const candidates = [
-    join(projectRoot, ".claude", "agents", `${agentName}.md`),
-    join(homeDir, ".claude", "agents", `${agentName}.md`),
+    join(projectRoot, ".claude", "agents", `${name}.md`),
+    join(homeDir, ".claude", "agents", `${name}.md`),
+    join(defaultAgentsDir(), `${name}.md`),
   ];
   for (const p of candidates) {
     try {

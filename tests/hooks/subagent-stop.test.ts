@@ -5,7 +5,7 @@
  * tokensFromTranscript is exercised against a tmp JSONL file.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -13,6 +13,7 @@ import {
   tokensFromTranscript,
   decideSubagentFeedback,
   renderSubagentFeedback,
+  checkSubagentBudget,
   type SubagentStopInput,
 } from "../../src/hooks/subagent-stop.ts";
 
@@ -177,5 +178,42 @@ describe("renderSubagentFeedback", () => {
     const parsed = JSON.parse(out!);
     expect(parsed.hookSpecificOutput.hookEventName).toBe("SubagentStop");
     expect(parsed.hookSpecificOutput.additionalContext).toBe("wind down");
+  });
+});
+
+// Claude Code reports plugin agents under their namespace
+// (`token-pilot:tp-demo`). The watchdog accepted bare `tp-*` names only,
+// so a plugin install never had its response budgets checked.
+describe("checkSubagentBudget — plugin-namespaced agents", () => {
+  let root: string | undefined;
+
+  afterEach(async () => {
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
+  it("checks the budget of a plugin-namespaced tp-* agent", async () => {
+    root = await mkdtemp(join(tmpdir(), "tp-budget-"));
+    await mkdir(join(root, ".claude", "agents"), { recursive: true });
+    await writeFile(
+      join(root, ".claude", "agents", "tp-demo.md"),
+      "---\nname: tp-demo\n---\nResponse budget: ~100 tokens.\n",
+    );
+    const transcript = join(root, "t.jsonl");
+    await writeFile(
+      transcript,
+      JSON.stringify({
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "word ".repeat(2000) }],
+        },
+      }),
+    );
+
+    const advice = await checkSubagentBudget(root, root, {
+      agent_type: "token-pilot:tp-demo",
+      agent_transcript_path: transcript,
+    });
+
+    expect(advice).not.toBeNull();
   });
 });

@@ -3,16 +3,23 @@ name: tp-debugger
 description: PROACTIVELY use this when the user reports a bug, stack trace, error message, failing behaviour, or asks "why does X break / fail / throw". Traces root cause via call-tree without reading whole files first. Do NOT use for writing new features or planning changes.
 tools:
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - Read
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 052413de8d92377edcde6ae5c823f5378db304baccfa29e8866467f42553a500
 requiredMcpServers:
   - "token-pilot"

@@ -3,17 +3,23 @@ name: tp-doc-writer
 description: PROACTIVELY use this when the user asks to document a decision, write an ADR, add API docs, update README, or says "document this". Writes the WHY (context, constraints, trade-offs), not the WHAT — the diff shows the what. Do NOT use for inline code comments or changelog entries (that's tp-commit-writer).
 tools:
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - Read
   - Write
   - Edit
   - Glob
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 57d741794ab40e31a7ac49c68ea39a9088f5827cdef866ce81bfca1b7c9180cf
 requiredMcpServers:
   - "token-pilot"

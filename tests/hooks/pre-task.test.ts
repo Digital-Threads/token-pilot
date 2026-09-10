@@ -254,3 +254,37 @@ describe("renderPreTaskOutput", () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("blocked");
   });
 });
+
+// Claude Code renamed the subagent tool from Task to Agent and reports
+// plugin agents under their plugin namespace (`token-pilot:tp-run`).
+// Until both were handled the routing hook never engaged on a real
+// dispatch: the same input that is denied as "Task" went straight through.
+describe("decidePreTask — Agent tool and plugin-namespaced agents", () => {
+  it("routes a dispatch made through the Agent tool", () => {
+    const d = decidePreTask(
+      input("general-purpose", "please review these changes", "Agent"),
+      ctx(),
+    );
+    expect(d.kind).toBe("deny");
+  });
+
+  it("allows a plugin-namespaced tp-* subagent", () => {
+    const d = decidePreTask(
+      input("token-pilot:tp-pr-reviewer", "please review these changes"),
+      ctx(),
+    );
+    expect(d.kind).toBe("allow");
+  });
+
+  it("suggests the agent under its plugin namespace when one is given", () => {
+    const d = decidePreTask(
+      input("general-purpose", "please review these changes", "Agent"),
+      ctx({ agentNamePrefix: "token-pilot:" }),
+    );
+
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") {
+      expect(d.reason).toContain("`token-pilot:tp-pr-reviewer`");
+    }
+  });
+});

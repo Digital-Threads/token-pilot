@@ -3,15 +3,22 @@ name: tp-pr-reviewer
 description: PROACTIVELY use this when the user asks to review a diff, PR, commit range, or changeset ("review these changes", "look at my PR", "is this safe to merge"). Verdict-first output with Critical / Important findings. Do NOT use for writing code or planning.
 tools:
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__read_symbols
+  - mcp__plugin_token-pilot_token-pilot__read_symbols
   - mcp__token-pilot__smart_read_many
+  - mcp__plugin_token-pilot_token-pilot__smart_read_many
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: f83f50d05b4f70285ae7afed2b1a406fc436df56e61a0aedbfb31edc7f2b6e66
 requiredMcpServers:
   - "token-pilot"

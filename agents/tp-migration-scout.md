@@ -3,15 +3,21 @@ name: tp-migration-scout
 description: PROACTIVELY use this BEFORE the user starts any migration — replacing an API, upgrading a framework version, removing a deprecated symbol, switching libraries. Enumerates touch-points as an effort-classified checklist. Do NOT use during the migration itself (file-by-file edits).
 tools:
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__module_info
+  - mcp__plugin_token-pilot_token-pilot__module_info
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__smart_read_many
+  - mcp__plugin_token-pilot_token-pilot__smart_read_many
   - Grep
   - Glob
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 0334de1bf99b431b65359637d125cda7c44c6f780eb92c57cc538715b1939536
 requiredMcpServers:
   - "token-pilot"

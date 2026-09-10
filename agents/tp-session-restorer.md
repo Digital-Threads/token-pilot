@@ -4,12 +4,16 @@ model: haiku
 description: PROACTIVELY use this as the FIRST step after /clear, compaction, or a fresh window when a recent session_snapshot exists on disk. Reads snapshot + git status + saved docs, returns a ≤200-token briefing. Do NOT use mid-task.
 tools:
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__read_range
+  - mcp__plugin_token-pilot_token-pilot__read_range
   - mcp__token-pilot__read_section
+  - mcp__plugin_token-pilot_token-pilot__read_section
   - mcp__token-pilot__session_budget
+  - mcp__plugin_token-pilot_token-pilot__session_budget
   - Bash
   - Read
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 529374ed728f5eed5b758b3be3da65624783c0bf0c1a253d7d661a843eb5f767
 requiredMcpServers:
   - "token-pilot"

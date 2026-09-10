@@ -3,12 +3,19 @@ name: tp-run
 description: PROACTIVELY use this general-purpose token-pilot workhorse for ANY coding task (read / edit / search / explore) when no other tp-* specialist matches. Prefer token-pilot MCP tools over raw Read / Grep / git. Invoke when the user asks to touch code and no more specific specialist fits.
 tools:
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__explore_area
+  - mcp__plugin_token-pilot_token-pilot__explore_area
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - Read
   - Edit
   - Write
@@ -16,7 +23,7 @@ tools:
   - Glob
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 2b08618d34a61f00aafccbda9fed6d83243296dedb83440edbd2d5c28bb6dbc4
 requiredMcpServers:
   - "token-pilot"

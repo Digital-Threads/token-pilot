@@ -312,7 +312,7 @@ While a workflow is active:
 - Every `event:"task"` / `denied` / `diagnostic` row in
   `hook-events.jsonl` carries `workflow_id`, so you can slice one
   fan-out run out of the global log.
-- The PreToolUse:Task hook watches the token ceiling. At ≥90 % it
+- The PreToolUse:Agent hook watches the token ceiling. At ≥90 % it
   appends a wind-down note to its routing advice ("finish in-flight
   work rather than starting new branches") and logs a
   `workflow_near_budget` diagnostic — visible in `workflow status`.

@@ -3,14 +3,19 @@ name: tp-history-explorer
 description: PROACTIVELY use this when the user asks "why is this like this", "when was X added / changed", "who added Y", "what was the reason for this code". Returns the minimum commit chain that explains current state — no theorising beyond what commit messages say.
 tools:
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - Bash
   - Read
 model: haiku
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 7b70fa76a60e3c58a1de4f56c32c0f166424137e203a0cf1c8654e7c9235d904
 requiredMcpServers:
   - "token-pilot"
