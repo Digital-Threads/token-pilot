@@ -67,6 +67,12 @@ instead of being refused.
 `marketplace.json` and `server.json` stayed at 0.51.0, so `claude plugin
 update` had nothing newer to move to. All of them carry 0.52.0 now.
 
+### Fixed — a new production advisory in `qs`
+
+`qs` 6.15.3, which the MCP SDK pulls in through express, picked up a
+moderate advisory (GHSA-4mjr-xmp4-gh2g) while this release was in review
+and turned the CI audit red. Pinned to `^6.16.0` through `overrides`.
+
 A minor bump rather than a patch: routing starts denying dispatches it used
 to let through, and that is a change people will notice.
 
