@@ -131,8 +131,20 @@ const AGENT_OMIT_CLAUDE_MD = new Set(["tp-audit-scanner"]);
 function stampFrontmatter(composed, version, agentName) {
   const m = composed.match(FRONTMATTER_RE);
   if (!m) return composed;
-  const [, fm, body] = m;
+  const [, rawFm, body] = m;
   const hash = createHash("sha256").update(body).digest("hex");
+
+  // A plugin install exposes the MCP server as
+  // `mcp__plugin_token-pilot_token-pilot__*`, an npm install as
+  // `mcp__token-pilot__*`. Claude Code 2.1.208+ refuses an agent whose
+  // tools list resolves to nothing, so an agent naming only the npm tools
+  // could not run on a plugin-only install. List both names; the one an
+  // install lacks is ignored as long as another entry resolves.
+  const fm = rawFm.replace(
+    /^( *- )mcp__token-pilot__(\w+)$/gm,
+    "$1mcp__token-pilot__$2\n$1mcp__plugin_token-pilot_token-pilot__$2",
+  );
+
   // Insert marker lines immediately before the closing `---` delimiter.
   // Using lastIndexOf keeps any pre-existing newlines intact (earlier
   // regex replacement accidentally consumed the newline before `---`).

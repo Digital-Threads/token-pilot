@@ -3,12 +3,17 @@ name: tp-test-triage
 description: PROACTIVELY use this when the user reports failing tests, asks to investigate a red CI, or says "these tests are broken / flaky". Identifies root cause and suggests minimal fix — no speculation. Do NOT use to write new tests (that's tp-test-writer).
 tools:
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__read_range
+  - mcp__plugin_token-pilot_token-pilot__read_range
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 362ecf4cb03b059421ea26933473700900073dc38b3a7fe271208dfb1ae14f90
 requiredMcpServers:
   - "token-pilot"

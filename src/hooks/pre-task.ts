@@ -15,7 +15,7 @@
  *
  * Tier logic (first match wins):
  *
- *   1. tool_name !== "Task"                          → allow
+ *   1. tool_name is not Agent (or legacy Task)       → allow
  *   2. subagent_type ∈ tp-*                          → allow
  *   3. description contains an ESCAPE phrase         → allow
  *      (ad-hoc / research / explore / multi-step / across the codebase)
@@ -31,7 +31,11 @@
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
 import type { AgentIndex } from "../core/agent-matcher.js";
-import { matchTpAgent } from "../core/agent-matcher.js";
+import {
+  bareAgentName,
+  isDispatchTool,
+  matchTpAgent,
+} from "../core/agent-matcher.js";
 
 export interface PreTaskInput {
   tool_name?: string;
@@ -54,6 +58,12 @@ export interface PreTaskContext {
   agentIndex: AgentIndex;
   /** TOKEN_PILOT_FORCE_SUBAGENTS=1 — opt-in strictness regardless of mode. */
   force: boolean;
+  /**
+   * Namespace Claude Code puts in front of a plugin's agents
+   * (`token-pilot:`), so a suggestion names an agent that can actually be
+   * dispatched. Empty for npm installs, whose agents are bare `tp-*`.
+   */
+  agentNamePrefix?: string;
 }
 
 /**
@@ -106,7 +116,7 @@ export function decidePreTask(
   input: PreTaskInput,
   ctx: PreTaskContext,
 ): PreTaskDecision {
-  if (input.tool_name !== "Task") return { kind: "allow" };
+  if (!isDispatchTool(input.tool_name)) return { kind: "allow" };
 
   const subagentType = input.tool_input?.subagent_type ?? "";
   // Type-guarded, not just defaulted: a non-string description survives
@@ -117,8 +127,12 @@ export function decidePreTask(
       ? input.tool_input.description
       : "";
 
-  // Already a tp-* — routing intent matches catalog. Let it run.
-  if (typeof subagentType === "string" && subagentType.startsWith("tp-")) {
+  // Already a tp-* — routing intent matches catalog. Let it run. Plugin
+  // agents arrive namespaced (`token-pilot:tp-run`).
+  if (
+    typeof subagentType === "string" &&
+    bareAgentName(subagentType).startsWith("tp-")
+  ) {
     return { kind: "allow" };
   }
 
@@ -174,7 +188,7 @@ export function decidePreTask(
   }
 
   const suggestion =
-    `Consider dispatching \`${hit.agent}\` instead of \`${subagentType || "general-purpose"}\` — ` +
+    `Consider dispatching \`${ctx.agentNamePrefix ?? ""}${hit.agent}\` instead of \`${subagentType || "general-purpose"}\` — ` +
     `the description matches its trigger phrases (confidence: ${hit.confidence}). ` +
     `tp-* agents run under a tighter budget and output in terse style, typically ` +
     `~50-70 % fewer tokens than general-purpose. ` +

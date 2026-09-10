@@ -3,15 +3,21 @@ name: tp-audit-scanner
 description: Use this when the user asks for a security / quality audit, pre-release sweep, or "scan this for issues". Finds hardcoded secrets, injection shapes, unsafe casts, stale TODOs — classified Critical / Important / Minor. Read-only, NEVER edits, never quotes secrets in output.
 tools:
   - mcp__token-pilot__code_audit
+  - mcp__plugin_token-pilot_token-pilot__code_audit
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__read_for_edit
+  - mcp__plugin_token-pilot_token-pilot__read_for_edit
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__read_section
+  - mcp__plugin_token-pilot_token-pilot__read_section
   - Grep
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: d172f600bf32277ea6eb4cbbee4542ddd698a986dcd96997d33930561964569b
 requiredMcpServers:
   - "token-pilot"

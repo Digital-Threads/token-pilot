@@ -359,3 +359,22 @@ export function matchTpAgent(
     score: best.score,
   };
 }
+
+/**
+ * The tool Claude Code dispatches subagents with. It was renamed from
+ * `Task` to `Agent`, and `Task` survives only as a legacy alias, so a hook
+ * can be handed either name.
+ */
+export function isDispatchTool(toolName: unknown): boolean {
+  return toolName === "Agent" || toolName === "Task";
+}
+
+/**
+ * Drop a plugin namespace from an agent type. Claude Code reports plugin
+ * agents as `token-pilot:tp-run`, while the catalog and the agent files
+ * use the bare `tp-run`. Agent names cannot contain `:` themselves, so the
+ * first colon is always the namespace separator.
+ */
+export function bareAgentName(agentType: string): string {
+  return agentType.slice(agentType.indexOf(":") + 1);
+}

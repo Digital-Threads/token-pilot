@@ -3,13 +3,17 @@ name: tp-spec-writer
 description: PROACTIVELY use this before starting a new feature, project, or change that touches multiple files when no spec exists yet. Writes a structured spec, surfaces assumptions BEFORE any code, produces acceptance criteria. Do NOT use for typo fixes, single-line changes, or unambiguous small tasks.
 tools:
   - mcp__token-pilot__project_overview
+  - mcp__plugin_token-pilot_token-pilot__project_overview
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - Read
   - Write
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: c7a4e8b39228fd5158528f389c924c5ff2d98c4b9b05ee0106d54a26c5dc1350
 requiredMcpServers:
   - "token-pilot"

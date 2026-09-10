@@ -3,12 +3,16 @@ name: tp-incident-timeline
 description: PROACTIVELY use this when the user reports a production incident and asks "what changed before this", "what was deployed in the window", "correlate the bug with recent commits". Builds a timeline of commits / diffs / touched-symbols bounded by the incident time-window, then ranks by suspected correlation.
 tools:
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: de5722bfea374eaab096c1ae635c37879e7a91370ee3cd0532f4240be03c91eb
 requiredMcpServers:
   - "token-pilot"

@@ -3,13 +3,18 @@ name: tp-api-surface-tracker
 description: PROACTIVELY use this when the user asks "what changed in our public API", "did we break anyone", "is this a breaking release", or is about to cut a version. Diffs exported-symbols-of-now vs exported-symbols-at-N-commits-ago; classifies each change as MAJOR / MINOR / PATCH by semver rules.
 tools:
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - Bash
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: dd184501203fa7f3c73f419c4ffbe33c4be75400cb64a7a51733a3fe23f6e085
 requiredMcpServers:
   - "token-pilot"

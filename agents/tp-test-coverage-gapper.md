@@ -4,13 +4,18 @@ model: haiku
 description: PROACTIVELY use this when the user asks "what's untested", "find coverage gaps", "which symbols have zero tests", or wants to plan a testing sprint. Enumerates exported symbols, cross-checks against test-file references, returns a prioritised gap list.
 tools:
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_unused
+  - mcp__plugin_token-pilot_token-pilot__find_unused
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - Glob
   - Grep
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: be81eed53a3720d146cf89e4a14a7a56577633f7c84c234c412ab70d64c05b11
 requiredMcpServers:
   - "token-pilot"

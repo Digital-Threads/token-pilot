@@ -4,11 +4,15 @@ model: haiku
 description: PROACTIVELY use this when the user is about to commit a NON-TRIVIAL change (new feature, fix, refactor) and asks "write a commit message". Reads staged diff, verifies tests pass, drafts Conventional Commit. Refuses mixed diffs (asks to split), failing tests, or empty stage. Do NOT use for docs-only, whitespace-only, or < 20-line diffs — the user can write those manually faster than a subagent spawn. Do NOT use to explain already-made commits.
 tools:
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__test_summary
+  - mcp__plugin_token-pilot_token-pilot__test_summary
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - Bash
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: de64a406b5176de19f7422619c7de7949b1f28865f225402c9cea9255f377428
 requiredMcpServers:
   - "token-pilot"

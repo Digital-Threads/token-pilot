@@ -9,7 +9,7 @@
  * to `.token-pilot/over-budget.log` for later review via stats.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,6 +19,7 @@ import {
   appendOverBudgetLog,
   OVER_BUDGET_LOG,
   OVER_BUDGET_TOLERANCE,
+  loadAgentBody,
 } from "../../src/hooks/post-task.ts";
 
 let tempDir: string;
@@ -257,5 +258,25 @@ describe("appendOverBudgetLog", () => {
         overByRatio: 1,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// Claude Code reports plugin agents as `token-pilot:tp-debugger`, and a
+// plugin install keeps the agent files in the plugin's own agents/ dir.
+// Neither was found, so the budget watchdog never had a body to read.
+describe("loadAgentBody — plugin installs", () => {
+  it("strips the plugin namespace before looking the agent up", async () => {
+    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
+    await writeFile(join(tempDir, ".claude", "agents", "tp-demo.md"), "demo body");
+
+    expect(await loadAgentBody(tempDir, tempDir, "token-pilot:tp-demo")).toBe(
+      "demo body",
+    );
+  });
+
+  it("falls back to the agents shipped with the plugin", async () => {
+    const body = await loadAgentBody(tempDir, tempDir, "token-pilot:tp-debugger");
+
+    expect(body).toContain("name: tp-debugger");
   });
 });

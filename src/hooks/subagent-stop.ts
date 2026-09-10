@@ -33,6 +33,7 @@
 import { readFileSync } from "node:fs";
 import type { HookEvent } from "../core/event-log.js";
 import { estimateTokens } from "../core/token-estimator.js";
+import { bareAgentName } from "../core/agent-matcher.js";
 import {
   parseAgentBudget,
   decideBudgetAdvice,
@@ -185,7 +186,8 @@ export async function checkSubagentBudget(
 ): Promise<string | null> {
   try {
     const agent = input.agent_type;
-    if (typeof agent !== "string" || !agent.startsWith("tp-")) return null;
+    if (typeof agent !== "string" || !bareAgentName(agent).startsWith("tp-"))
+      return null;
 
     const actualTokens = finalResponseTokens(input.agent_transcript_path);
     if (actualTokens <= 0) return null;

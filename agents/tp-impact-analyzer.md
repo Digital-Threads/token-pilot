@@ -3,16 +3,24 @@ name: tp-impact-analyzer
 description: PROACTIVELY use this when the user asks "what will break if I change X", "who depends on this", or is about to modify a shared symbol / public API / widely-used function. Produces a blast-radius map of affected call sites. Does NOT propose fixes.
 tools:
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__module_info
+  - mcp__plugin_token-pilot_token-pilot__module_info
   - mcp__token-pilot__related_files
+  - mcp__plugin_token-pilot_token-pilot__related_files
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__smart_read_many
+  - mcp__plugin_token-pilot_token-pilot__smart_read_many
   - mcp__token-pilot__read_symbols
+  - mcp__plugin_token-pilot_token-pilot__read_symbols
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: 351a987e11eba63852f5431a16d8eb53104f4f689f82fdcc5a2bf4db948ba92f
 requiredMcpServers:
   - "token-pilot"

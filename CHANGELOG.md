@@ -5,6 +5,71 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.52.0] - 2026-09-10
+
+### Fixed — dispatch routing never engaged: Claude Code renamed `Task` to `Agent`
+
+Claude Code dispatches subagents through a tool now called `Agent`; `Task`
+survives only as a legacy alias. Everything token-pilot used to watch
+dispatches was keyed on `Task` — the `PreToolUse` matcher and the
+`tool_name` check inside `pre-task` — so the hook that sends a
+general-purpose dispatch to the matching `tp-*` specialist never ran in a
+real session. Checked live on Claude Code 2.1.267: a general-purpose
+dispatch described as a PR review went straight through, while the same
+input labelled `Task` is denied and pointed at `tp-pr-reviewer`. The event
+log of the busiest project on the test machine holds hundreds of subagent
+runs and not one routing intervention.
+
+The v0.40.0 finding that `PostToolUse:Task` "does not fire" is the same
+rename, not a Claude Code quirk.
+
+The `PreToolUse` matcher is now `Agent|Task` and the check accepts both
+names. `PostToolUse` keeps its `Task` matcher on purpose: subagent
+accounting moved to `SubagentStop` in v0.40.0, and waking `PostToolUse` up
+would record every dispatch twice.
+
+### Fixed — plugin agents were treated as strangers
+
+Claude Code reports plugin agents under their namespace, `token-pilot:tp-run`,
+and every "is this one of ours" check compared against a bare `tp-` prefix.
+With routing dead this was invisible. With routing alive it would have been
+the first thing anyone saw: the hook denying `token-pilot:tp-pr-reviewer`
+and suggesting `tp-pr-reviewer` instead. Namespaced names are recognised
+now, and when the hook runs as a plugin its suggestion names the agent the
+way it has to be dispatched — `token-pilot:tp-pr-reviewer`.
+
+The same prefix check kept the response-budget watchdog away from every
+plugin agent, and the agent body it reads was searched only under
+`.claude/agents`, where a plugin install keeps no copy. It now falls back to
+the agents shipped with the plugin.
+
+### Fixed — two agents refused to start on a plugin-only install
+
+Agents listed their MCP tools as `mcp__token-pilot__*`, which is what an npm
+install calls them. A plugin install exposes the same server as
+`mcp__plugin_token-pilot_token-pilot__*`. Since Claude Code 2.1.208 an agent
+whose tools list resolves to nothing is refused rather than started empty,
+so on a plugin-only install `tp-refactor-planner` and `tp-test-triage`
+failed outright — reproduced in a clean session: "would be spawned with zero
+tools — refusing" — and every other `tp-*` agent ran without the
+token-pilot tools. The build now lists each token-pilot tool under both
+names; the one an install lacks is ignored as long as another entry
+resolves.
+
+Verified live with this build loaded into a plugin-only Claude Code 2.1.267
+session: the same review dispatch now comes back denied with a pointer to
+`token-pilot:tp-pr-reviewer`, and `tp-refactor-planner` starts and answers
+instead of being refused.
+
+### Fixed — plugin manifests stuck at 0.51.0
+
+0.51.1 bumped `package.json` only. `.claude-plugin/plugin.json`,
+`marketplace.json` and `server.json` stayed at 0.51.0, so `claude plugin
+update` had nothing newer to move to. All of them carry 0.52.0 now.
+
+A minor bump rather than a patch: routing starts denying dispatches it used
+to let through, and that is a change people will notice.
+
 ## [0.51.1] - 2026-08-26
 
 ### Fixed — the dangerous-root guard was blind to half of Windows

@@ -42,7 +42,7 @@ describe("Hook Installer", () => {
     expect(settings.hooks.PreToolUse[2].matcher).toBe("MultiEdit");
     expect(settings.hooks.PreToolUse[3].matcher).toBe("Bash");
     expect(settings.hooks.PreToolUse[4].matcher).toBe("Grep");
-    expect(settings.hooks.PreToolUse[5].matcher).toBe("Task");
+    expect(settings.hooks.PreToolUse[5].matcher).toBe("Agent|Task");
   });
 
   it("installs hook alongside existing settings", async () => {
@@ -166,7 +166,7 @@ describe("Hook Installer", () => {
     // script-regeneration flows.
     expect(preToolUse).toHaveLength(6);
     expect(preToolUse.map((hook: { matcher: string }) => hook.matcher)).toEqual(
-      ["Read", "Edit", "MultiEdit", "Bash", "Grep", "Task"],
+      ["Read", "Edit", "MultiEdit", "Bash", "Grep", "Agent|Task"],
     );
     expect(preToolUse[0].hooks[0].command).toContain("hook-read");
     expect(preToolUse[1].hooks[0].command).toContain("hook-edit");

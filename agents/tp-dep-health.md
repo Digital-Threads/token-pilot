@@ -3,13 +3,17 @@ name: tp-dep-health
 description: PROACTIVELY use this when the user asks "which dependencies should I update", "any stale / risky packages", "audit our deps". Combines outdated check with actual in-code usage — stale-and-heavily-used packages are prioritised, stale-and-unused ones flagged for removal.
 tools:
   - mcp__token-pilot__module_info
+  - mcp__plugin_token-pilot_token-pilot__module_info
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__find_unused
+  - mcp__plugin_token-pilot_token-pilot__find_unused
   - Bash
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: e14dc57493d816f8c2e017963e2ef5f66bea50fd0b805a80e8a0d97c968427e7
 requiredMcpServers:
   - "token-pilot"

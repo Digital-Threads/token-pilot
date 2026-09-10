@@ -3,15 +3,21 @@ name: tp-performance-profiler
 description: PROACTIVELY use this when the user reports slow behaviour, asks to profile/optimize, mentions Core Web Vitals / TTFB / response time regressions. Measures FIRST, identifies real bottleneck, proposes targeted fix, never guesses. Do NOT use for general code review or refactoring that isn't perf-driven.
 tools:
   - mcp__token-pilot__find_usages
+  - mcp__plugin_token-pilot_token-pilot__find_usages
   - mcp__token-pilot__outline
+  - mcp__plugin_token-pilot_token-pilot__outline
   - mcp__token-pilot__read_symbol
+  - mcp__plugin_token-pilot_token-pilot__read_symbol
   - mcp__token-pilot__smart_read
+  - mcp__plugin_token-pilot_token-pilot__smart_read
   - mcp__token-pilot__smart_log
+  - mcp__plugin_token-pilot_token-pilot__smart_log
   - mcp__token-pilot__smart_diff
+  - mcp__plugin_token-pilot_token-pilot__smart_diff
   - Bash
   - Read
 model: sonnet
-token_pilot_version: "0.51.1"
+token_pilot_version: "0.52.0"
 token_pilot_body_hash: b61f06380d80798fa2e49d37bcba0653495bee04dd6bdbc1feff9a75607b0508
 requiredMcpServers:
   - "token-pilot"

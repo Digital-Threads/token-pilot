@@ -139,7 +139,9 @@ function createHookConfig(options?: HookInstallOptions) {
           hooks: [hookEntry("hook-pre-grep", options)],
         },
         {
-          matcher: "Task",
+          // Claude Code renamed the dispatch tool from Task to Agent and
+          // keeps Task only as a legacy alias — match both.
+          matcher: "Agent|Task",
           hooks: [hookEntry("hook-pre-task", options)],
         },
       ],
