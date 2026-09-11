@@ -6,7 +6,9 @@ import { installHook, uninstallHook } from "../../src/hooks/installer.js";
 
 describe("Hook Installer", () => {
   let tempDir: string;
+  let homeDir: string;
   let savedPluginRoot: string | undefined;
+  let savedHome: string | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "token-pilot-test-"));
@@ -15,12 +17,39 @@ describe("Hook Installer", () => {
     // from another test sharing this worker. Plugin-mode tests set it locally.
     savedPluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
     delete process.env.CLAUDE_PLUGIN_ROOT;
+    // It also skips when the plugin is enabled in ~/.claude/settings.json.
+    // Point HOME at an empty dir so the machine's own settings never leak in.
+    savedHome = process.env.HOME;
+    homeDir = await mkdtemp(join(tmpdir(), "token-pilot-home-"));
+    process.env.HOME = homeDir;
   });
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+    await rm(homeDir, { recursive: true, force: true });
     if (savedPluginRoot === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
     else process.env.CLAUDE_PLUGIN_ROOT = savedPluginRoot;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  // MCP startup calls installHook directly. With the plugin enabled that
+  // wrote a second set of hooks into every project the npm copy started in,
+  // so every hook ran twice.
+  it("does not write hooks when the token-pilot plugin is enabled", async () => {
+    await mkdir(join(homeDir, ".claude"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".claude", "settings.json"),
+      JSON.stringify({ enabledPlugins: { "token-pilot@token-pilot": true } }),
+    );
+
+    const result = await installHook(tempDir);
+
+    expect(result.installed).toBe(false);
+    expect(result.fatal).toBe(false);
+    await expect(
+      readFile(join(tempDir, ".claude", "settings.json"), "utf-8"),
+    ).rejects.toThrow();
   });
 
   it("installs hook in fresh project (no .claude dir)", async () => {

@@ -12,7 +12,7 @@ tools:
   - mcp__token-pilot__outline
   - mcp__plugin_token-pilot_token-pilot__outline
   - Bash
-token_pilot_version: "0.52.0"
+token_pilot_version: "0.52.1"
 token_pilot_body_hash: de64a406b5176de19f7422619c7de7949b1f28865f225402c9cea9255f377428
 requiredMcpServers:
   - "token-pilot"
