@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { resolve, dirname } from "node:path";
 
 export interface HookInstallResult {
@@ -214,6 +215,18 @@ export async function installHook(
       installed: false,
       fatal: false,
       message: "Running as plugin — hooks registered via plugin system.",
+    };
+  }
+
+  // Same when this is an npm copy running next to an enabled plugin: the
+  // plugin's hooks already fire, and entries here make every hook run
+  // twice. `install-hook` has refused this since v0.33.0, but MCP startup
+  // calls installHook directly and wrote a duplicate set into every project.
+  if (await isTokenPilotPluginEnabled(homedir())) {
+    return {
+      installed: false,
+      fatal: false,
+      message: "token-pilot plugin is enabled — hooks come from the plugin.",
     };
   }
 

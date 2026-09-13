@@ -5,6 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.52.1] - 2026-09-11
+
+### Fixed — the npm copy wrote a second set of hooks into every project
+
+When token-pilot is registered as an MCP server through npm as well as
+installed as a plugin, every start of the npm copy wrote its hooks into the
+project's `.claude/settings.json`, next to the hooks the plugin already
+provides. Every hook then ran twice and the event log double-counted. On
+the machine this was found on, 28 project settings files had collected a
+duplicate set. Eight of them had been committed to git by commands that
+stage everything (`bd init`, a "sync all" commit), carrying absolute paths
+that exist on nobody else's machine.
+
+`install-hook` has refused exactly this case since v0.33.0, but the refusal
+lived in the CLI command. MCP startup calls `installHook` directly and never
+saw it. The check now lives in `installHook` itself, so every caller gets it.
+
+Existing duplicates are not removed automatically: a hook entry in a
+tracked settings file is a decision for whoever owns the repo. The
+session-start warning flags them in whichever project is open, and
+`npx token-pilot uninstall-hook <project>` removes them.
+
 ## [0.52.0] - 2026-09-10
 
 ### Fixed — dispatch routing never engaged: Claude Code renamed `Task` to `Agent`
