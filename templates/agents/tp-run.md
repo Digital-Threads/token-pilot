@@ -14,6 +14,8 @@ tools:
   - Write
   - Grep
   - Glob
+  - WebFetch
+  - WebSearch
   - Bash
 model: sonnet
 ---

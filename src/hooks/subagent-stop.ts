@@ -117,8 +117,13 @@ export function tokensFromTranscript(path: string | undefined): number {
  * Distinct from `tokensFromTranscript`, which sums everything the agent
  * ever emitted. The tp-* agents declare "Response budget: ~N tokens",
  * and that budget is about the answer handed back to the caller — not
- * about the thinking and tool calls along the way. So we take the last
- * assistant turn carrying text and measure only that.
+ * about the thinking and tool calls along the way.
+ *
+ * Claude Code 2.1.271 moved that answer into a `SubagentHandback` tool
+ * call, leaving a stub like "Handing back." as the last text block.
+ * Measured on a real run: a 5 KB report scored 4 tokens, so the watchdog
+ * could never fire. The handback message is the reply when present; the
+ * last text turn stays as the fallback for older builds.
  *
  * The SubagentStop payload also has a `last_assistant_message` field
  * (present in the 2.1.220 bundle), but nothing in this codebase has ever
@@ -137,6 +142,7 @@ export function finalResponseTokens(path: string | undefined): number {
     return 0;
   }
   let lastText = "";
+  let handback = "";
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     let rec: unknown;
@@ -162,8 +168,23 @@ export function finalResponseTokens(path: string | undefined): number {
       .map((b) => b.text)
       .join("");
     if (text.trim()) lastText = text;
+
+    for (const block of msg.content) {
+      if (
+        typeof block !== "object" ||
+        block === null ||
+        (block as { type?: unknown }).type !== "tool_use" ||
+        (block as { name?: unknown }).name !== "SubagentHandback"
+      ) {
+        continue;
+      }
+      const sent = (block as { input?: { message?: unknown } }).input?.message;
+      if (typeof sent === "string" && sent.trim()) handback = sent;
+    }
   }
-  return lastText ? estimateTokens(lastText) : 0;
+
+  const reply = handback || lastText;
+  return reply ? estimateTokens(reply) : 0;
 }
 
 /**
@@ -232,7 +253,16 @@ export function buildSubagentTaskEvent(
   if (!agentType) return null;
 
   const est =
-    tokensOverride ?? tokensFromTranscript(input.agent_transcript_path);
+  tokensOverride ??
+    // The summed output total went unusable in Claude Code 2.1.271: the
+    // records carrying `usage` are the server-side classifier's, so a run
+    // that cost 117k tokens sums to 199. The reply size is the one figure
+    // still measurable on both old and new builds, so take whichever is
+    // larger rather than reporting two orders of magnitude too little.
+    Math.max(
+      tokensFromTranscript(input.agent_transcript_path),
+      finalResponseTokens(input.agent_transcript_path),
+    );
 
   return {
     ts: now,

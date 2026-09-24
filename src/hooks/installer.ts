@@ -26,7 +26,7 @@ export interface HookInstallOptions {
  * Uses absolute paths to node + script to avoid PATH/nvm issues.
  * Falls back to bare "token-pilot" only for manual CLI installs.
  */
-function buildHookCommand(
+export function buildHookCommand(
   action: string,
   options?: HookInstallOptions,
 ): string {

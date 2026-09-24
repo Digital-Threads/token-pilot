@@ -16,6 +16,7 @@ process.stderr.on("error", (err) => {
 });
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { toolPrefix } from "./core/tool-names.js";
 import {
   existsSync,
   readFileSync,
@@ -225,6 +226,25 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         );
         const rendered = renderPreBashOutput(decision);
         if (rendered) process.stdout.write(rendered);
+
+        // Until v0.53.0 a denied shell command left no trace anywhere: only
+        // the Read hook wrote telemetry, so every recursive-search, `cat` and
+        // unbounded-git interception was invisible in the logs. On Codex,
+        // where the model reads through the shell, that is nearly all of
+        // them. A diagnostic rather than a `denied` event on purpose: we
+        // cannot know what the command would have cost, and a made-up
+        // savings figure would distort the report built on those numbers.
+        // Awaited, not fire-and-forget: the hook process exits as soon as
+        // this callback returns, and a pending append never reaches disk.
+        if (decision.kind === "deny") {
+          await appendDiagnostic(process.cwd(), {
+            code: "bash_denied",
+            level: "info",
+            detail: { reason: decision.reason.slice(0, 80) },
+          }).catch(() => {
+            /* telemetry must never break a hook */
+          });
+        }
       });
       return;
     }
@@ -483,6 +503,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           projectRoot: process.cwd(),
           homeDir: homedir(),
           sessionStartConfig: cfg.sessionStart,
+          client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
         if (result) {
           process.stdout.write(result);
@@ -512,12 +533,22 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       });
       return;
     }
-    case "install-hook":
-      await handleInstallHook(cliArgs[1] || process.cwd());
+    case "install-hook": {
+      const args = cliArgs.slice(1);
+      if (clientFlag(args) === "codex") {
+        process.exit(await handleCodexHookCli(args, "install"));
+      }
+      await handleInstallHook(positional(args) ?? process.cwd());
       return;
-    case "uninstall-hook":
-      await handleUninstallHook(cliArgs[1] || process.cwd());
+    }
+    case "uninstall-hook": {
+      const args = cliArgs.slice(1);
+      if (clientFlag(args) === "codex") {
+        process.exit(await handleCodexHookCli(args, "uninstall"));
+      }
+      await handleUninstallHook(positional(args) ?? process.cwd());
       return;
+    }
     case "errors": {
       // v0.34.0 — surface ~/.token-pilot/hook-errors.jsonl with optional
       // filters: --tail=N --code=<x> --hook=<y> --level=<info|warn|error>
@@ -1120,8 +1151,8 @@ async function runHookReadDispatchImpl(
 
   if (mode === "advisory") {
     const reason =
-      `File "${filePath}" has ${lineCount} lines. Use mcp__token-pilot__smart_read("${filePath}") ` +
-      `for a structural overview, or mcp__token-pilot__read_for_edit("${filePath}", symbol="<name>") ` +
+      `File "${filePath}" has ${lineCount} lines. Use ${toolPrefix()}smart_read("${filePath}") ` +
+      `for a structural overview, or ${toolPrefix()}read_for_edit("${filePath}", symbol="<name>") ` +
       `for edit context. A narrow bounded Read (small limit) is still allowed.`;
     await writeEvent("denied", Math.ceil(reason.length / 4));
     return JSON.stringify({
@@ -1353,6 +1384,58 @@ export async function handleWorkflowCli(argv: string[]): Promise<number> {
       );
       return sub ? 1 : 0;
   }
+}
+
+/** `--client=<name>`; Claude Code stays the default target. */
+export function clientFlag(args: string[]): string {
+  const hit = args.find((a) => a.startsWith("--client="));
+  return hit ? hit.slice("--client=".length) : "claude-code";
+}
+
+/** First non-flag argument — the project root, when one is given. */
+export function positional(args: string[]): string | undefined {
+  return args.find((a) => !a.startsWith("--"));
+}
+
+/**
+ * `install-hook --client=codex` / `uninstall-hook --client=codex`.
+ *
+ * Codex reads hooks from `~/.codex/hooks.json` (default here) or
+ * `<repo>/.codex/hooks.json` with `--scope=project`. Returns an exit code
+ * instead of calling process.exit so the branch stays testable.
+ */
+export async function handleCodexHookCli(
+  args: string[],
+  action: "install" | "uninstall",
+  opts?: { homeDir?: string },
+): Promise<number> {
+  const { installCodexHook, uninstallCodexHook } = await import(
+    "./hooks/codex-installer.js"
+  );
+  const home = opts?.homeDir ?? homedir();
+  const scope = args.includes("--scope=project") ? "project" : "user";
+  const base = scope === "project" ? (positional(args) ?? process.cwd()) : home;
+  const codexDir = resolve(base, ".codex");
+
+  if (action === "uninstall") {
+    const removed = await uninstallCodexHook(codexDir);
+    process.stdout.write(`[token-pilot] ${removed.message}\n`);
+    return removed.fatal ? 1 : 0;
+  }
+
+  let hookOptions: { scriptPath?: string; nodeExecPath?: string } | undefined;
+  try {
+    hookOptions = {
+      scriptPath: realpathSync(fileURLToPath(new URL("./index.js", import.meta.url))),
+      nodeExecPath: process.execPath,
+    };
+  } catch {
+    // Running from source (tests) — fall back to the bare command form.
+  }
+
+  const result = await installCodexHook(codexDir, hookOptions);
+  process.stdout.write(`[token-pilot] ${result.message}\n`);
+  return result.fatal ? 1 : 0;
 }
 
 export async function handleInstallHook(projectRoot: string) {
@@ -1999,8 +2082,12 @@ export function printHelp() {
 Usage:
   token-pilot [project-root]        Start MCP server (default: cwd)
   token-pilot init [dir]            Create .mcp.json with token-pilot + context-mode
-  token-pilot install-hook [root]   Install PreToolUse hook (Claude Code only)
-  token-pilot uninstall-hook [root] Remove PreToolUse hook
+  token-pilot install-hook [root]   Install PreToolUse hooks (Claude Code)
+  token-pilot install-hook --client=codex [--scope=project]
+                                    Install shell + session hooks for Codex CLI
+  token-pilot uninstall-hook [root] Remove PreToolUse hooks
+  token-pilot uninstall-hook --client=codex [--scope=project]
+                                    Remove the Codex CLI hooks
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
   token-pilot doctor                Run diagnostics (check ast-index, config, updates)
   token-pilot save-doc <name>       Save stdin to .token-pilot/docs/<name>.md

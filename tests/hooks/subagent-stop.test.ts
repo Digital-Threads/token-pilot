@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import {
   buildSubagentTaskEvent,
   tokensFromTranscript,
+  finalResponseTokens,
   decideSubagentFeedback,
   renderSubagentFeedback,
   checkSubagentBudget,
@@ -215,5 +216,63 @@ describe("checkSubagentBudget — plugin-namespaced agents", () => {
     });
 
     expect(advice).not.toBeNull();
+  });
+});
+
+// Claude Code 2.1.271 moved the subagent's report into a `SubagentHandback`
+// tool call. The last assistant TEXT block is now a stub ("Done." or less),
+// so measuring it reported ~4 tokens for a 5 KB report and the response
+// budget could never be exceeded.
+describe("finalResponseTokens — report delivered through SubagentHandback", () => {
+  let dir: string | undefined;
+
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  it("measures the handback message, not the text stub around it", async () => {
+    dir = await mkdtemp(join(tmpdir(), "tp-handback-"));
+    const p = join(dir, "t.jsonl");
+    const report = "word ".repeat(400);
+    await writeFile(
+      p,
+      [
+        JSON.stringify({
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Handing back." }],
+          },
+        }),
+        JSON.stringify({
+          message: {
+            role: "assistant",
+            content: [
+              { type: "tool_use", name: "SubagentHandback", input: { message: report } },
+            ],
+          },
+        }),
+      ].join("\n"),
+    );
+
+    const tokens = finalResponseTokens(p);
+
+    // ~500 tokens for the report; the "Handing back." stub is ~3.
+    expect(tokens).toBeGreaterThan(300);
+  });
+
+  it("still falls back to the last text turn when there is no handback", async () => {
+    dir = await mkdtemp(join(tmpdir(), "tp-handback-"));
+    const p = join(dir, "t.jsonl");
+    await writeFile(
+      p,
+      JSON.stringify({
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "word ".repeat(400) }],
+        },
+      }),
+    );
+
+    expect(finalResponseTokens(p)).toBeGreaterThan(300);
   });
 });

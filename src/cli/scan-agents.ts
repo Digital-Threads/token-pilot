@@ -249,10 +249,18 @@ export async function scanAgents(opts: ScanOptions): Promise<ScannedAgent[]> {
 
 // ─── classifyAgent ────────────────────────────────────────────────────────────
 
-const TP_PREFIX = "mcp__token-pilot__";
+// Both spellings: a plugin install namespaces the MCP server, an npm one
+// does not. An agent blessed under either name already has our tools.
+const TP_PREFIXES = [
+  "mcp__token-pilot__",
+  "mcp__plugin_token-pilot_token-pilot__",
+];
+
+const isTpToolName = (name: string): boolean =>
+  TP_PREFIXES.some((prefix) => name.startsWith(prefix));
 
 function hasTokenPilotTool(tools: string[]): boolean {
-  return tools.some((t) => t.startsWith(TP_PREFIX));
+  return tools.some(isTpToolName);
 }
 
 /**
@@ -273,7 +281,7 @@ export function classifyAgent(agent: ScannedAgent): AgentCategory {
 
     case "exclusion": {
       // If the exclusion list mentions mcp__token-pilot__ → agent lacks access
-      const excludesTP = tools.excluded.some((e) => e.startsWith(TP_PREFIX));
+      const excludesTP = tools.excluded.some(isTpToolName);
       return excludesTP ? "C" : "B";
     }
 

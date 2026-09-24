@@ -69,13 +69,9 @@ export async function detectClient(
       subagentsSupported: false,
     };
   }
-  if (env.OPENAI_CODEX === "1" || env.CODEX_MODE) {
-    return {
-      client: "codex",
-      source: "CODEX_* env",
-      subagentsSupported: false,
-    };
-  }
+  // Codex ships no env var that identifies the session: neither
+  // OPENAI_CODEX nor CODEX_MODE (checked until v0.53.0) exists anywhere in
+  // the 0.156 binary. The `~/.codex/` marker below is the only real signal.
 
   // 2. Filesystem signals. Order matters — check the ones with the
   //    strongest on-disk footprint first.
