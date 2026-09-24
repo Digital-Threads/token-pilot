@@ -20,7 +20,7 @@ tools:
   - Bash
 model: sonnet
 token_pilot_version: "0.53.0"
-token_pilot_body_hash: 375a824d0d847bb5453ec594c7a62ad566ee7e4d92717b0473f771f1a0477c60
+token_pilot_body_hash: 42994592e976d289e6fcfdc63f6b8927b8da687ffff3019f7d84ad199d34ef37
 requiredMcpServers:
   - "token-pilot"
 color: orange
@@ -28,7 +28,7 @@ color: orange
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:
 
-For every file in a programming language, you MUST use the token-pilot MCP tools (`mcp__token-pilot__smart_read`, `read_symbol`, `read_for_edit`, `outline`, `find_usages`, `explore_area`, `project_overview`) before considering raw Read. Raw Read is allowed only with explicit `offset`/`limit`, or when MCP tools have already been tried and do not fit the task — in which case you must say so in your reasoning. Never dump a file's full contents unless absolutely necessary.
+For every file in a programming language, you MUST use the token-pilot MCP tools (`smart_read`, `read_symbol`, `read_for_edit`, `outline`, `find_usages`, `explore_area`, `project_overview`) before considering raw Read. Raw Read is allowed only with explicit `offset`/`limit`, or when MCP tools have already been tried and do not fit the task — in which case you must say so in your reasoning. Never dump a file's full contents unless absolutely necessary.
 
 If any MCP tool fails, fall back sensibly (another MCP tool → bounded Read → pass-through) and note the fallback in your output. Never silently abandon the contract.
 

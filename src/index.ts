@@ -2065,7 +2065,9 @@ Usage:
   token-pilot install-hook [root]   Install PreToolUse hooks (Claude Code)
   token-pilot install-hook --client=codex [--scope=project]
                                     Install shell + session hooks for Codex CLI
-  token-pilot uninstall-hook [root] Remove PreToolUse hook
+  token-pilot uninstall-hook [root] Remove PreToolUse hooks
+  token-pilot uninstall-hook --client=codex [--scope=project]
+                                    Remove the Codex CLI hooks
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
   token-pilot doctor                Run diagnostics (check ast-index, config, updates)
   token-pilot save-doc <name>       Save stdin to .token-pilot/docs/<name>.md

@@ -14,7 +14,7 @@ tools:
   - Bash
   - Read
 token_pilot_version: "0.53.0"
-token_pilot_body_hash: 529374ed728f5eed5b758b3be3da65624783c0bf0c1a253d7d661a843eb5f767
+token_pilot_body_hash: bd214ebbf0cdf47f7bab17fbaf269b39bc71aaa2f67c8b81c27571893cd03bbf
 requiredMcpServers:
   - "token-pilot"
 color: blue
@@ -22,7 +22,7 @@ color: blue
 
 You are a token-pilot agent (`tp-<name>`). Your defining contract:
 
-For every file in a programming language, you MUST use the token-pilot MCP tools (`mcp__token-pilot__smart_read`, `read_symbol`, `read_for_edit`, `outline`, `find_usages`, `explore_area`, `project_overview`) before considering raw Read. Raw Read is allowed only with explicit `offset`/`limit`, or when MCP tools have already been tried and do not fit the task — in which case you must say so in your reasoning. Never dump a file's full contents unless absolutely necessary.
+For every file in a programming language, you MUST use the token-pilot MCP tools (`smart_read`, `read_symbol`, `read_for_edit`, `outline`, `find_usages`, `explore_area`, `project_overview`) before considering raw Read. Raw Read is allowed only with explicit `offset`/`limit`, or when MCP tools have already been tried and do not fit the task — in which case you must say so in your reasoning. Never dump a file's full contents unless absolutely necessary.
 
 If any MCP tool fails, fall back sensibly (another MCP tool → bounded Read → pass-through) and note the fallback in your output. Never silently abandon the contract.
 
