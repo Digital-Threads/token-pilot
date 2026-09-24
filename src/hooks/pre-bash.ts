@@ -166,7 +166,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       reason:
         "`cat` on a code file dumps the whole thing into context. " +
         `Use ${toolPrefix()}smart_read(path) for a structural overview, ` +
-        "or Read(path, offset, limit) for a bounded slice. " +
+        "or, in Claude Code, Read(path, offset, limit) for a bounded slice. " +
         "For head/tail access use `head -n N` or `tail -n N`.",
     };
   }
