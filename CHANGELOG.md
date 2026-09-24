@@ -31,6 +31,12 @@ shell, which the bash rules already intercept (`cat` of a code file, recursive
 out on purpose: their payloads are not Claude Code's `Edit` and `Agent`, and
 those handlers would be reasoning about fields that are not there.
 
+Verified end to end against Codex 0.156, not only in unit tests: `cat big.ts`
+comes back blocked with our message, and all four wired events complete. The
+last part needed a fix — `SessionStart` failed on every start until the reply
+stopped carrying `watchPaths`, a Claude Code extension Codex rejects, so the
+installer now tells the hook which client it serves.
+
 ### Fixed — the response-budget watchdog was measuring a stub
 
 Claude Code 2.1.271 moved a subagent's report into a `SubagentHandback` tool

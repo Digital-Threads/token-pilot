@@ -484,6 +484,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           projectRoot: process.cwd(),
           homeDir: homedir(),
           sessionStartConfig: cfg.sessionStart,
+          client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
         if (result) {
           process.stdout.write(result);

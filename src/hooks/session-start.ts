@@ -89,6 +89,12 @@ export interface HandleSessionStartOptions {
   projectRoot: string;
   homeDir: string;
   sessionStartConfig: SessionStartConfig;
+  /**
+   * Which client this hook is serving. Codex validates the returned
+   * `hookSpecificOutput` and fails the hook on a key it does not know,
+   * so Claude Code's extensions are left out there.
+   */
+  client?: "claude-code" | "codex";
 }
 
 // ─── Agent scanner (subtask 2.2) ─────────────────────────────────────────────
@@ -407,11 +413,14 @@ export async function handleSessionStart(
     // statusline (tp-statusline.sh reads the active workflow) rather
     // than hijacking the title.
 
+    // Measured on Codex 0.156: with `watchPaths` present every start
+    // reports "SessionStart Failed"; the identical payload without it
+    // completes. The key is a Claude Code extension, so it ships only there.
     const output = {
       hookSpecificOutput: {
         hookEventName: "SessionStart",
         additionalContext: message,
-        watchPaths,
+        ...(opts.client === "codex" ? {} : { watchPaths }),
       },
     };
 

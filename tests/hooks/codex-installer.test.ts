@@ -55,8 +55,10 @@ describe("createCodexHookConfig", () => {
     expect(cfg.hooks.PostToolUse[0].hooks[0].command).toContain(
       "hook-post-bash",
     );
+    // The flag is what keeps Claude Code's `watchPaths` out of the reply,
+    // which Codex rejects.
     expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain(
-      "hook-session-start",
+      "hook-session-start --client=codex",
     );
     expect(cfg.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
       "hook-user-prompt",

@@ -315,3 +315,49 @@ describe("profileBannerNote (2fd part 2 — profile-aware banner)", () => {
     }
   });
 });
+
+// Codex validates the returned hookSpecificOutput and fails the hook on a key
+// it does not know. Measured on Codex 0.156: with `watchPaths` present every
+// session reports "SessionStart Failed"; the same payload without it
+// completes. The installer tells the hook which client it serves.
+describe("handleSessionStart — client-specific keys", () => {
+  const config = {
+    enabled: true,
+    showStats: false,
+    maxReminderTokens: 500,
+  };
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "tp-session-client-"));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps watchPaths for Claude Code", async () => {
+    const out = await handleSessionStart({
+      projectRoot: root,
+      homeDir: join(root, "home"),
+      sessionStartConfig: config,
+    });
+
+    expect(out).not.toBeNull();
+    expect(JSON.parse(out!).hookSpecificOutput).toHaveProperty("watchPaths");
+  });
+
+  it("drops it for Codex", async () => {
+    const out = await handleSessionStart({
+      projectRoot: root,
+      homeDir: join(root, "home"),
+      sessionStartConfig: config,
+      client: "codex",
+    });
+
+    expect(out).not.toBeNull();
+    const payload = JSON.parse(out!).hookSpecificOutput;
+    expect(payload).not.toHaveProperty("watchPaths");
+    expect(payload.additionalContext).toBeTruthy();
+  });
+});
