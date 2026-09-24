@@ -119,8 +119,16 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
   const cmd = command.trim();
   if (!cmd) return { kind: "allow" };
 
-  // 1. grep -r / grep -R without -m and with a bareword pattern
-  if (/\bgrep\s+[^|]*-[rR]\b/.test(cmd) && !/\s-m\s+\d+/.test(cmd)) {
+  // 1. grep -r / grep -R without -m and with a bareword pattern.
+  //
+  // v0.53.0: the pattern matched anywhere in the command, so a script,
+  // a commit message or a comment that merely mentioned the flag was
+  // denied — the same false positive v0.30.4 fixed for `git log`. The
+  // invocation has to start the command or follow a separator.
+  if (
+    /(^|[;&|\n]\s*)grep\s+[^|]*-[rR]\b/.test(cmd) &&
+    !/\s-m\s+\d+/.test(cmd)
+  ) {
     return {
       kind: "deny",
       reason:

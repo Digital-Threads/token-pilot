@@ -226,6 +226,25 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         );
         const rendered = renderPreBashOutput(decision);
         if (rendered) process.stdout.write(rendered);
+
+        // Until v0.53.0 a denied shell command left no trace anywhere: only
+        // the Read hook wrote telemetry, so every recursive-search, `cat` and
+        // unbounded-git interception was invisible in the logs. On Codex,
+        // where the model reads through the shell, that is nearly all of
+        // them. A diagnostic rather than a `denied` event on purpose: we
+        // cannot know what the command would have cost, and a made-up
+        // savings figure would distort the report built on those numbers.
+        // Awaited, not fire-and-forget: the hook process exits as soon as
+        // this callback returns, and a pending append never reaches disk.
+        if (decision.kind === "deny") {
+          await appendDiagnostic(process.cwd(), {
+            code: "bash_denied",
+            level: "info",
+            detail: { reason: decision.reason.slice(0, 80) },
+          }).catch(() => {
+            /* telemetry must never break a hook */
+          });
+        }
       });
       return;
     }

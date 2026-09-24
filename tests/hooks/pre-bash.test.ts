@@ -421,3 +421,21 @@ describe("detectHeavyPattern — git log bounded by -<N> before a separator", ()
     );
   });
 });
+
+// The rule matched the pattern anywhere in the command line, so a heredoc, a
+// commit message or a comment that merely mentioned the flag was denied.
+describe("detectHeavyPattern — grep -r mentioned rather than invoked", () => {
+  it("allows a command that only quotes the pattern", () => {
+    expect(
+      detectHeavyPattern(`git commit -m "drop the grep -r fallback"`).kind,
+    ).toBe("allow");
+    expect(
+      detectHeavyPattern(`echo "use grep -r carefully" > notes.txt`).kind,
+    ).toBe("allow");
+  });
+
+  it("still blocks a real invocation, first or after a separator", () => {
+    expect(detectHeavyPattern("grep -r foo src/").kind).toBe("deny");
+    expect(detectHeavyPattern("cd src && grep -R foo .").kind).toBe("deny");
+  });
+});
