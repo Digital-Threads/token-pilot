@@ -22,6 +22,7 @@
  */
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
+import { toolPrefix } from "../core/tool-names.js";
 
 export interface PreGrepInput {
   tool_name?: string;
@@ -133,7 +134,7 @@ export function decidePreGrep(
 
   const reason =
     `Grep pattern "${pattern}" looks like a code identifier. ` +
-    `Use mcp__token-pilot__find_usages(symbol="${pattern}") for semantic ` +
+    `Use ${toolPrefix()}find_usages(symbol="${pattern}") for semantic ` +
     `search — groups results into definitions / imports / usages, typically ` +
     `5-10× cheaper than Grep's line-oriented output. ` +
     `If you really need a raw text search (regex, comment hunt, string ` +

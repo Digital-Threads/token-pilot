@@ -397,3 +397,27 @@ describe("test-runner → test_summary (pre-bash advisory)", () => {
     });
   }
 });
+
+// v0.30.3 added `-<N>` as a recognised bound, but the pattern required a
+// space or end-of-string after it — so the canonical `git log --oneline -1`
+// was denied the moment it sat in a compound command and ended at a `;`.
+describe("detectHeavyPattern — git log bounded by -<N> before a separator", () => {
+  it("allows `git log --oneline -1` followed by another command", () => {
+    expect(detectHeavyPattern("git log --oneline -1; git status").kind).toBe(
+      "allow",
+    );
+  });
+
+  it("allows it before && and |", () => {
+    expect(detectHeavyPattern("git log --oneline -3 && echo ok").kind).toBe(
+      "allow",
+    );
+    expect(detectHeavyPattern("git log -5|cat").kind).toBe("allow");
+  });
+
+  it("still blocks a genuinely unbounded git log in a compound command", () => {
+    expect(detectHeavyPattern("git log --oneline; git status").kind).toBe(
+      "deny",
+    );
+  });
+});

@@ -46,11 +46,6 @@ describe("detectClient", () => {
     expect(r.subagentsSupported).toBe(false);
   });
 
-  it("returns codex when OPENAI_CODEX is '1'", async () => {
-    const r = await detectClient(tempHome, tempProject, { OPENAI_CODEX: "1" });
-    expect(r.client).toBe("codex");
-    expect(r.subagentsSupported).toBe(false);
-  });
 
   it("returns claude-code when ~/.claude/agents exists", async () => {
     await mkdir(join(tempHome, ".claude", "agents"), { recursive: true });

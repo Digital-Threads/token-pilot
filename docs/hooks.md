@@ -97,3 +97,33 @@ token-pilot tool-audit --json             # machine-readable output
 ```
 
 Hook events accumulate in `.token-pilot/hook-events.jsonl`. The `session_analytics` MCP tool provides per-tool breakdown within the current session.
+
+## Codex CLI
+
+Codex reads lifecycle hooks from `~/.codex/hooks.json` or
+`<repo>/.codex/hooks.json`, in the same `{matcher, hooks: [{type, command}]}`
+shape Claude Code uses, and honours the same `hookSpecificOutput`
+(`permissionDecision`, `permissionDecisionReason`, `additionalContext`) and the
+exit-2 fallback. token-pilot reuses its handlers unchanged:
+
+```bash
+npx token-pilot install-hook --client=codex                  # ~/.codex/hooks.json
+npx token-pilot install-hook --client=codex --scope=project  # <repo>/.codex/hooks.json
+npx token-pilot uninstall-hook --client=codex
+```
+
+Run `/hooks` inside Codex once after installing — Codex does not execute a
+hook definition it has not been shown.
+
+| Event | Matcher | Handler |
+|-------|---------|---------|
+| `PreToolUse` | `Bash` | shell rules (`cat`, recursive `grep`, unbounded `git log` / `git diff`) |
+| `PostToolUse` | `Bash` | post-command advisory |
+| `SessionStart` | — | project context |
+| `UserPromptSubmit` | — | per-turn reminder |
+
+Not wired, on purpose: Codex has no file-read tool (its model reads through the
+shell, which the `Bash` rules already cover), and both `apply_patch` and
+`spawn_agent` carry payloads that differ from Claude Code's `Edit` and `Agent`
+— the read-gate and the routing hook would be reasoning about fields that are
+not there.

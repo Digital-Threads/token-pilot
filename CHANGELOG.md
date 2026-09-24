@@ -5,6 +5,81 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.53.0] - 2026-09-24
+
+### Added — Codex CLI runs token-pilot's hooks
+
+Codex grew the same lifecycle-hook protocol Claude Code uses: hook files at
+`~/.codex/hooks.json` or `<repo>/.codex/hooks.json`, `{matcher, hooks: [{type,
+command}]}` entries, and `hookSpecificOutput.permissionDecision` — or exit 2 —
+to block a call. Those are the shapes token-pilot's handlers already emit, so
+they are reused unchanged:
+
+```bash
+npx token-pilot install-hook --client=codex                  # ~/.codex/hooks.json
+npx token-pilot install-hook --client=codex --scope=project  # <repo>/.codex/hooks.json
+npx token-pilot uninstall-hook --client=codex
+```
+
+Codex will not run a hook definition it has not been shown; run `/hooks` inside
+Codex once after installing.
+
+Wired: `PreToolUse` and `PostToolUse` on `Bash`, `SessionStart`,
+`UserPromptSubmit`. Codex has no file-read tool — its model reads through the
+shell, which the bash rules already intercept (`cat` of a code file, recursive
+`grep`, unbounded `git log` / `git diff`). `apply_patch` and `spawn_agent` stay
+out on purpose: their payloads are not Claude Code's `Edit` and `Agent`, and
+those handlers would be reasoning about fields that are not there.
+
+### Fixed — the response-budget watchdog was measuring a stub
+
+Claude Code 2.1.271 moved a subagent's report into a `SubagentHandback` tool
+call. The text block left beside it is now something like "Handing back.", so
+the watchdog measured that instead of the answer: on a real run a 5 KB report
+scored 4 tokens, and no `tp-*` agent could ever exceed its declared budget. The
+reply is read from the handback message now, with the last text turn kept as
+the fallback for older builds.
+
+The same transcript no longer carries a usable output-token total — summing
+`usage.output_tokens` across a run that cost 117k tokens returns 199, because
+the records carrying usage are the server-side classifier's. Task events now
+take the larger of that sum and the reply size, so the figure means something
+again on both old and new builds.
+
+### Fixed — hook advice named a tool that plugin-only users do not have
+
+Every deny message pointed at `mcp__token-pilot__smart_read` and friends. A
+plugin install exposes those as `mcp__plugin_token-pilot_token-pilot__*`, so
+the advice named a tool that does not exist there — and with MCP definitions
+loaded on demand, the model could not find the real one from the name it was
+handed. v0.52.0 fixed this for agent frontmatter; the messages kept the npm
+spelling. They now resolve the prefix at runtime, and `bless-agents` writes
+both spellings into a third-party agent's tools list.
+
+### Fixed — `git log --oneline -1` denied itself
+
+The bash rule counted `-<N>` as a bound only when a space or end-of-string
+followed it, so the canonical bounded form was denied the moment it sat in a
+compound command (`git log --oneline -1; git status`). A separator counts as
+the end now.
+
+### Fixed — smaller things
+
+- Hook commands quote `${CLAUDE_PLUGIN_ROOT}`. Unquoted, they break on any
+  plugin directory whose path contains a space.
+- The client matrix in the README promised PreToolUse hooks for Cursor, Gemini
+  CLI, Cline and Antigravity. token-pilot has never written hooks for them; the
+  column says so now. `docs/installation.md` repeated the claim, and also said
+  "22 MCP tools" where there are 25.
+- Codex detection checked `OPENAI_CODEX` and `CODEX_MODE`. Neither string
+  exists anywhere in the 0.156 binary; the `~/.codex/` marker is the real
+  signal, and the dead branch is gone.
+- `tp-run` can reach `WebFetch` and `WebSearch`. The router matches on wording
+  alone, so it would redirect "read the changelog" to a specialist with no way
+  to open a page.
+- `omitClaudeMd` became documented in Claude Code 2.1.271; the
+  undocumented-fields reference notes it.
+
 ## [0.52.1] - 2026-09-11
 
 ### Fixed — the npm copy wrote a second set of hooks into every project

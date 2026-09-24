@@ -18,17 +18,24 @@ import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import { parseFrontmatter, writeFrontmatter } from "./agent-frontmatter.js";
 import type { ScannedAgent } from "./scan-agents.js";
+import { tpToolBothNames } from "../core/tool-names.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+/**
+ * Each tool under both spellings. A plugin install resolves the namespaced
+ * name, an npm install the bare one; Claude Code ignores an entry that
+ * resolves to nothing as long as another one does. Listing only the npm
+ * form left every plugin-only user's blessed agents without our tools.
+ */
 export const TP_MCP_TOOLS = [
-  "mcp__token-pilot__smart_read",
-  "mcp__token-pilot__read_symbol",
-  "mcp__token-pilot__read_for_edit",
-  "mcp__token-pilot__outline",
-  "mcp__token-pilot__find_usages",
-  "mcp__token-pilot__explore_area",
-];
+  "smart_read",
+  "read_symbol",
+  "read_for_edit",
+  "outline",
+  "find_usages",
+  "explore_area",
+].flatMap(tpToolBothNames);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

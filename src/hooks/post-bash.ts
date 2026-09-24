@@ -13,6 +13,8 @@
  * mistake on the next turn.
  */
 
+import { toolPrefix } from "../core/tool-names.js";
+
 export interface PostBashHookInput {
   tool_name?: string;
   tool_response?: unknown;
@@ -88,7 +90,7 @@ export function decidePostBashAdvice(
     : "";
   const msg =
     `⚠ Bash output was large (~${lines} lines, ~${roughTokens} tokens). ` +
-    `Consider mcp__token-pilot__test_summary for test runs, or bounded commands ` +
+    `Consider ${toolPrefix()}test_summary for test runs, or bounded commands ` +
     `(head/tail, --oneline, git log -n <N>, grep -m <N>) to keep context lean.` +
     contextModeLine;
   return { additionalContext: msg, outputChars: chars };

@@ -10,6 +10,7 @@
  */
 
 import type { HookSummary, SignalLine } from "./summary-types.js";
+import { toolPrefix } from "../core/tool-names.js";
 import type { PipelineTier } from "./summary-pipeline.js";
 
 export interface FormatOptions {
@@ -45,10 +46,10 @@ function header(opts: FormatOptions): string {
 function footer(): string {
   return [
     "How to proceed:",
-    "- Structural overview (preferred): mcp__token-pilot__smart_read(path).",
+    `- Structural overview (preferred): ${toolPrefix()}smart_read(path).`,
     "- For specific lines: Read(path, offset, limit) — bounded reads are passed through.",
-    "- For a single symbol: mcp__token-pilot__read_symbol(path, name).",
-    "- For edit context: mcp__token-pilot__read_for_edit(path, symbol).",
+    `- For a single symbol: ${toolPrefix()}read_symbol(path, name).`,
+    `- For edit context: ${toolPrefix()}read_for_edit(path, symbol).`,
     "- Full read (expensive): set TOKEN_PILOT_BYPASS=1 for this session.",
   ].join("\n");
 }
@@ -169,7 +170,7 @@ export function formatDenyMessage(opts: FormatOptions): string {
 
   if (trimmed) {
     const trimmedNote =
-      "\n(trimmed to fit budget; call mcp__token-pilot__outline(path) for full structure)";
+      `\n(trimmed to fit budget; call ${toolPrefix()}outline(path) for full structure)`;
     message = [
       header(opts),
       "",

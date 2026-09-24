@@ -19,7 +19,7 @@ tools:
   - Edit
   - Glob
 model: sonnet
-token_pilot_version: "0.52.1"
+token_pilot_version: "0.53.0"
 token_pilot_body_hash: 57d741794ab40e31a7ac49c68ea39a9088f5827cdef866ce81bfca1b7c9180cf
 requiredMcpServers:
   - "token-pilot"

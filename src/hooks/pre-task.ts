@@ -30,6 +30,7 @@
  */
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
+import { toolPrefix } from "../core/tool-names.js";
 import type { AgentIndex } from "../core/agent-matcher.js";
 import {
   bareAgentName,
@@ -102,7 +103,7 @@ function containsEscape(description: string): boolean {
  * first action and tells them what to use instead.
  */
 const SUBAGENT_TOOL_GUIDE =
-  "When working in this task: prefer `mcp__token-pilot__smart_read` " +
+  `When working in this task: prefer \`${toolPrefix()}smart_read\` ` +
   "(file structure), `read_symbol` (one function/class), and " +
   "`find_usages` (semantic search) over raw Read/Grep. The token-pilot " +
   "PreToolUse hooks block large-file Read and unbounded Grep — use " +

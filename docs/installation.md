@@ -109,6 +109,24 @@ command = "npx"
 args = ["-y", "token-pilot"]
 ```
 
+### Enforcement hooks for Codex
+
+```bash
+npx token-pilot install-hook --client=codex                  # ~/.codex/hooks.json
+npx token-pilot install-hook --client=codex --scope=project  # <repo>/.codex/hooks.json
+```
+
+Codex does not run newly written hooks until you review them once: open Codex
+and run `/hooks` to trust the current definition.
+
+What this wires: shell commands get the same rules Claude Code gets — `cat` of
+a code file, recursive `grep`, unbounded `git log` / `git diff` come back with
+a cheaper alternative — plus session-start and per-prompt context. Codex has no
+separate file-read tool; the model reads through the shell, which those rules
+already cover. `apply_patch` and subagent dispatch stay out on purpose: their
+payloads differ from Claude Code's, and the matching handlers would misread
+them.
+
 ---
 
 ## Cline (VS Code)
@@ -166,4 +184,4 @@ cd token-pilot && npm install && npm run build
 
 ## Non-Claude clients
 
-`install-agents` detects non-Claude clients via env vars + filesystem markers (`CURSOR_TRACE_ID`, `~/.codex/`, `~/.gemini/`, etc.) and **skips installing subagents** unless you pass `--scope=user|project` explicitly. Cursor, Codex, Gemini, and Cline users get all 22 MCP tools + PreToolUse hooks without the `tp-*` agents.
+`install-agents` detects non-Claude clients via env vars + filesystem markers (`CURSOR_TRACE_ID`, `~/.codex/`, `~/.gemini/`, etc.) and **skips installing subagents** unless you pass `--scope=user|project` explicitly. Cursor, Codex, Gemini, and Cline users get all 25 MCP tools without the `tp-*` agents. Of those, only Codex can also install the hooks (see the Codex section above).

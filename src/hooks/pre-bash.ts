@@ -26,6 +26,7 @@
  */
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
+import { toolPrefix } from "../core/tool-names.js";
 
 export interface PreBashInput {
   tool_name?: string;
@@ -124,7 +125,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       kind: "deny",
       reason:
         "Recursive `grep -r` can dump huge output into your context. " +
-        "Use mcp__token-pilot__find_usages(symbol=...) for identifier searches " +
+        `Use ${toolPrefix()}find_usages(symbol=...) for identifier searches ` +
         "(semantic, grouped by definition/import/usage), or add `-m 20` to " +
         "bound the match count. Re-run through grep with `-m` to bypass.",
     };
@@ -164,7 +165,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       kind: "deny",
       reason:
         "`cat` on a code file dumps the whole thing into context. " +
-        "Use mcp__token-pilot__smart_read(path) for a structural overview, " +
+        `Use ${toolPrefix()}smart_read(path) for a structural overview, ` +
         "or Read(path, offset, limit) for a bounded slice. " +
         "For head/tail access use `head -n N` or `tail -n N`.",
     };
@@ -185,7 +186,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       kind: "deny",
       reason:
         "`sed` on a code file dumps a raw range into context. " +
-        "Use mcp__token-pilot__read_range(path, start, end) for a bounded slice, " +
+        `Use ${toolPrefix()}read_range(path, start, end) for a bounded slice, ` +
         "read_symbol(path, name) for one function, or smart_read(path) for structure.",
     };
   }
@@ -201,7 +202,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
         kind: "deny",
         reason:
           "`head`/`tail` with a large line count dumps a big slice into context. " +
-          "Use mcp__token-pilot__read_range(path, start, end) for a bounded slice, " +
+          `Use ${toolPrefix()}read_range(path, start, end) for a bounded slice, ` +
           "or smart_read(path) for a structural overview.",
       };
     }
@@ -210,20 +211,23 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
   // 4. git log without -n / -N / -<N> (short-form max-count) / --max-count
   // v0.30.3: added -<N> support — `git log --oneline -5` is canonical
   // bounded syntax and must not trip the heuristic.
+  // v0.53.0: that bound only counted when a space or end-of-string followed
+  // it, so the same command denied itself the moment it sat in a compound
+  // one (`git log --oneline -1; git status`). Separators count as the end.
   // v0.30.4: require `git log` at the START of the command (or after a
   // separator), not anywhere in it — otherwise `git commit -m "... git log ..."`
   // gets wrongly flagged because "git log" appears inside the message.
   if (
     invokes(cmd, "git") &&
     /(^|[;&|\n]\s*)git\s+log\b/.test(cmd) &&
-    !/-n\s*\d+|-N\s*\d+|--max-count=\d+|\s-\d+(\s|$)/.test(cmd) &&
+    !/-n\s*\d+|-N\s*\d+|--max-count=\d+|\s-\d+(\s|$|[;&|])/.test(cmd) &&
     !/\|\s*head/.test(cmd)
   ) {
     return {
       kind: "deny",
       reason:
         "Unbounded `git log` can return thousands of commits. " +
-        "Use mcp__token-pilot__smart_log for structured history, or add " +
+        `Use ${toolPrefix()}smart_log for structured history, or add ` +
         "`-n 20` / `| head -20` to bound. Re-run with a limit to bypass.",
     };
   }
@@ -240,7 +244,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       kind: "deny",
       reason:
         "Bare `git diff` on a big working tree is huge. " +
-        "Use mcp__token-pilot__smart_diff for per-symbol change summary, " +
+        `Use ${toolPrefix()}smart_diff for per-symbol change summary, ` +
         "or `git diff --stat` / `git diff <path>` to scope. Re-run scoped to bypass.",
     };
   }
@@ -254,7 +258,7 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
       kind: "advise",
       reason:
         "Running tests via raw command dumps stdout into context. " +
-        'Prefer mcp__token-pilot__test_summary(command="<your runner>") — ' +
+        `Prefer ${toolPrefix()}test_summary(command="<your runner>") — ` +
         "returns structured pass/fail/flaky counts and only the failing output, " +
         "typically 70-90% fewer tokens than raw runner output.",
     };

@@ -55,11 +55,17 @@ Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https
 | Client | MCP tools | PreToolUse hooks | `tp-*` subagents |
 |--------|:---------:|:----------------:|:----------------:|
 | Claude Code | ✅ | ✅ | ✅ |
-| Cursor | ✅ | ✅ | ❌ |
 | Codex CLI | ✅ | ✅ | ❌ |
-| Gemini CLI | ✅ | ✅ | ❌ |
-| Cline (VS Code) | ✅ | ✅ | ❌ |
-| Antigravity | ✅ | ✅ | ❌ |
+| Cursor | ✅ | ❌ | ❌ |
+| Gemini CLI | ✅ | ❌ | ❌ |
+| Cline (VS Code) | ✅ | ❌ | ❌ |
+| Antigravity | ✅ | ❌ | ❌ |
+
+Hooks are written for Claude Code (the plugin's own `hooks/hooks.json`, or
+`~/.claude/settings.json` for an npm install) and for Codex CLI
+(`npx token-pilot install-hook --client=codex`, then `/hooks` inside Codex to
+trust them). The other clients get the MCP tools; their hook systems exist but
+token-pilot does not write to them yet.
 
 Manual config snippets for each client → [installation guide](docs/installation.md)
 

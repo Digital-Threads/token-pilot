@@ -37,7 +37,7 @@ which often trails when it was *implemented*).
 | `memory` | agent frontmatter | ✅ | 5 high-value tp-* agents |
 | `color` | agent frontmatter | ✅ | all 25 tp-* agents |
 | `requiredMcpServers` | agent frontmatter | ✅ | all 25 tp-* agents |
-| `omitClaudeMd` | agent frontmatter | ✅ | tp-audit-scanner |
+| `omitClaudeMd` | agent frontmatter | ✅ (documented in 2.1.271) | tp-audit-scanner |
 | `asyncRewake` | hook config | ✅ | not used — timing semantics unconfirmed; deferred |
 | `parent_agent_id` | hook input | ✅ | post-task event capture |
 | `criticalSystemReminder_EXPERIMENTAL` | agent frontmatter | ✅ | not used — Anthropic flags it EXPERIMENTAL |
