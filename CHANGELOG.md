@@ -46,6 +46,12 @@ scored 4 tokens, and no `tp-*` agent could ever exceed its declared budget. The
 reply is read from the handback message now, with the last text turn kept as
 the fallback for older builds.
 
+Verified live on this build: a `tp-run` dispatch that overran its declared
+budget wrote `{agent: "token-pilot:tp-run", budget: 800, actualTokens: 1034}`
+to `over-budget.log` — the plugin-prefixed name recognised, the agent body
+found in the plugin's own directory, and the reply measured from the handback.
+All three of those links were broken before this release.
+
 The same transcript no longer carries a usable output-token total — summing
 `usage.output_tokens` across a run that cost 117k tokens returns 199, because
 the records carrying usage are the server-side classifier's. Task events now
@@ -71,6 +77,14 @@ the end now.
 
 ### Fixed — smaller things
 
+- A recursive-search rule matched `grep -r` anywhere in a command, so a commit
+  message or a heredoc that merely mentioned it was denied — the same false
+  positive v0.30.4 fixed for `git log`. It surfaced by blocking this
+  release's own commit.
+- A denied shell command left no telemetry at all: only the Read hook wrote
+  events, so shell interceptions — nearly all of them on Codex, where the
+  model reads through the shell — were invisible. They write a `bash_denied`
+  diagnostic now, awaited so the hook process cannot exit before it lands.
 - Hook commands quote `${CLAUDE_PLUGIN_ROOT}`. Unquoted, they break on any
   plugin directory whose path contains a space.
 - The client matrix in the README promised PreToolUse hooks for Cursor, Gemini
