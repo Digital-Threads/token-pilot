@@ -17,7 +17,7 @@ tools:
   - mcp__plugin_token-pilot_token-pilot__smart_read_many
   - mcp__token-pilot__read_section
   - mcp__plugin_token-pilot_token-pilot__read_section
-token_pilot_version: "0.53.0"
+token_pilot_version: "0.53.1"
 token_pilot_body_hash: 71c58863be8bbf987898b65848f1ec48e4ae8d15d852ae477fba3297a7da2e43
 requiredMcpServers:
   - "token-pilot"

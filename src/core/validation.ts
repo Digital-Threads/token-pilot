@@ -1,4 +1,5 @@
-import { resolve, relative } from "node:path";
+import { execFileSync } from "node:child_process";
+import { isAbsolute, resolve, relative } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
 
 /**
@@ -37,10 +38,59 @@ export function resolveSafePath(projectRoot: string, userPath: string): string {
   const rel = relative(projectRoot, absPath);
 
   if (rel.startsWith("..") || resolve(projectRoot, rel) !== absPath) {
+    // Another linked worktree of the same repository is the same project's
+    // code checked out elsewhere (`git worktree add ../feature`). The path
+    // hook hands its files over as absolute paths, which used to be rejected
+    // here one by one. Anything else outside the root still is.
+    if (isInsideOtherWorktree(projectRoot, absPath)) return absPath;
     throw new Error(`Path "${userPath}" resolves outside project root.`);
   }
 
   return absPath;
+}
+
+// Worktree roots per project root. Read on the first path that falls outside
+// the root and re-read on a miss, because worktrees get created mid-session.
+// Paths outside the root are rare, so the git call is too.
+const worktreeRoots = new Map<string, string[]>();
+
+function listWorktrees(projectRoot: string): string[] {
+  try {
+    const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: projectRoot,
+      encoding: "utf-8",
+      timeout: 2000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+
+    return out
+      .split("\n")
+      .filter((line) => line.startsWith("worktree "))
+      .map((line) => line.slice("worktree ".length));
+  } catch {
+    return [];
+  }
+}
+
+function isInsideOtherWorktree(projectRoot: string, absPath: string): boolean {
+  const contains = (root: string, path: string): boolean => {
+    const r = relative(root, path);
+    return !r.startsWith("..") && !isAbsolute(r);
+  };
+
+  // The worktree holding projectRoot is excluded: a session rooted in a
+  // sub-project must not gain the rest of its own checkout through this.
+  const others = (roots: string[]) =>
+    roots.filter((root) => !contains(root, projectRoot));
+  const hit = (roots: string[]) =>
+    others(roots).some((root) => contains(root, absPath));
+
+  if (hit(worktreeRoots.get(projectRoot) ?? [])) return true;
+
+  const fresh = listWorktrees(projectRoot);
+  worktreeRoots.set(projectRoot, fresh);
+
+  return hit(fresh);
 }
 
 /**

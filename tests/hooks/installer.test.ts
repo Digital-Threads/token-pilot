@@ -65,7 +65,7 @@ describe("Hook Installer", () => {
     // Write was matched briefly in v0.30.0-0.30.2 but removed — Write
     // replaces a whole file and has no old_string to prep against, so
     // enforcing read_for_edit on it blocked legit script regeneration.
-    expect(settings.hooks.PreToolUse).toHaveLength(6);
+    expect(settings.hooks.PreToolUse).toHaveLength(7);
     expect(settings.hooks.PreToolUse[0].matcher).toBe("Read");
     expect(settings.hooks.PreToolUse[1].matcher).toBe("Edit");
     expect(settings.hooks.PreToolUse[2].matcher).toBe("MultiEdit");
@@ -88,7 +88,7 @@ describe("Hook Installer", () => {
       await readFile(join(tempDir, ".claude", "settings.json"), "utf-8"),
     );
     expect(settings.someOtherSetting).toBe(true);
-    expect(settings.hooks.PreToolUse).toHaveLength(6);
+    expect(settings.hooks.PreToolUse).toHaveLength(7);
   });
 
   it("does not double-install", async () => {
@@ -193,9 +193,9 @@ describe("Hook Installer", () => {
     // to be matched too but was removed in v0.30.3: Write replaces the
     // whole file (no old_string to prep), and blocking it hit legit
     // script-regeneration flows.
-    expect(preToolUse).toHaveLength(6);
+    expect(preToolUse).toHaveLength(7);
     expect(preToolUse.map((hook: { matcher: string }) => hook.matcher)).toEqual(
-      ["Read", "Edit", "MultiEdit", "Bash", "Grep", "Agent|Task"],
+      ["Read", "Edit", "MultiEdit", "Bash", "Grep", "Agent|Task", "mcp__(plugin_token-pilot_)?token-pilot__.*"],
     );
     expect(preToolUse[0].hooks[0].command).toContain("hook-read");
     expect(preToolUse[1].hooks[0].command).toContain("hook-edit");

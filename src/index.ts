@@ -99,6 +99,11 @@ import {
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
+import {
+  decideMcpPath,
+  findCheckout,
+  renderMcpPathOutput,
+} from "./hooks/mcp-path.js";
 import { getAgentIndex } from "./hooks/post-task.js";
 import {
   decidePreEdit,
@@ -259,6 +264,21 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
         );
         const rendered = renderPreGrepOutput(decision);
+        if (rendered) process.stdout.write(rendered);
+      });
+      return;
+    }
+    case "hook-mcp-path": {
+      // Relative paths handed to our MCP tools follow the checkout the
+      // session is in, not the one the server started in (git worktrees).
+      await runHookEntryPoint({ hook: "hook-mcp-path" }, async () => {
+        const input = JSON.parse(readFileSync(0, "utf-8"));
+        const decision = decideMcpPath(input, {
+          projectRoot: process.env.CLAUDE_PROJECT_DIR,
+          checkoutOf: findCheckout,
+        });
+
+        const rendered = renderMcpPathOutput(decision);
         if (rendered) process.stdout.write(rendered);
       });
       return;

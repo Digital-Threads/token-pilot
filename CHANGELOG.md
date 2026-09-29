@@ -5,6 +5,58 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.53.1] - 2026-09-29
+
+### Fixed — in a git worktree, relative paths read the main checkout's file
+
+The MCP server fixes its project root once, at start-up (`CLAUDE_PROJECT_DIR`).
+A session that then moves into a git worktree — `cd .worktrees/feature`, the
+layout superpowers, keel and Claude Code's own worktrees use — kept having
+relative paths resolved against the main checkout. token-pilot returned the same
+file from a different branch, and the header printed the path as given, so
+nothing showed it. Reported from a real session on a payment code path during a
+rebase; reproduced on a throwaway repository, where after `cd .worktrees/wt`
+`smart_read("a.ts")` returned the main checkout's line.
+
+Claude Code runs hooks in the session's current directory and applies a
+PreToolUse `updatedInput` to MCP calls — both verified live on 2.1.281. A new
+PreToolUse hook on token-pilot's own tools uses that: when the session is in a
+different checkout from the server, relative `path` / `paths` arguments are
+resolved against the checkout the session is in. In the server's own checkout
+it prints nothing, so ordinary sessions do not change. It runs from its own
+small entry point — 23 ms per call instead of the ~200 ms that loading the whole
+CLI would cost, which matters for a hook that fires on every token-pilot call.
+
+Tools that look past one file — the symbol index behind `find_usages`,
+`project_overview` and the like, git history and diffs, test runs — still answer
+from the server's checkout. In a worktree session they now arrive with a note
+saying so, instead of passing for the worktree's answer. Following the worktree
+fully, with a per-worktree index, is the next step.
+
+Verified live: in a nested worktree `smart_read("a.ts")` returns the worktree's
+file, and `project_overview` arrives with the note.
+
+### Fixed — files in a sibling worktree were rejected as outside the project
+
+A worktree checked out beside the main one (`git worktree add ../feature`) is
+the same repository, but the project-root guard rejected every absolute path
+into it — including the absolute-path workaround for the bug above. Other
+worktrees of the same repository are allowed now, read from `git worktree list`
+and re-read when one appears mid-session. The session's own checkout keeps its
+old boundary, so a sub-project root does not gain the rest of the repository.
+Verified live: the same absolute read fails on 0.53.0 with "resolves outside
+project root" and returns the file on this build.
+
+Claude Code resets a Bash `cd` that leaves the project directory, so a session
+does not move into a sibling worktree that way; absolute paths or `--add-dir`
+are how it gets there, and both work now.
+
+### Fixed — two new production advisories
+
+`fast-uri` 4.1.3 (GHSA-qw65-cvwx-89v3, high) and `ip-address` 10.3.1
+(GHSA-rpw4-54j3-4h4q, moderate), both pulled in by the MCP SDK. Pinned to
+`^4.2.1` and `^10.7.2` through `overrides`.
+
 ## [0.53.0] - 2026-09-24
 
 ### Added — Codex CLI runs token-pilot's hooks
