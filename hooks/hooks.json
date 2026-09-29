@@ -54,6 +54,15 @@
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" hook-pre-task"
           }
         ]
+      },
+      {
+        "matcher": "mcp__(plugin_token-pilot_)?token-pilot__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook-mcp-path.js\""
+          }
+        ]
       }
     ],
     "SessionStart": [

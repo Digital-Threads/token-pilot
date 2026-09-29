@@ -31,6 +31,7 @@ export const KNOWN_COMMANDS = [
   // multiple machines showed 0 task events for weeks. Restored in
   // v0.33.0+ alongside the rest of this release's CLI surface.
   "hook-pre-task",
+  "hook-mcp-path",
   "hook-post-bash",
   "hook-post-task",
   "hook-session-start",

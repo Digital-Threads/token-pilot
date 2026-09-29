@@ -145,6 +145,12 @@ function createHookConfig(options?: HookInstallOptions) {
           matcher: "Agent|Task",
           hooks: [hookEntry("hook-pre-task", options)],
         },
+        {
+          // Keeps relative paths in the checkout the session works in — see
+          // src/hooks/mcp-path.ts. One pattern covers the plugin and npm names.
+          matcher: "mcp__(plugin_token-pilot_)?token-pilot__.*",
+          hooks: [hookEntry("hook-mcp-path", options)],
+        },
       ],
       SessionStart: [
         {

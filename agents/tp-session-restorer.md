@@ -13,7 +13,7 @@ tools:
   - mcp__plugin_token-pilot_token-pilot__session_budget
   - Bash
   - Read
-token_pilot_version: "0.53.0"
+token_pilot_version: "0.53.1"
 token_pilot_body_hash: bd214ebbf0cdf47f7bab17fbaf269b39bc71aaa2f67c8b81c27571893cd03bbf
 requiredMcpServers:
   - "token-pilot"

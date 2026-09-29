@@ -127,3 +127,22 @@ shell, which the `Bash` rules already cover), and both `apply_patch` and
 `spawn_agent` carry payloads that differ from Claude Code's `Edit` and `Agent`
 — the read-gate and the routing hook would be reasoning about fields that are
 not there.
+
+## Git worktrees
+
+The MCP server resolves relative paths against the project root it started
+with. When a session moves into a git worktree (`cd .worktrees/feature`), a
+PreToolUse hook on token-pilot's own tools resolves relative `path` / `paths`
+arguments against the checkout the session is actually in, so reads return the
+worktree's file rather than the same file from the main checkout. In the
+server's own checkout the hook prints nothing.
+
+Tools that look past a single file — the symbol index behind `find_usages`,
+`project_overview` and similar, git history and diffs, test runs — still answer
+from the server's checkout. In a worktree session they arrive with a note
+saying so.
+
+Absolute paths into another worktree of the same repository are accepted, so a
+sibling checkout (`git worktree add ../feature`) can be read directly. Claude
+Code resets a Bash `cd` that leaves the project directory, so absolute paths or
+`--add-dir` are how a session reaches a sibling worktree.

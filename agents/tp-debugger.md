@@ -19,7 +19,7 @@ tools:
   - Read
   - Bash
 model: sonnet
-token_pilot_version: "0.53.0"
+token_pilot_version: "0.53.1"
 token_pilot_body_hash: 5cec1bb0ff6a28e996614d9e319560391f4c139f2753b2ee45467a0289a13d8d
 requiredMcpServers:
   - "token-pilot"

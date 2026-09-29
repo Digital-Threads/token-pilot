@@ -72,6 +72,7 @@ const OUR_ACTIONS = [
   "hook-edit",
   "hook-pre-grep",
   "hook-pre-task",
+  "hook-mcp-path",
   "hook-post-task",
   "hook-subagent-stop",
   "hook-bootstrap",
