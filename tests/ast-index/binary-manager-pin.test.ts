@@ -4,6 +4,7 @@
  * (3.56 changed `outline` and the JSON of several commands) must not reach
  * fresh installs before token-pilot supports it.
  */
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +41,14 @@ describe("ast-index version pin", () => {
 
   it("is 3.56.0", () => {
     expect(TESTED_AST_INDEX_VERSION).toBe("3.56.0");
+  });
+
+  it("is the exact version package.json bundles, so the two cannot drift", () => {
+    const pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"), "utf-8"));
+    const lock = JSON.parse(readFileSync(join(__dirname, "..", "..", "package-lock.json"), "utf-8"));
+
+    expect(pkg.dependencies["@ast-index/cli"]).toBe(TESTED_AST_INDEX_VERSION);
+    expect(lock.packages["node_modules/@ast-index/cli"].version).toBe(TESTED_AST_INDEX_VERSION);
   });
 
   it("auto-install asks npm for the tested version, not the latest", async () => {
