@@ -177,6 +177,21 @@ describe('smart_diff — symbol mapping', () => {
     expect(text).not.toMatch(/omega/);
   });
 
+  it('branch scope compares HEAD with the merge base, not the working tree', async () => {
+    const r = makeRepo();
+    r.write('a.ts', fn('alpha', 1) + '\n');
+    r.commit('init');
+    r.git('branch', 'base');
+    r.write('a.ts', fn('alpha', 2) + '\n\n' + fn('beta', 3) + '\n');
+    r.commit('work on HEAD');
+    r.write('a.ts', fn('omega', 9) + '\n');
+
+    const { text } = await diff(r.dir, { scope: 'branch', ref: 'base' });
+    expect(text).toMatch(/MODIFIED: alpha\(\)/);
+    expect(text).toMatch(/ADDED: beta\(\)/);
+    expect(text).not.toMatch(/omega/);
+  });
+
   it('staged scope outlines the staged version, not the working tree', async () => {
     const r = makeRepo();
     r.write('a.ts', fn('alpha', 1) + '\n');
