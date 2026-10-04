@@ -152,6 +152,11 @@ function createHookConfig(options?: HookInstallOptions) {
           matcher: "mcp__(plugin_token-pilot_)?token-pilot__.*",
           hooks: [hookEntry("hook-mcp-path", options)],
         },
+        {
+          // A file the agent writes counts as prepared for its next Edit.
+          matcher: "Write",
+          hooks: [hookEntry("hook-edit", options)],
+        },
       ],
       SessionStart: [
         {

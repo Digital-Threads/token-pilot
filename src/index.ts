@@ -108,7 +108,10 @@ import {
   renderPreEditOutput,
   type PreEditInput,
 } from "./hooks/pre-edit.js";
-import { isEditPrepared as isEditPreparedFn } from "./core/edit-prep-state.js";
+import {
+  isEditPrepared as isEditPreparedFn,
+  markEditPrepared,
+} from "./core/edit-prep-state.js";
 import { maybeEmitEcosystemReminder } from "./cli/ecosystem-reminder.js";
 import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
@@ -1208,6 +1211,14 @@ export function handleHookEdit() {
   const isCode = isCodeFile(filePath);
   const mode = parseEnforcementMode(process.env.TOKEN_PILOT_MODE);
   const bypassed = process.env.TOKEN_PILOT_BYPASS === "1";
+
+  // A file the agent writes itself needs no read_for_edit before its Edit:
+  // the agent knows every byte. Marked before the Write; a Write that then
+  // fails costs at most one missed hint.
+  if (input.tool_name === "Write") {
+    if (isCode) markEditPrepared(projectRoot, resolve(filePath));
+    process.exit(0);
+  }
 
   // Existence check must be sync + cheap — the hook is on the request hot path.
   let fileExists = false;

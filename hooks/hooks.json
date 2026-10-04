@@ -66,6 +66,15 @@
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" hook-mcp-path"
           }
         ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" hook-edit"
+          }
+        ]
       }
     ],
     "SessionStart": [
