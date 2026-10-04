@@ -35,6 +35,7 @@ import {
   parseFileCount,
   parseOutlineText,
   parseImportsText,
+  parseJsImports,
   parseImplementationsText,
   parseHierarchyText,
   parseAgrepText,
@@ -53,6 +54,13 @@ import { parsePythonRegex } from "./regex-parser-python.js";
 
 const TS_JS_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"]);
 const PYTHON_EXTENSIONS = new Set(["py", "pyw"]);
+const JS_IMPORT_EXTENSIONS = new Set([
+  ...TS_JS_EXTENSIONS,
+  "mts",
+  "cts",
+  "vue",
+  "svelte",
+]);
 
 const execFileAsync = promisify(execFile);
 
@@ -922,6 +930,19 @@ export class AstIndexClient {
   }
 
   async fileImports(filePath: string): Promise<AstIndexImportEntry[]> {
+    // JS/TS: read the file — the binary prints only the first line (`{`)
+    // of a multi-line import, losing its source.
+    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    if (JS_IMPORT_EXTENSIONS.has(ext)) {
+      try {
+        const { readFile } = await import("node:fs/promises");
+        const abs = resolve(this.projectRoot, filePath);
+        return parseJsImports(await readFile(abs, "utf-8"));
+      } catch {
+        /* unreadable — ask the binary */
+      }
+    }
+
     await this.ensureIndex();
     try {
       const result = await this.exec(["imports", filePath]);

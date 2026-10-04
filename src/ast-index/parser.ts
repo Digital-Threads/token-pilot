@@ -142,31 +142,101 @@ export function parseHierarchyText(text: string, rootName: string): AstIndexHier
   return { name: rootName, kind: 'class', children: childNodes, parents };
 }
 
+/** `{ a, type B, c as d }` / `def, { x }` / `* as ns` → imported names. */
+function importNames(clause: string): string[] {
+  return clause
+    .replace(/[{}]/g, ',')
+    .split(',')
+    .map(s => s.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim())
+    .filter(s => s.length > 0 && s !== 'type');
+}
+
+/**
+ * Parse `ast-index imports` (text). Lines look like
+ *   type { A, B } from './types.js';   { type C, d } from "./x";
+ *   def, { named } from './m';   * as ns from 'pkg';   './side.css';
+ *   x = require("./y");                      (TS/JS)
+ *   from pkg.models import User, Group   import os.path    (Python)
+ *   org.springframework.stereotype.Service;                (Java/Kotlin)
+ * For a multi-line import the binary prints only its first line (`{`,
+ * `type {`) — there is no source to read, so those are skipped.
+ */
 export function parseImportsText(text: string): AstIndexImportEntry[] {
   const entries: AstIndexImportEntry[] = [];
   for (const line of text.split('\n')) {
-    const trimmed = line.trim();
+    const trimmed = line.trim().replace(/;$/, '');
     if (!trimmed || trimmed.startsWith('Imports in') || trimmed.startsWith('Total:')) continue;
 
-    // Match: { X, Y } from 'source'
-    const braceMatch = trimmed.match(/^\{\s*(.+?)\s*\}\s+from\s+['"](.+?)['"]/);
-    if (braceMatch) {
-      entries.push({ specifiers: braceMatch[1].split(',').map(s => s.trim()), source: braceMatch[2] });
+    // Side effect: './x.css'
+    const sideEffect = trimmed.match(/^['"](.+?)['"]$/);
+    if (sideEffect) {
+      entries.push({ specifiers: [], source: sideEffect[1] });
       continue;
     }
 
-    // Match: * as X from 'source'
-    const nsMatch = trimmed.match(/^\*\s+as\s+(\S+)\s+from\s+['"](.+?)['"]/);
-    if (nsMatch) {
-      entries.push({ specifiers: [nsMatch[1]], source: nsMatch[2], isNamespace: true });
+    // x = require("./y")
+    const req = trimmed.match(/^([\w$]+)\s*=\s*require\(\s*['"](.+?)['"]\s*\)$/);
+    if (req) {
+      entries.push({ specifiers: [req[1]], source: req[2], isDefault: true });
       continue;
     }
 
-    // Match: X from 'source' (default import)
-    const defaultMatch = trimmed.match(/^(\w+)\s+from\s+['"](.+?)['"]/);
-    if (defaultMatch) {
-      entries.push({ specifiers: [defaultMatch[1]], source: defaultMatch[2], isDefault: true });
+    // <clause> from 'source'
+    const from = trimmed.match(/^(?:type\s+)?(.+?)\s+from\s+['"](.+?)['"]$/);
+    if (from) {
+      const clause = from[1];
+      const ns = clause.match(/^\*\s+as\s+([\w$]+)$/);
+      if (ns) {
+        entries.push({ specifiers: [ns[1]], source: from[2], isNamespace: true });
+      } else if (clause.startsWith('{')) {
+        entries.push({ specifiers: importNames(clause), source: from[2] });
+      } else {
+        entries.push({ specifiers: importNames(clause), source: from[2], isDefault: true });
+      }
+      continue;
     }
+
+    // Python: from pkg.mod import A, B  /  import pkg.mod
+    const pyFrom = trimmed.match(/^from\s+([\w.]+)\s+import\s+(.+)$/);
+    if (pyFrom) {
+      entries.push({ specifiers: importNames(pyFrom[2].replace(/[()]/g, '')), source: pyFrom[1] });
+      continue;
+    }
+    const pyImport = trimmed.match(/^import\s+([\w.]+)(?:\s+as\s+\w+)?$/);
+    if (pyImport) {
+      entries.push({ specifiers: [pyImport[1]], source: pyImport[1], isNamespace: true });
+      continue;
+    }
+
+    // Java / Kotlin / C#-style qualified name: org.x.Service
+    const qualified = trimmed.match(/^(?:static\s+)?([\w$]+(?:\.[\w$*]+)+)$/);
+    if (qualified) {
+      const last = qualified[1].split('.').pop()!;
+      entries.push({ specifiers: [last], source: qualified[1] });
+    }
+  }
+  return entries;
+}
+
+/**
+ * Module specifiers of a JS/TS source file, read from the text itself:
+ * `ast-index imports` loses the source of every multi-line import.
+ * Static imports and re-exports keep their names; side-effect, dynamic
+ * `import()` and `require()` have none.
+ */
+export function parseJsImports(text: string): AstIndexImportEntry[] {
+  const entries: AstIndexImportEntry[] = [];
+  const staticRe = /\b(?:import|export)\s+(?:type\s+)?([\w$*{}\s,]+?)\s*from\s*['"]([^'"\n]+)['"]/g;
+  for (const m of text.matchAll(staticRe)) {
+    const clause = m[1].trim();
+    const ns = clause.match(/^\*\s+as\s+([\w$]+)$/);
+    entries.push({ specifiers: ns ? [ns[1]] : clause === '*' ? ['*'] : importNames(clause), source: m[2] });
+  }
+  for (const m of text.matchAll(/\bimport\s+['"]([^'"\n]+)['"]/g)) {
+    entries.push({ specifiers: [], source: m[1] });
+  }
+  for (const m of text.matchAll(/\b(?:require|import)\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g)) {
+    entries.push({ specifiers: [], source: m[1] });
   }
   return entries;
 }

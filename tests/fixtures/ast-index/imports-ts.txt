@@ -1,0 +1,9 @@
+Imports in web/a.ts:
+  type { Foo, Bar } from './types.js';
+  { type Baz, qux } from "./other.js";
+  def, { named } from './mixed.js';
+  * as ns from 'pkg';
+  Thing from './thing.js';
+  './side-effect.js';
+
+  Total: 6 imports

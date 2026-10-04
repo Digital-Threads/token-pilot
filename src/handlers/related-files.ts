@@ -1,8 +1,9 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { basename, dirname, extname, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
+import type { AstIndexImportEntry } from '../ast-index/types.js';
 import { resolveSafePath } from '../core/validation.js';
 
 const execFileAsync = promisify(execFile);
@@ -53,13 +54,16 @@ interface RankedFile {
   tags: string[];
 }
 
+/** Possible importers checked by reading their imports. */
+const MAX_IMPORTER_CHECKS = 100;
+
 const TEST_PATTERNS = [
   /\.test\.\w+$/,
   /\.spec\.\w+$/,
   /_test\.\w+$/,
   /test_[^/]+\.\w+$/,
   /__tests__\//,
-  /\/tests?\//,
+  /(^|\/)tests?\//,
 ];
 
 export async function handleRelatedFiles(
@@ -86,6 +90,11 @@ export async function handleRelatedFiles(
   const fileName = basename(absPath);
   const fileBase = fileName.replace(/\.\w+$/, '');
   const fileDir = dirname(absPath);
+  // ast-index answers with project-relative paths; never resolve them
+  // against the server's cwd.
+  const relOf = (p: string) =>
+    (isAbsolute(p) ? relative(projectRoot, p) : p).split(sep).join('/');
+  const targetRel = relOf(absPath);
 
   // Scoring map: relPath → RankedFile
   const fileScores = new Map<string, RankedFile>();
@@ -104,21 +113,20 @@ export async function handleRelatedFiles(
   const importPaths = new Set<string>();
   const importedByPaths: string[] = [];
   const testPaths: string[] = [];
+  const notes: string[] = [];
 
   // 1. Forward imports (what this file imports) → +4 per file
   try {
     const imports = await astIndex.fileImports(absPath);
-    if (imports && imports.length > 0) {
-      for (const imp of imports) {
-        const resolvedImport = resolveImportPath(absPath, imp.source, projectRoot);
-        if (resolvedImport) {
-          const relPath = relative(projectRoot, resolvedImport);
-          importPaths.add(relPath);
-          addScore(relPath, 4, 'import');
-          // Same directory bonus
-          if (dirname(resolvedImport) === fileDir) {
-            addScore(relPath, 2, 'same-dir');
-          }
+    for (const imp of imports ?? []) {
+      const resolvedImport = resolveImportPath(absPath, imp.source, projectRoot);
+      if (resolvedImport) {
+        const relPath = relOf(resolvedImport);
+        importPaths.add(relPath);
+        addScore(relPath, 4, 'import');
+        // Same directory bonus
+        if (dirname(resolvedImport) === fileDir) {
+          addScore(relPath, 2, 'same-dir');
         }
       }
     }
@@ -126,89 +134,83 @@ export async function handleRelatedFiles(
     // fileImports not available — skip silently
   }
 
-  // 2. Reverse imports (what imports this file) → +3 per file, +1 per extra ref
+  // 2. Reverse imports. Candidates: files whose import lines mention the
+  // module name, and files referencing its top symbols. A candidate counts
+  // only when one of its imports resolves to this file → +3, +1 per extra ref.
   const sourceLang = getLangFamily(absPath);
+  const candidates = new Map<string, number>(); // relPath → refs seen
+  const see = (p: string | undefined) => {
+    if (!p) return;
+    const rel = relOf(p);
+    if (rel === targetRel) return;
+    if (sourceLang) {
+      const lang = getLangFamily(rel);
+      if (lang && lang !== sourceLang) return;
+    }
+    candidates.set(rel, (candidates.get(rel) ?? 0) + 1);
+  };
+
+  try {
+    const hits = await astIndex.search(fileBase, { maxResults: 500 });
+    for (const h of hits) {
+      if (/\b(import|from|require|use|include)\b/.test(h.text)) see(h.file);
+    }
+    if (hits.truncated) notes.push(`search for "${fileBase}" hit its cap — some importers may be missing`);
+  } catch {
+    // search not available — refs below still run
+  }
+
   try {
     const structure = await astIndex.outline(absPath);
-    const exportNames: string[] = [];
-
-    if (structure) {
-      for (const sym of structure.symbols) {
-        exportNames.push(sym.name);
-        if (exportNames.length >= 10) break;
-      }
-    }
-
-    if (!exportNames.includes(fileBase)) {
-      exportNames.push(fileBase);
-    }
-
-    const seenFiles = new Set<string>();
-    seenFiles.add(absPath);
-    // Track ref count per file for multi-ref bonus
-    const refCounts = new Map<string, number>();
-
-    for (const name of exportNames) {
+    const names = (structure?.symbols ?? []).slice(0, 10).map(s => s.name);
+    for (const name of names) {
       try {
-        const refs = await astIndex.refs(name, 30);
-        const refEntries = [
-          ...(refs?.imports ?? []),
-          ...(refs?.usages ?? []),
-        ];
-
-        for (const ref of refEntries) {
-          const refPath = ref.path;
-          if (!refPath || seenFiles.has(refPath)) {
-            // Still count extra refs for already-seen files
-            if (refPath && refPath !== absPath) {
-              const rp = relative(projectRoot, refPath);
-              refCounts.set(rp, (refCounts.get(rp) ?? 0) + 1);
-            }
-            continue;
-          }
-
-          if (sourceLang) {
-            const refLang = getLangFamily(refPath);
-            if (refLang && refLang !== sourceLang) continue;
-          }
-
-          seenFiles.add(refPath);
-          const relPath = relative(projectRoot, refPath);
-          importedByPaths.push(relPath);
-          refCounts.set(relPath, (refCounts.get(relPath) ?? 0) + 1);
-          addScore(relPath, 3, 'importer');
-          // Same directory bonus
-          if (dirname(refPath) === fileDir) {
-            addScore(relPath, 2, 'same-dir');
-          }
-        }
+        const refs = await astIndex.refs(name, 50);
+        for (const ref of [...(refs?.imports ?? []), ...(refs?.usages ?? [])]) see(ref.path);
       } catch {
         // skip symbol
-      }
-    }
-
-    // Apply multi-ref bonus: +1 per extra ref beyond the first
-    for (const [relPath, count] of refCounts) {
-      if (count > 1) {
-        addScore(relPath, count - 1, 'multi-ref');
       }
     }
   } catch {
     // refs not available — skip silently
   }
 
-  // 3. Test files → +5 per file
-  try {
-    const allFiles = await astIndex.listFiles();
+  const toVerify = [...candidates.keys()].slice(0, MAX_IMPORTER_CHECKS);
+  if (candidates.size > MAX_IMPORTER_CHECKS) {
+    notes.push(`${candidates.size - MAX_IMPORTER_CHECKS} possible importers not checked (cap ${MAX_IMPORTER_CHECKS})`);
+  }
+  const verified = await Promise.all(
+    toVerify.map(async (rel) => {
+      try {
+        const importerAbs = resolve(projectRoot, rel);
+        const imps = await astIndex.fileImports(importerAbs);
+        return (imps ?? []).some(i => importsTarget(importerAbs, i, absPath, projectRoot));
+      } catch {
+        return false;
+      }
+    }),
+  );
+  toVerify.forEach((rel, i) => {
+    if (!verified[i]) return;
+    importedByPaths.push(rel);
+    addScore(rel, 3, 'importer');
+    const count = candidates.get(rel) ?? 1;
+    if (count > 1) addScore(rel, count - 1, 'multi-ref');
+    if (dirname(resolve(projectRoot, rel)) === fileDir) addScore(rel, 2, 'same-dir');
+    if (TEST_PATTERNS.some(p => p.test(rel))) {
+      testPaths.push(rel);
+      addScore(rel, 5, 'test');
+    }
+  });
 
-    if (allFiles && allFiles.length > 0) {
-      for (const f of allFiles) {
-        const fBase = basename(f);
-        if (fBase.includes(fileBase) && TEST_PATTERNS.some(p => p.test(f))) {
-          const relPath = relative(projectRoot, f);
-          testPaths.push(relPath);
-          addScore(relPath, 5, 'test');
-        }
+  // 3. Test files named after this file (`x.test.ts`, `test_x.py`, `x_test.go`) → +5
+  try {
+    for (const f of await astIndex.listFiles()) {
+      const rel = relOf(f);
+      if (testPaths.includes(rel) || !TEST_PATTERNS.some(p => p.test(rel))) continue;
+      if (testSubject(basename(rel)) === fileBase) {
+        testPaths.push(rel);
+        addScore(rel, 5, 'test');
       }
     }
   } catch {
@@ -262,6 +264,8 @@ export async function handleRelatedFiles(
     }
     sections.push('');
   }
+
+  for (const note of notes) sections.push(`NOTE: ${note}`);
 
   if (allRanked.length === 0) {
     sections.push('No related files found. AST index may not cover this file.');
@@ -327,17 +331,76 @@ function resolveImportPath(
     ? resolve(projectRoot, '.' + importSource)
     : resolve(dirname(sourceFile), importSource);
 
+  // TS sources import their compiled name: './x.js' → x.ts / x.tsx.
+  const twin = basePath.match(/^(.*)\.(js|jsx|mjs|cjs)$/);
+  const twins = twin
+    ? ({ js: ['.ts', '.tsx'], jsx: ['.tsx'], mjs: ['.mts'], cjs: ['.cts'] } as Record<string, string[]>)[twin[2]]
+        .map((ext) => twin[1] + ext)
+    : [];
+
   const candidates = [
     basePath,
+    ...twins,
     ...['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.php', '.go', '.rs', '.java', '.kt', '.swift']
       .flatMap((ext) => [`${basePath}${ext}`, resolve(basePath, `index${ext}`)]),
   ];
 
   for (const candidate of candidates) {
-    if (candidate.startsWith(projectRoot) && existsSync(candidate)) {
+    if (candidate.startsWith(projectRoot) && isFile(candidate)) {
       return candidate;
     }
   }
 
   return null;
+}
+
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** `cache.test.ts` / `cache.spec.js` / `test_cache.py` / `cache_test.go` → `cache`. */
+function testSubject(name: string): string {
+  return name
+    .replace(/\.[^.]+$/, '')
+    .replace(/[._-](test|spec)$/i, '')
+    .replace(/^test_/i, '');
+}
+
+/**
+ * True when `imp` (an import of `importerAbs`) points at `targetAbs`.
+ * Relative specifiers are resolved; module paths of other languages
+ * (`pkg.models`, `com.x.Svc`, `crate::a::b`, Go package dirs) are matched
+ * as path suffixes. JS bare specifiers (`react`, `node:fs`) never match.
+ */
+function importsTarget(
+  importerAbs: string,
+  imp: AstIndexImportEntry,
+  targetAbs: string,
+  projectRoot: string,
+): boolean {
+  const resolved = resolveImportPath(importerAbs, imp.source, projectRoot);
+  if (resolved) return resolved === targetAbs;
+  if (getLangFamily(importerAbs) === 'js') return false;
+
+  const targetRel = relative(projectRoot, targetAbs).split(sep).join('/');
+  const noExt = targetRel.replace(/\.[^./]+$/, '');
+  const dir = dirname(targetRel);
+  const isGo = extname(importerAbs) === '.go';
+  const spec = imp.source
+    .replace(/['";]/g, '')
+    .replace(/::|\./g, '/')
+    .replace(/^(crate|self|super)\//, '');
+  const parts = spec.split('/').filter(Boolean);
+  const tries = [
+    parts.join('/'),
+    parts.slice(0, -1).join('/'),
+    ...imp.specifiers.map((name) => `${parts.join('/')}/${name}`),
+  ].filter(Boolean);
+  const endsWith = (path: string, tail: string) => path === tail || path.endsWith(`/${tail}`);
+
+  return tries.some((t) => endsWith(noExt, t) || (isGo && endsWith(dir, t)));
 }

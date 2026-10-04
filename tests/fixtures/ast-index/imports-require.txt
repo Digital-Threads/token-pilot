@@ -1,0 +1,4 @@
+Imports in web/c.ts:
+  x = require("./y");
+
+  Total: 1 imports
