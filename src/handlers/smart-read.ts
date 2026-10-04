@@ -92,7 +92,8 @@ export async function handleSmartRead(
   let cached = fileCache.get(absPath);
   const isStale = cached ? await fileCache.isStale(absPath) : true;
 
-  if (!cached || isStale) {
+  // a cached structure without symbols is a read_diff placeholder, not an outline
+  if (!cached || isStale || cached.structure.symbols.length === 0) {
     // 4. Get structure from ast-index
     let structure = await astIndex.outline(absPath);
 

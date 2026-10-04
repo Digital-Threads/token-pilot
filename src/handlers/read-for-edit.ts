@@ -31,6 +31,7 @@ import { estimateTokens } from "../core/token-estimator.js";
 import { resolveSafePath } from "../core/validation.js";
 import { markEditPrepared } from "../core/edit-prep-state.js";
 import { assessConfidence, formatConfidence } from "../core/confidence.js";
+import { structureFor } from "./read-symbol.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -276,10 +277,7 @@ export async function handleReadForEdit(
 
   // --- Batch mode: multiple symbols ---
   if (args.symbols && args.symbols.length > 0) {
-    let structure = cached?.structure;
-    if (!structure) {
-      structure = (await astIndex.outline(absPath)) ?? undefined;
-    }
+    const structure = await structureFor(cached, absPath, astIndex);
 
     const sections: string[] = [];
     sections.push(
@@ -365,10 +363,7 @@ export async function handleReadForEdit(
 
   if (args.symbol) {
     // Resolve symbol via AST
-    let structure = cached?.structure;
-    if (!structure) {
-      structure = (await astIndex.outline(absPath)) ?? undefined;
-    }
+    const structure = await structureFor(cached, absPath, astIndex);
     const resolved = await symbolResolver.resolve(args.symbol, structure, absPath);
 
     if (!resolved) {

@@ -6,7 +6,7 @@ import type { ContextRegistry } from "../core/context-registry.js";
 import { estimateTokens } from "../core/token-estimator.js";
 import { resolveSafePath } from "../core/validation.js";
 import { assessConfidence, formatConfidence } from "../core/confidence.js";
-import { sameNameNote } from "./read-symbol.js";
+import { sameNameNote, structureFor } from "./read-symbol.js";
 
 export interface ReadSymbolsArgs {
   path: string;
@@ -39,10 +39,7 @@ export async function handleReadSymbols(
   }
 
   // Get AST structure ONCE
-  let structure = cached?.structure;
-  if (!structure && astIndex) {
-    structure = (await astIndex.outline(absPath)) ?? undefined;
-  }
+  const structure = await structureFor(cached, absPath, astIndex);
 
   const N = args.symbols.length;
   const sections: string[] = [];
