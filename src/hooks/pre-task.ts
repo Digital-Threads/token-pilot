@@ -102,7 +102,9 @@ function containsEscape(description: string): boolean {
  * paragraph lands in their context window before they take their
  * first action and tells them what to use instead.
  */
-const SUBAGENT_TOOL_GUIDE =
+// Built per call: the Claude Code mod marks a plugin install only after
+// this module is imported, so an import-time string named the npm tools.
+const subagentToolGuide = (): string =>
   `When working in this task: prefer \`${toolPrefix()}smart_read\` ` +
   "(file structure), `read_symbol` (one function/class), and " +
   "`find_usages` (semantic search) over raw Read/Grep. The token-pilot " +
@@ -168,7 +170,7 @@ export function decidePreTask(
   // was added for. Guarding on description alone returned soft advice
   // and skipped escape detection, matching and blocking entirely.
   if (haystack.trim().length === 0) {
-    return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
+    return { kind: "advise", message: subagentToolGuide() };
   }
 
   // Author-blessed escape clauses — user is explicitly saying
@@ -176,7 +178,7 @@ export function decidePreTask(
   // Checked across the prompt too, so an escape written there is honoured
   // now that the prompt can trigger a block.
   if (containsEscape(haystack)) {
-    return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
+    return { kind: "advise", message: subagentToolGuide() };
   }
 
   const hit = matchTpAgent(description, ctx.agentIndex, prompt);
@@ -184,7 +186,7 @@ export function decidePreTask(
     // No specific tp-* match. Still send the generic tool-guide so
     // the subagent learns about smart_read / read_symbol — covers the
     // common code-analyzer / general-purpose loop on raw Read (B14).
-    return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
+    return { kind: "advise", message: subagentToolGuide() };
   }
 
   const suggestion =
@@ -194,7 +196,7 @@ export function decidePreTask(
     `~50-70 % fewer tokens than general-purpose. ` +
     `Escape: add "ad-hoc" or "open-ended" to the description to bypass, or set ` +
     `TOKEN_PILOT_MODE=advisory for warn-only behaviour.\n\n` +
-    SUBAGENT_TOOL_GUIDE;
+    subagentToolGuide();
 
   // v0.50.0 — deny mode now blocks a high-confidence match instead of
   // only advising. An advisory rides along as permissionDecision=allow,

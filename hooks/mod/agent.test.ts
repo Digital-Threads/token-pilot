@@ -25,6 +25,16 @@ test('routes a matching dispatch to the tp-* specialist', async ($, on) => {
   expect(res.deny).toContain('tp-pr-reviewer')
 })
 
+test('names the MCP tools as this plugin install has them', async ($, on) => {
+  base(on)
+
+  const res: any = await dispatch($)
+
+  // The guide is built after register() marks this a plugin install, not at import.
+  expect(res.deny).toContain('mcp__plugin_token-pilot_token-pilot__smart_read')
+  expect(res.deny).not.toContain('mcp__token-pilot__smart_read')
+})
+
 test('leaves workflow runs to the command hooks', async ($, on) => {
   base(on, { TOKEN_PILOT_WORKFLOW_ID: 'wf-1' })
 
