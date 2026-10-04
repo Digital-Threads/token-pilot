@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   detectContextMode,
   enabledPluginIds,
-  isContextModeInstalledSync,
+  contextModeExecuteTool,
 } from '../../src/integration/context-mode-detector.js';
 
 describe('detectContextMode', () => {
@@ -142,7 +142,7 @@ describe('detectContextMode', () => {
       await settings(homeDir, { 'context-mode@context-mode': true, 'token-pilot@token-pilot': true });
       const result = await detectContextMode(testDir);
       expect(result).toMatchObject({ detected: true, source: 'plugin' });
-      expect(isContextModeInstalledSync(testDir)).toBe(true);
+      expect(contextModeExecuteTool(testDir)).toBeDefined();
     });
 
     it('detects it from project settings too', async () => {
@@ -153,7 +153,7 @@ describe('detectContextMode', () => {
     it('a plugin switched off is not detected', async () => {
       await settings(homeDir, { 'context-mode@context-mode': false });
       expect((await detectContextMode(testDir)).detected).toBe(false);
-      expect(isContextModeInstalledSync(testDir)).toBe(false);
+      expect(contextModeExecuteTool(testDir)).toBeUndefined();
     });
 
     it('project settings override user settings', async () => {
@@ -165,6 +165,45 @@ describe('detectContextMode', () => {
     it('lists enabled plugin ids', async () => {
       await settings(homeDir, { 'token-pilot@token-pilot': true, 'caveman@caveman': false });
       expect(enabledPluginIds(testDir)).toEqual(['token-pilot@token-pilot']);
+    });
+
+    // The post-bash hint names the tool to call: the plugin's name for a
+    // plugin install, the bare server's name for a `.mcp.json` one.
+    describe('contextModeExecuteTool', () => {
+      const PLUGIN_TOOL = 'mcp__plugin_context-mode_context-mode__ctx_execute';
+
+      it('names the plugin tool for a plugin enabled in user settings', async () => {
+        await settings(homeDir, { 'context-mode@context-mode': true });
+        expect(contextModeExecuteTool(testDir)).toBe(PLUGIN_TOOL);
+      });
+
+      it('reads user settings from CLAUDE_CONFIG_DIR', async () => {
+        const configDir = resolve(homeDir, 'alt-config');
+        await mkdir(configDir, { recursive: true });
+        await writeFile(resolve(configDir, 'settings.json'), JSON.stringify({ enabledPlugins: { 'context-mode@context-mode': true } }));
+        process.env.CLAUDE_CONFIG_DIR = configDir;
+        expect(contextModeExecuteTool(testDir)).toBe(PLUGIN_TOOL);
+      });
+
+      it('names the plugin tool for a plugin enabled only in project settings', async () => {
+        await settings(testDir, { 'context-mode@context-mode': true }, 'settings.local.json');
+        expect(contextModeExecuteTool(testDir)).toBe(PLUGIN_TOOL);
+      });
+
+      it('a project-level false switches the plugin off', async () => {
+        await settings(homeDir, { 'context-mode@context-mode': true });
+        await settings(testDir, { 'context-mode@context-mode': false });
+        expect(contextModeExecuteTool(testDir)).toBeUndefined();
+      });
+
+      it('names the bare server tool for a .mcp.json install', async () => {
+        await writeFile(resolve(testDir, '.mcp.json'), JSON.stringify({ mcpServers: { 'context-mode': { command: 'npx', args: ['context-mode'] } } }));
+        expect(contextModeExecuteTool(testDir)).toBe('mcp__context-mode__ctx_execute');
+      });
+
+      it('is undefined when context-mode is not installed', () => {
+        expect(contextModeExecuteTool(testDir)).toBeUndefined();
+      });
     });
   });
 });

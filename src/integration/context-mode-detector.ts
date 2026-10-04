@@ -86,15 +86,20 @@ export async function detectContextMode(
 }
 
 /**
- * Sync-only detector used by the PostToolUse Bash hook, where we need a
- * decision in the current process tick (no async plumbing). Silent on
- * every failure — the hook must not break.
+ * context-mode's execute tool as this install names it — the plugin's tool
+ * when the plugin is on in the merged Claude Code settings, the bare
+ * server's when a `.mcp.json` registers it — or undefined when it is not
+ * installed. Sync, for the PostToolUse Bash hook; silent on every failure.
  */
-export function isContextModeInstalledSync(projectRoot: string): boolean {
-  if (checkMcpJsonSync(resolve(projectRoot, ".mcp.json"))) return true;
+export function contextModeExecuteTool(projectRoot: string): string | undefined {
+  if (contextModePluginEnabled(projectRoot)) return `${TOOL_PREFIX}ctx_execute`;
+
   const home = homeDir();
-  if (home && checkMcpJsonSync(resolve(home, ".mcp.json"))) return true;
-  return contextModePluginEnabled(projectRoot);
+  if (checkMcpJsonSync(resolve(projectRoot, ".mcp.json")) || (home && checkMcpJsonSync(resolve(home, ".mcp.json")))) {
+    return "mcp__context-mode__ctx_execute";
+  }
+
+  return undefined;
 }
 
 function checkMcpJsonSync(path: string): boolean {
