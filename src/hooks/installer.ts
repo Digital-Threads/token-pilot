@@ -184,7 +184,8 @@ function createHookConfig(options?: HookInstallOptions) {
           hooks: [hookEntry("hook-post-bash", options, { async: true })],
         },
         {
-          matcher: "Task",
+          // Claude Code dispatches through `Agent`; `Task` is the legacy name.
+          matcher: "Agent|Task",
           // v0.39.2 — post-task MUST run synchronously. It writes the
           // `event:"task"` record via appendEvent (mkdir + stat +
           // appendFile). Under `async: true` Claude Code fires the hook
@@ -371,6 +372,10 @@ export async function installHook(
     if (!Array.isArray(settings.hooks.PostToolUse)) {
       settings.hooks.PostToolUse = [];
     }
+    // Our old `Task`-only entry is replaced by `Agent|Task`, not kept beside it.
+    settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
+      (h: any) => !(h.matcher === "Task" && isTokenPilotHook(h)),
+    );
     for (const hookDef of hookConfig.hooks.PostToolUse) {
       const exists = settings.hooks.PostToolUse.some(
         (h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h),

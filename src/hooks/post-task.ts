@@ -21,6 +21,7 @@ import {
   matchTpAgent,
   type AgentIndex,
   bareAgentName,
+  isDispatchTool,
 } from "../core/agent-matcher.js";
 import { buildAgentIndex } from "../core/agent-index-fs.js";
 import { appendEvent } from "../core/event-log.js";
@@ -64,7 +65,7 @@ export function extractSubagentTokens(input: {
   tool_name?: string;
   tool_response?: unknown;
 }): number | null {
-  if (input.tool_name !== "Task") return null;
+  if (!isDispatchTool(input.tool_name)) return null;
   const resp = input.tool_response as
     | {
         totalTokens?: unknown;
@@ -224,13 +225,15 @@ export async function processPostTask(
   homeDir: string,
   input: PostTaskHookInput,
 ): Promise<string | null> {
-  if (input.tool_name !== "Task") return null;
+  if (!isDispatchTool(input.tool_name)) return null;
 
   const subagentType = input.tool_input?.subagent_type;
   const description = input.tool_input?.description ?? "";
   const actualTokens = extractSubagentTokens(input) ?? 0;
+  // Plugin agents arrive namespaced (`token-pilot:tp-run`).
   const isTpAgent =
-    typeof subagentType === "string" && subagentType.startsWith("tp-");
+    typeof subagentType === "string" &&
+    bareAgentName(subagentType).startsWith("tp-");
 
   // ─── existing tp-* budget logic (unchanged) ─────────────────────
   let budget: number | null = null;
@@ -298,6 +301,9 @@ export async function processPostTask(
       ...(matchConfidence ? { match_confidence: matchConfidence } : {}),
       budget,
       overBudget: decision.overBudget,
+      // SubagentStop writes the canonical task event for the same dispatch;
+      // this marks the second one so readers can tell them apart.
+      code: "post_tool_use",
     });
   } catch {
     /* silent */

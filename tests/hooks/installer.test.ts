@@ -170,7 +170,7 @@ describe("Hook Installer", () => {
     );
     const matchers = settings.hooks.PostToolUse.map((h: any) => h.matcher);
     expect(matchers).toContain("Bash");
-    expect(matchers).toContain("Task");
+    expect(matchers).toContain("Agent|Task");
   });
 
   it("reports invalid JSON as a fatal install error", async () => {
