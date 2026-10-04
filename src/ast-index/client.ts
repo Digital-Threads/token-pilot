@@ -129,6 +129,11 @@ export class AstIndexClient {
   // Periodic-update timer and overlap guard (see startPeriodicUpdate below)
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
   private periodicUpdateInFlight = false;
+  // Query-time refresh (see freshen): last refresh attempt and its outcome.
+  private lastFresh = 0;
+  private freshPromise: Promise<void> | null = null;
+  private stale = false;
+  private static readonly FRESH_MS = 15_000;
 
   constructor(
     projectRoot: string,
@@ -177,7 +182,7 @@ export class AstIndexClient {
   }
 
   async ensureIndex(): Promise<void> {
-    if (this.indexed) return;
+    if (this.indexed) return this.freshen();
 
     if (this.indexDisabled) {
       throw new Error(
@@ -244,6 +249,7 @@ export class AstIndexClient {
         }
 
         this.indexed = true;
+        this.lastFresh = Date.now();
         console.error(
           `[token-pilot] ast-index: index ready (${existingFileCount} files)`,
         );
@@ -270,6 +276,7 @@ export class AstIndexClient {
       }
 
       this.indexed = true;
+      this.lastFresh = Date.now();
       console.error(
         `[token-pilot] ast-index: index built (${fileCount} files)`,
       );
@@ -301,6 +308,38 @@ export class AstIndexClient {
       console.error(`[token-pilot] ast-index: rebuild failed — ${errMsg}`);
       throw buildErr;
     }
+  }
+
+  /**
+   * New and edited files reach the index only through `update` — the file
+   * watcher knows files already read, the periodic update runs every 5 min.
+   * Refresh before a query, at most every FRESH_MS (≈0.3 s on 1.4k files).
+   * A failed refresh marks the index as possibly stale; no retry until the
+   * next window, so a slow repo does not pay the timeout on every call.
+   */
+  private freshen(): Promise<void> {
+    if (Date.now() - this.lastFresh < AstIndexClient.FRESH_MS) {
+      return this.freshPromise ?? Promise.resolve();
+    }
+    if (!this.freshPromise) {
+      this.lastFresh = Date.now();
+      this.freshPromise = this.exec(["update"], 10_000)
+        .then(() => {
+          this.stale = false;
+        })
+        .catch(() => {
+          this.stale = true;
+        })
+        .finally(() => {
+          this.freshPromise = null;
+        });
+    }
+    return this.freshPromise;
+  }
+
+  /** True when the last refresh failed: recent edits may be missing. */
+  isStale(): boolean {
+    return this.stale;
   }
 
   private async handleOversizedIndex(fileCount: number): Promise<void> {
@@ -1081,6 +1120,8 @@ export class AstIndexClient {
     if (!this.indexed || this.indexDisabled || this.indexOversized) return;
     try {
       await this.exec(["update"], 15000);
+      this.lastFresh = Date.now();
+      this.stale = false;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index incremental update failed: ${err instanceof Error ? err.message : err}`,

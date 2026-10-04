@@ -108,6 +108,17 @@ describe("handleCallTree", () => {
     expect(text).toMatch(/KNOWN UNKNOWNS: .*10 callers per level/);
   });
 
+  it("says when the index may be stale and lowers confidence", async () => {
+    const stub = makeStub({
+      tree: { name: "x", callers: [{ name: "a", file: "src/a.ts", line: 1, callers: [] }] },
+    }) as any;
+    stub.isStale = () => true;
+    const text = (await handleCallTree({ symbol: "x" }, stub)).content[0].text;
+
+    expect(text).toMatch(/CONFIDENCE: low/);
+    expect(text).toMatch(/index may be stale/);
+  });
+
   it("says how many grep artefacts were dropped from the tree", async () => {
     const out = await handleCallTree(
       { symbol: "x" },

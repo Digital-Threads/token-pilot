@@ -275,6 +275,7 @@ export async function handleRelatedFiles(
     sections.push('');
   }
 
+  if (astIndex.isStale?.()) notes.push('ast-index could not refresh — the index may be stale, recent files may be missing');
   for (const note of notes) sections.push(`NOTE: ${note}`);
 
   if (allRanked.length === 0) {

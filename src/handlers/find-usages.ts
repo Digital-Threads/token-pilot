@@ -349,6 +349,10 @@ export async function handleFindUsages(
   if (comments > 0) {
     notes.push(`${comments} mention${comments === 1 ? '' : 's'} in comments not listed.`);
   }
+  const stale = astIndex.isStale?.() ?? false;
+  if (stale) {
+    notes.push('ast-index could not refresh — the index may be stale: files created or edited in the last minutes may be missing.');
+  }
 
   // ─── Output ───
 
@@ -360,6 +364,7 @@ export async function handleFindUsages(
     if (args.lang) hints.push(`  (filtered by lang: "${args.lang}")`);
     if (args.kind && args.kind !== 'all') hints.push(`  (filtered by kind: "${args.kind}")`);
     hints.push(...notes);
+    hints.push('(ast-index does not index dot-directories such as .github/ — Grep there if it matters.)');
     if (!astIndex.isAvailable()) {
       hints.push('WARNING: ast-index is not available.');
     }
@@ -451,6 +456,10 @@ export async function handleFindUsages(
   });
   if (truncated) {
     confidenceMeta.suggestedNextStep = 'narrow with scope= or raise limit (max 500)';
+  }
+  if (stale) {
+    confidenceMeta.knownUnknowns.push('index may be stale');
+    confidenceMeta.confidence = confidenceMeta.confidence === 'high' ? 'medium' : 'low';
   }
   lines.push(formatConfidence(confidenceMeta));
 

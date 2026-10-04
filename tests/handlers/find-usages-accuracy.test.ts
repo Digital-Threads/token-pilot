@@ -87,6 +87,23 @@ describe('find_usages limits and truncation', () => {
   });
 });
 
+describe('find_usages and an index that may be incomplete', () => {
+  it('says the index may be stale and drops confidence', async () => {
+    const ast = stub({ usages: [use('src/a.ts', 1)], definitions: [{ path: 'src/user.ts', line: 1, name: 'user' }] });
+    ast.isStale = () => true;
+    const text = (await handleFindUsages({ symbol: 'user' }, ast)).content[0].text;
+
+    expect(text).toMatch(/index may be stale/);
+    expect(text).not.toMatch(/CONFIDENCE: high/);
+  });
+
+  it('a zero result names what the index never sees', async () => {
+    const text = (await handleFindUsages({ symbol: 'user' }, stub({}))).content[0].text;
+
+    expect(text).toMatch(/dot-directories/);
+  });
+});
+
 describe('find_usages classification', () => {
   let root: string;
 

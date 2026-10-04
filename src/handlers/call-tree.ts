@@ -75,7 +75,7 @@ async function noCallers(
 
   if (defs.length === 0 && uses === 0) {
     lines.push(
-      `\`${symbol}\` was not found in the index — check the spelling; a file created since the last index update is not visible yet.`,
+      `\`${symbol}\` was not found in the index — check the spelling; files under dot-directories (e.g. .github/) are not indexed.`,
     );
   } else {
     lines.push(`No callers found for \`${symbol}\` by ast-index call-tree.`);
@@ -86,7 +86,10 @@ async function noCallers(
     );
   }
   lines.push(
-    formatConfidence({ confidence: "low", knownUnknowns: [GREP_BASED] }),
+    formatConfidence({
+      confidence: "low",
+      knownUnknowns: astIndex.isStale?.() ? [GREP_BASED, "index may be stale"] : [GREP_BASED],
+    }),
   );
 
   return lines.join("\n");
@@ -161,15 +164,16 @@ export async function handleCallTree(
       `${tree.dropped} call sites not shown: ast-index attributed them to call-like text (a constructor, a string, a comment) instead of the enclosing function. find_usages("${symbol}") lists every call site.`,
     );
   }
+  const stale = astIndex.isStale?.() ?? false;
   lines.push(
     formatConfidence({
-      confidence: capped ? "low" : "medium",
-      knownUnknowns: capped
+      confidence: capped || stale ? "low" : "medium",
+      knownUnknowns: (stale ? ["index may be stale — recent edits may be missing"] : []).concat(capped
         ? [
             `at most ${PER_LEVEL} callers per level are shown — levels marked [first ${PER_LEVEL} callers only] have more; use find_usages for the full list`,
             GREP_BASED,
           ]
-        : [GREP_BASED],
+        : [GREP_BASED]),
     }),
   );
 
