@@ -144,15 +144,19 @@ async function rotateIfNeeded(): Promise<void> {
   }
 }
 
-async function pruneArchives(): Promise<void> {
-  const dir = errorLogDir();
+/**
+ * Delete archives past retention. Runs after each CLI error append, and at
+ * MCP server start — with the Claude Code mod serving every hook, no CLI
+ * error append may ever happen.
+ */
+export async function pruneErrorArchives(dir = errorLogDir(), now = Date.now()): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
   } catch {
     return;
   }
-  const cutoff = Date.now() - RETENTION_MS;
+  const cutoff = now - RETENTION_MS;
   for (const name of entries) {
     const m = name.match(ARCHIVE_RE);
     if (!m) continue;
@@ -178,7 +182,7 @@ export async function appendError(rec: HookErrorRecord): Promise<void> {
     await fs.appendFile(errorLogPath(), JSON.stringify(rec) + "\n");
     // best-effort retention sweep — not awaited tightly because a slow
     // FS shouldn't slow the hook hot-path; failures are silent.
-    pruneArchives().catch(() => {});
+    pruneErrorArchives().catch(() => {});
   } catch {
     /* logger of last resort — never throw */
   }

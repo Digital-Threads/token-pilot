@@ -149,6 +149,28 @@ describe("decideMcpPath — session inside another worktree", () => {
     }
   });
 
+  it("rewrites Windows-style relative paths", () => {
+    const winCheckout = (dir: string): string | null =>
+      dir.replace(/\\/g, "/").startsWith("C:/repo/.worktrees/f")
+        ? "C:/repo/.worktrees/f"
+        : dir.toLowerCase().startsWith("c:")
+          ? "C:/repo"
+          : null;
+    const d = decideMcpPath(
+      {
+        tool_name: "mcp__token-pilot__smart_read",
+        tool_input: { path: "src\\a.ts" },
+        cwd: "C:\\repo\\.worktrees\\f",
+      },
+      { projectRoot: "C:\\repo", checkoutOf: winCheckout },
+    );
+
+    expect(d.kind).toBe("rewrite");
+    if (d.kind === "rewrite") {
+      expect(d.updatedInput.path).toBe("C:/repo/.worktrees/f/src/a.ts");
+    }
+  });
+
   it("ignores tools that are not ours", () => {
     expect(
       decideMcpPath(
@@ -191,7 +213,7 @@ describe("findCheckout", () => {
     const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const { findCheckout } = await import("../../src/hooks/mcp-path.ts");
+    const { findCheckout } = await import("../../src/hooks/find-checkout.ts");
 
     const root = await mkdtemp(join(tmpdir(), "tp-checkout-"));
     try {

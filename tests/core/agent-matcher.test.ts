@@ -8,7 +8,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  buildAgentIndex,
   extractDescription,
   extractKeywords,
   extractQuotedTriggers,
@@ -18,7 +17,11 @@ import {
   splitAroundNegative,
   type AgentIndex,
   type ParsedAgent,
+  buildAgentIndexFromFiles,
 } from "../../src/core/agent-matcher.ts";
+import { buildAgentIndex } from "../../src/core/agent-index-fs.ts";
+import { readFileSync, readdirSync } from "node:fs";
+import { decidePreTask } from "../../src/hooks/pre-task.ts";
 
 // Real-format frontmatter sampled from shipped agents, trimmed to
 // essentials. Parser must handle multi-line descriptions with
@@ -242,5 +245,54 @@ describe("buildAgentIndex", () => {
     const pr = out.agents.find((a) => a.name === "tp-pr-reviewer");
     expect(pr).toBeDefined();
     expect(pr!.quotedTriggers.length).toBeGreaterThan(0);
+  });
+});
+
+describe("matchTpAgent — long prompts (2026-10-04 false positive)", () => {
+  // A detailed task prompt is full of generic words ("how", "file", "only",
+  // "entry", "modules"). Scored as keywords they piled up to a confident,
+  // wrong agent and the dispatch was hard-denied.
+  const realIndex = buildAgentIndexFromFiles(
+    readdirSync("agents")
+      .filter((fileName) => fileName.endsWith(".md"))
+      .map((fileName) => ({ fileName, body: readFileSync(`agents/${fileName}`, "utf-8") })),
+  );
+
+  it("does not hard-deny a dispatch over generic words in a long prompt", () => {
+    const prompt = readFileSync("tests/fixtures/router-long-prompt.txt", "utf-8");
+    const decision = decidePreTask(
+      {
+        tool_name: "Agent",
+        tool_input: { subagent_type: "Explore", description: "Inventory token-pilot hooks", prompt },
+      },
+      { mode: "deny", agentIndex: realIndex, force: false },
+    );
+
+    expect(decision.kind).not.toBe("deny");
+  });
+
+  it("does not match a trigger phrase inside longer words of the prompt", () => {
+    // "implement y" / "who added y" are trigger phrases with a placeholder
+    // letter; as substrings they matched "implement your" and "who added you".
+    const fix = decidePreTask(
+      {
+        tool_name: "Agent",
+        tool_input: {
+          subagent_type: "general-purpose",
+          description: "Fix login redirect",
+          prompt: "Please implement your fix in the auth module and add a test.",
+        },
+      },
+      { mode: "deny", agentIndex: realIndex, force: false },
+    );
+
+    expect(fix.kind).not.toBe("deny");
+    expect(matchTpAgent("explain access", realIndex, "who added you to the repo?")?.confidence ?? "low").toBe("low");
+  });
+
+  it("still reaches high confidence on a quoted trigger in the prompt", () => {
+    expect(
+      matchTpAgent("look at this", realIndex, "please review these changes for duplication")?.confidence,
+    ).toBe("high");
   });
 });

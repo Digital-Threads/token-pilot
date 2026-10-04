@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
+import { countTokenPilotHooks } from "./session-context.js";
 import { resolve, dirname } from "node:path";
 
 export interface HookInstallResult {
@@ -640,17 +641,6 @@ export async function isTokenPilotPluginEnabled(
   );
 }
 
-/**
- * A command is ours only when it names the package AND dispatches one of
- * our `hook-*` subcommands. Matching on the package name alone flags any
- * unrelated tool whose script happens to live under a `token-pilot/`
- * checkout — which is every hook a contributor runs inside this repo.
- */
-function isTokenPilotHookCommand(command: unknown): boolean {
-  const cmd = String(command ?? "");
-  return cmd.includes("token-pilot") && /\bhook-[a-z-]+/.test(cmd);
-}
-
 export interface DuplicateHookSource {
   /** Settings file carrying the entries. */
   path: string;
@@ -701,22 +691,7 @@ export async function detectDuplicateHookRegistrations(
       continue;
     }
 
-    const hooks = settings?.hooks;
-    if (!hooks || typeof hooks !== "object") continue;
-
-    let count = 0;
-    for (const groups of Object.values(hooks)) {
-      if (!Array.isArray(groups)) continue;
-      for (const group of groups) {
-        const inner = Array.isArray((group as any)?.hooks)
-          ? (group as any).hooks
-          : [];
-        for (const hook of inner) {
-          if (isTokenPilotHookCommand(hook?.command)) count++;
-        }
-      }
-    }
-
+    const count = countTokenPilotHooks(settings);
     if (count > 0) sources.push({ path, count });
   }
 

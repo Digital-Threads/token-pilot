@@ -18,26 +18,28 @@ import { promises as fs } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  buildAgentIndex,
   matchTpAgent,
   type AgentIndex,
   bareAgentName,
 } from "../core/agent-matcher.js";
+import { buildAgentIndex } from "../core/agent-index-fs.js";
 import { appendEvent } from "../core/event-log.js";
+import {
+  decideBudgetAdvice,
+  parseAgentBudget,
+  type BudgetDecisionResult,
+} from "./agent-budget.js";
 
 export const OVER_BUDGET_LOG = "over-budget.log";
-/** Ratio above which we flag — 0.1 = 10 % grace. */
-export const OVER_BUDGET_TOLERANCE = 0.1;
-
-const BUDGET_RE = /Response budget:\s*~?\s*(\d{2,6})\s*tokens?/i;
-
-export function parseAgentBudget(body: string): number | null {
-  const m = body.match(BUDGET_RE);
-  if (!m) return null;
-  const n = Number.parseInt(m[1], 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
+export {
+  OVER_BUDGET_TOLERANCE,
+  parseAgentBudget,
+  decideBudgetAdvice,
+} from "./agent-budget.js";
+export type {
+  BudgetDecisionInput,
+  BudgetDecisionResult,
+} from "./agent-budget.js";
 /**
  * Extract the subagent's token count from a PostToolUse:Task hook input.
  *
@@ -98,41 +100,6 @@ export function extractSubagentTokens(input: {
     return Math.ceil(resp.content.length / 4);
   }
   return null;
-}
-
-export interface BudgetDecisionInput {
-  agentName: string;
-  budget: number | null;
-  actualTokens: number;
-}
-
-export interface BudgetDecisionResult {
-  overBudget: boolean;
-  overByRatio: number;
-  message: string | null;
-}
-
-export function decideBudgetAdvice(
-  input: BudgetDecisionInput,
-): BudgetDecisionResult {
-  if (input.budget == null || input.budget <= 0) {
-    return { overBudget: false, overByRatio: 0, message: null };
-  }
-  const allowed = input.budget * (1 + OVER_BUDGET_TOLERANCE);
-  if (input.actualTokens <= allowed) {
-    return {
-      overBudget: false,
-      overByRatio: input.actualTokens / input.budget - 1,
-      message: null,
-    };
-  }
-  const ratio = input.actualTokens / input.budget - 1;
-  const pct = Math.round(ratio * 100);
-  return {
-    overBudget: true,
-    overByRatio: ratio,
-    message: `${input.agentName} exceeded budget (~${input.actualTokens} tokens vs budget ${input.budget}, +${pct}%). See .token-pilot/over-budget.log.`,
-  };
 }
 
 export interface OverBudgetEntry {

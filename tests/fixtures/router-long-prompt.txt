@@ -1,0 +1,13 @@
+Read-only inventory in the repo /home/shahinyanm/www/loom/token-pilot (TypeScript). I am planning to port the Claude Code hooks to an in-process "mod" environment that has NO Node.js: no `process`, no `node:fs`, no `node:child_process`, no `node:path`; file access, env vars and subprocesses must instead come through an injected API. I need a precise inventory to plan the port.
+
+Sources: `hooks/hooks.json` (the plugin's hook registrations), `src/index.ts` (one `case "hook-...":` per hook command; it reads stdin, calls a decide-function, writes stdout), `src/hooks/*.ts` (decide functions), and whatever they import (follow imports transitively into src/core, src/server, src/handlers etc.).
+
+For EVERY hook registered in hooks/hooks.json, report one compact block: event + matcher + command; entry; what it decides/outputs; Node dependencies on the path; config it reads.
+
+Then a short section: which pure modules (no Node at all, transitively) already exist and could be imported as-is; and the minimal list of Node touchpoints that would need an injected adapter.
+
+Also list the statusline-related code — what script/command renders the badge, where its data comes from, and how it is installed.
+
+Also: what does hook-session-start inject and what does hook-user-prompt inject each turn.
+
+Be precise and terse; file:line everywhere; no code dumps longer than 3 lines. Report under ~900 words.

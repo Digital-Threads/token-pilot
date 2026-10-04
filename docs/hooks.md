@@ -85,6 +85,7 @@ claude plugin install token-pilot@token-pilot
 | `TOKEN_PILOT_DEBUG=1` | Verbose hook logging to stderr |
 | `TOKEN_PILOT_NO_AGENT_REMINDER=1` | Suppress the "tp-* not installed" stderr nudge |
 | `TOKEN_PILOT_SUBAGENT=1` | Mark the MCP server as running inside a subagent |
+| `TOKEN_PILOT_NO_MOD=1` | Claude Code: keep every hook on the command path, as if the mod were not loaded |
 
 ## Analytics & Audit
 
@@ -97,6 +98,50 @@ token-pilot tool-audit --json             # machine-readable output
 ```
 
 Hook events accumulate in `.token-pilot/hook-events.jsonl`. The `session_analytics` MCP tool provides per-tool breakdown within the current session.
+
+## Claude Code mods
+
+Claude Code 2.1.275 and later can run a plugin's hooks as a TypeScript module
+inside Claude Code itself, instead of starting a process for every tool call.
+The token-pilot plugin ships both: `hooks/hooks.json` names the module
+(`hooks/mod/register.ts`) and keeps the command hooks.
+
+At session start the module sets `TOKEN_PILOT_MOD` to the hook actions it
+handles, and `hooks/run.sh` exits straight away for those. When the module does
+not load — an older Claude Code, mods turned off by your organisation, a load
+error — the variable is never set and the command hooks run as they did in
+0.53. Codex and npm installs (`token-pilot install-hook`) never use the module.
+Set `TOKEN_PILOT_NO_MOD=1` to keep a Claude Code session on the command hooks.
+The hand-off is tied to the sessions the module has served
+(`TOKEN_PILOT_MOD_SESSION`, the last eight): a `claude` started from that
+session's shell inherits the variables, and its command hooks still run unless
+its own module takes over. After `/clear` the earlier session stays listed, so
+its background agents keep the hand-off; after `/resume` the resumed session is
+listed.
+
+A module hook that fails is skipped and the tool call goes ahead; the failure
+and Claude Code's reason are recorded in `~/.token-pilot/hook-errors.jsonl`
+(`token-pilot errors`), unless `TOKEN_PILOT_NO_ERROR_LOG=1`. The module only
+ever appends to its logs — through `sh`, or `node` where there is no `sh` — and
+archives a full log first, as the CLI does.
+
+What changes when the module runs:
+
+| Hook | With the module |
+|------|-----------------|
+| Read | A whole-file Read of a large code file returns the file's outline from `smart_read` as a normal Read result. The first line says it is an outline and how to get exact lines. The command hook refused the read instead, and the model had to recover. An Edit of the file afterwards works as usual. Files of 4 MiB and up, or that Claude Code will not read, are gated by their line count. |
+| Edit | Knows which files went through `read_for_edit` from the calls it saw in this session, so there is no state file. Strict mode refuses an unprepared Edit, the default mode adds a note — as before. |
+| Bash, Grep | Same rules, no process per call. The note after a very large Bash output arrives together with the result. Claude Code 2.1.289 has no Grep tool; search goes through Bash. |
+| Agent | Same routing, no process per dispatch. Budgets and task telemetry stay with the SubagentStop command hook: agents run in the background by default, so only SubagentStop sees the final answer. Workflow runs (`TOKEN_PILOT_WORKFLOW_ID`, `CLAUDE_CODE_WORKFLOW_ID`, `LOOM_WORKFLOW_ID`) keep routing on the command hooks too, which add the workflow budget note. |
+| token-pilot's MCP tools | In the main session, relative paths are mapped into the worktree the session moved into, and the permission prompt is left alone. The module cannot see a subagent's `cd`, so subagent calls and the note on whole-tree tools stay with the `hook-mcp-path` command hook. |
+| SessionStart, UserPromptSubmit | The token-pilot guidance becomes a section of the system prompt. It is built once per session and does not change, so the prompt cache keeps it, and it is no longer repeated on every turn. If token-pilot is also registered in a settings file, that shows up as a notification. |
+| Status | A savings line from `hooks/tp-statusline.sh` under the prompt, refreshed after each turn. It stays hidden while the `statusLine` in effect — Claude Code's merge of user, project, local, `--settings` and managed settings, read again every turn — already runs that script. |
+| `/tp-stats` | Opens this session's `session_analytics` in a side pane. |
+
+Not carried over to the module: the subagent-adoption nudge (it read the whole
+event log at every start), the bootstrap notes (a plugin always carries its
+agents, and the MCP server reports a missing `ast-index` itself) and
+SessionStart's `watchPaths`.
 
 ## Codex CLI
 

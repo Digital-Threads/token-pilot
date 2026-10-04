@@ -154,11 +154,10 @@ export function decidePreTask(
     };
   }
 
-  // v0.50.0 — match against the prompt as well as the description.
-  // Descriptions are a few words ("Reuse check") and score 1, which is
-  // always low confidence; the prompt carries the actual task and takes
-  // the same dispatch to 3. Without this the high-confidence tier below
-  // almost never fires on real traffic.
+  // v0.50.0 — the prompt is matched too: descriptions are a few words and
+  // alone almost never reach the high-confidence tier. 1.0.0 — the prompt
+  // counts only through quoted trigger phrases (see scoreAgent): its generic
+  // words were forcing confident wrong matches on long prompts.
   const prompt =
     typeof input.tool_input?.prompt === "string" ? input.tool_input.prompt : "";
   const haystack = prompt ? `${description} ${prompt}` : description;
@@ -180,7 +179,7 @@ export function decidePreTask(
     return { kind: "advise", message: SUBAGENT_TOOL_GUIDE };
   }
 
-  const hit = matchTpAgent(haystack, ctx.agentIndex);
+  const hit = matchTpAgent(description, ctx.agentIndex, prompt);
   if (!hit) {
     // No specific tp-* match. Still send the generic tool-guide so
     // the subagent learns about smart_read / read_symbol — covers the

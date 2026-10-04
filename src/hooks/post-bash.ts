@@ -61,6 +61,8 @@ export interface PostBashAdviceOptions {
    * context-mode is installed and passes the flag.
    */
   contextModeAvailable?: boolean;
+  /** The context-mode execute tool as this install names it (plugin vs npm). */
+  contextModeTool?: string;
 }
 
 export function decidePostBashAdvice(
@@ -86,7 +88,7 @@ export function decidePostBashAdvice(
   const lines = countLines(stdout);
   const roughTokens = Math.ceil(chars / 4);
   const contextModeLine = opts.contextModeAvailable
-    ? " Or run via mcp__context-mode__execute — sandbox keeps stdout out of your window."
+    ? ` Or run via ${opts.contextModeTool ?? "mcp__context-mode__execute"} — sandbox keeps stdout out of your window.`
     : "";
   const msg =
     `⚠ Bash output was large (~${lines} lines, ~${roughTokens} tokens). ` +

@@ -5,6 +5,92 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-04
+
+### Changed — on Claude Code 2.1.275+, the hooks run inside Claude Code as a mod
+
+Claude Code can now load a plugin's hooks as a TypeScript module that runs in
+its own process, instead of starting one process per tool call. The plugin
+ships both: `hooks/hooks.json` names the module (`hooks/mod/register.ts`) and
+keeps the command hooks. At session start the module lists the hooks it handles
+in `TOKEN_PILOT_MOD`, and `hooks/run.sh` exits at once for those. Where the
+module does not load — Claude Code older than 2.1.275, mods turned off by an
+organisation, a load error — nothing is listed and the command hooks run as in
+0.53. Verified live on 2.1.289 (module) and 2.1.250 (command hooks only). Codex
+and `install-hook` installs are unchanged. `TOKEN_PILOT_NO_MOD=1` keeps a
+Claude Code session on the command hooks.
+
+What you notice with the module:
+
+- No node process per Read, Bash, Grep, Edit or Agent call (about 200 ms each
+  before). Claude Code 2.1.289 has no Grep tool: search goes through Bash,
+  which the module gates.
+- A whole-file Read of a large code file returns the file's outline as a
+  normal Read result, with a first line saying so, instead of a refusal. An
+  Edit afterwards works as usual.
+- The token-pilot guidance is a section of the system prompt, built once per
+  session and cached. The reminder that was added to every user prompt is gone.
+- A savings line under the prompt, refreshed after each turn — hidden while the
+  `statusLine` Claude Code runs already runs `tp-statusline.sh`. That is the
+  merged setting, managed and `--settings` included, read again every turn.
+- `/tp-stats` opens this session's analytics in a side pane.
+- In the main session, worktree path mapping for token-pilot's MCP tools no
+  longer skips the permission prompt.
+- The Edit gate knows which files went through `read_for_edit` from the calls it
+  saw, with no state file.
+- A token-pilot registered again in a settings file is reported as a
+  notification, not as model context.
+- A failing mod hook is skipped and the tool call goes ahead, and the failure
+  is recorded, with Claude Code's reason, in `~/.token-pilot/hook-errors.jsonl`,
+  where `token-pilot errors` reads it.
+- Files too large to read whole (4 MiB and up), or that Claude Code will not
+  read, are still gated, by their line count. A Read bounded within the
+  threshold passes without the file being read at all, and a Read of a missing
+  file goes straight to Claude Code's own error.
+- The Bash note after a large output names context-mode's execute tool as your
+  install has it.
+
+The hand-off applies only to sessions the module has served
+(`TOKEN_PILOT_MOD_SESSION`, the last eight): a `claude` started from that
+session's shell inherits `TOKEN_PILOT_MOD`, and an older one, or one with mods
+off, would otherwise have silenced its own command hooks. After `/clear` the
+earlier session stays listed, so its background agents keep the hand-off; after
+`/resume` the resumed session is listed. Both verified live. `hooks/run.sh`
+compares the payload's top-level `session_id` with shell builtins (one inside
+the tool input does not count) and still `exec`s node.
+
+Logs are only ever appended, through `sh`, or `node` where there is no `sh`;
+the file is never read back and rewritten. A full log is archived first, as
+the CLI does (`hook-events.jsonl` at 10 MB, `hook-errors.jsonl` at 5 MiB), and
+the MCP server deletes old archives of both at start.
+
+Kept on the command hooks: subagent MCP calls (the module cannot see a
+subagent's `cd`), subagent budgets and task telemetry (agents run in the
+background by default, so only SubagentStop sees the final answer) and Agent
+routing in workflow runs. Not carried over: the
+subagent-adoption nudge, the bootstrap notes and SessionStart's `watchPaths`.
+
+### Fixed — a long Agent prompt could force the wrong tp-* agent
+
+The router counted generic words from the whole prompt ("how", "file",
+"entry", "modules"), and one-word trigger phrases matched inside other words
+("plan" in "planning", "implement y" in "implement your"). A detailed prompt
+reached high confidence for an unrelated agent and the dispatch was refused.
+Keywords and one-word triggers now count on the description only, and trigger
+phrases match whole words only. Multi-word phrases still count in the prompt,
+so "review these changes" in a prompt still routes to `tp-pr-reviewer`.
+
+### Internal
+
+- The decision code shared by the CLI hooks and the module no longer touches
+  Node (`tests/core/mod-safe.test.ts` guards it). New pure modules:
+  `core/portable-path`, `core/hook-event`, `config/resolve`, `hooks/read-gate`,
+  `hooks/agent-budget`, `hooks/session-context`.
+- The Read gate counts a `limit` of 0 or less as no limit. Claude Code's Read
+  schema already rejects such a value; this covers clients that do not.
+- `npm run test:mod` runs the module's tests in Claude Code's plugin engine;
+  CI runs it against a pinned Claude Code.
+
 ## [0.53.1] - 2026-09-29
 
 ### Fixed — in a git worktree, relative paths read the main checkout's file

@@ -25,7 +25,7 @@ tools:
   - WebSearch
   - Bash
 model: sonnet
-token_pilot_version: "0.53.1"
+token_pilot_version: "1.0.0"
 token_pilot_body_hash: 4d62b5ef6fb0a466dda5a6dcb82f0c189ad0f9338211397897d1b94a0f33910f
 requiredMcpServers:
   - "token-pilot"

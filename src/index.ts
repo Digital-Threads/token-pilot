@@ -37,7 +37,7 @@ import {
   isTokenPilotPluginEnabled,
 } from "./hooks/installer.js";
 import { runHookEntryPoint } from "./hooks/safe-runner.js";
-import { loadErrors, formatErrorList } from "./core/error-log.js";
+import { loadErrors, formatErrorList, pruneErrorArchives } from "./core/error-log.js";
 import { appendDiagnostic } from "./core/event-log.js";
 import {
   startWorkflow,
@@ -99,11 +99,9 @@ import {
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
-import {
-  decideMcpPath,
-  findCheckout,
-  renderMcpPathOutput,
-} from "./hooks/mcp-path.js";
+import { decideReadGate, isCodeFile } from "./hooks/read-gate.js";
+import { decideMcpPath, renderMcpPathOutput } from "./hooks/mcp-path.js";
+import { findCheckout } from "./hooks/find-checkout.js";
 import { getAgentIndex } from "./hooks/post-task.js";
 import {
   decidePreEdit,
@@ -116,50 +114,7 @@ import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
 const execFileAsync = promisify(execFile);
 
-export const CODE_EXTENSIONS = new Set([
-  "ts",
-  "tsx",
-  "js",
-  "jsx",
-  "mjs",
-  "py",
-  "go",
-  "rs",
-  "java",
-  "kt",
-  "kts",
-  "swift",
-  "cs",
-  "cpp",
-  "cc",
-  "cxx",
-  "hpp",
-  "c",
-  "h",
-  "php",
-  "rb",
-  "scala",
-  "dart",
-  "lua",
-  "sh",
-  "bash",
-  "sql",
-  "r",
-  "vue",
-  "svelte",
-  "pl",
-  "pm",
-  "ex",
-  "exs",
-  "groovy",
-  "m",
-  "proto",
-  "bsl",
-  "lisp",
-  "lsp",
-  "cl",
-  "asd",
-]);
+export { CODE_EXTENSIONS, effectiveReadSpanLines } from "./hooks/read-gate.js";
 
 export function getVersion(): string {
   try {
@@ -921,6 +876,10 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
   applyRetention(projectRoot).catch(() => {
     /* ignore */
   });
+  // The Claude Code mod archives hook-errors.jsonl but never prunes.
+  pruneErrorArchives().catch(() => {
+    /* ignore */
+  });
 
   // Auto-install PreToolUse hook (non-blocking, Claude Code only)
   // Uses absolute paths to node + script so hooks work in /bin/sh (nvm, npx, etc.)
@@ -1015,31 +974,6 @@ export async function runHookReadDispatch(
   );
 }
 
-/**
- * v0.45.0 (token-pilot-xg9) — how many lines a Read actually pulls.
- *
- * An unbounded Read (no offset/limit) pulls the whole file. A bounded Read
- * pulls `limit` lines starting at `offset` — but Claude Code's Read defaults
- * to a 2000-line page, so `Read(file, limit=2000)` or an offset with no limit
- * drags a whole big file through. The old hook passed ANY bounded Read
- * straight through (`hasOffset || hasLimit → return null`), which is the leak:
- * the model bounds with a large/default limit and reads everything hook-free
- * AND un-counted in the adaptive burn signal. Comparing the *span* against the
- * deny threshold closes that while still letting a genuinely narrow slice pass.
- *
- * `offset` / `limit` are null when the field is absent on the tool call.
- */
-export function effectiveReadSpanLines(
-  totalLines: number,
-  offset: number | null,
-  limit: number | null,
-): number {
-  if (offset == null && limit == null) return totalLines;
-  const DEFAULT_READ_PAGE = 2000;
-  const start = offset != null && offset > 0 ? offset : 0;
-  const page = limit != null && limit >= 0 ? limit : DEFAULT_READ_PAGE;
-  return Math.max(0, Math.min(page, totalLines - start));
-}
 
 async function runHookReadDispatchImpl(
   filePathArg: string | undefined,
@@ -1083,8 +1017,7 @@ async function runHookReadDispatchImpl(
 
   if (!filePath) return null;
 
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  if (!CODE_EXTENSIONS.has(ext)) return null;
+  if (!isCodeFile(filePath)) return null;
 
   // Path safety: refuse to summarise any file outside the project root
   // (traversal, symlinks pointing outside). Pass-through on failure so the
@@ -1120,18 +1053,17 @@ async function runHookReadDispatchImpl(
     return null;
   }
 
-  // v0.45.0 (token-pilot-xg9) — measure the span the Read actually pulls, not
-  // just the file size. A narrow bounded slice (< threshold) still passes; a
-  // `limit=2000` / offset-no-limit read of a big file no longer slips through.
-  const spanLines = effectiveReadSpanLines(lineCount, offsetVal, limitVal);
-  if (spanLines <= effectiveThreshold) return null;
-
-  // Cost estimate reflects what the read would pull (the span), so a bounded
-  // deny doesn't over-report savings vs the whole-file figure.
-  const spanRatio = lineCount > 0 ? Math.min(1, spanLines / lineCount) : 1;
-  const charEst = Math.ceil((fileContent.length * spanRatio) / 4);
-  const wsRatio = (fileContent.match(/\s/g)?.length ?? 0) / fileContent.length;
-  const estTokens = Math.ceil(charEst * (1 - wsRatio * 0.3));
+  // v0.45.0 (token-pilot-xg9) — gate on the span the Read actually pulls,
+  // and price it by that span (see hooks/read-gate.ts).
+  const gate = decideReadGate({
+    filePath,
+    content: fileContent,
+    offset: offsetVal,
+    limit: limitVal,
+    threshold: effectiveThreshold,
+  });
+  if (gate.kind === "pass") return null;
+  const estTokens = gate.estTokens;
 
   // Legacy telemetry (hook-denied.jsonl) — retained for backward compatibility
   // with existing loadDeniedReads() readers in session-analytics. Never block
@@ -1268,8 +1200,7 @@ export function handleHookEdit() {
   }
 
   const projectRoot = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  const isCodeFile = CODE_EXTENSIONS.has(ext);
+  const isCode = isCodeFile(filePath);
   const mode = parseEnforcementMode(process.env.TOKEN_PILOT_MODE);
   const bypassed = process.env.TOKEN_PILOT_BYPASS === "1";
 
@@ -1283,13 +1214,13 @@ export function handleHookEdit() {
     fileExists = false;
   }
 
-  const isPrepared = isCodeFile
+  const isPrepared = isCode
     ? isEditPreparedFn(projectRoot, filePath)
     : false;
 
   const decision = decidePreEdit(input, {
     mode,
-    isCodeFile,
+    isCodeFile: isCode,
     fileExists,
     isPrepared,
     bypassed,

@@ -1,4 +1,7 @@
 {
+  "modules": [
+    "./mod/register.ts"
+  ],
   "hooks": {
     "PreToolUse": [
       {
@@ -60,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/hook-mcp-path.js\""
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" hook-mcp-path"
           }
         ]
       }

@@ -92,3 +92,14 @@ describe("renderPostBashHookOutput", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toBe("do better");
   });
 });
+
+describe("decidePostBashAdvice — context-mode tool name", () => {
+  it("names the context-mode tool this install actually has", () => {
+    const advice = decidePostBashAdvice(
+      { tool_name: "Bash", tool_response: { stdout: "x\n".repeat(9000) } },
+      { contextModeAvailable: true, contextModeTool: "mcp__plugin_context-mode_context-mode__ctx_execute" },
+    );
+
+    expect(advice.additionalContext).toContain("mcp__plugin_context-mode_context-mode__ctx_execute");
+  });
+});

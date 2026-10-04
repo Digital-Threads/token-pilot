@@ -67,6 +67,11 @@ Hooks are written for Claude Code (the plugin's own `hooks/hooks.json`, or
 trust them). The other clients get the MCP tools; their hook systems exist but
 token-pilot does not write to them yet.
 
+On Claude Code 2.1.275 and later the plugin runs its hooks inside Claude Code
+as a mod — no process per tool call, a big Read comes back as an outline instead
+of a refusal, and the session guidance lives in the system prompt. Older
+versions keep the command hooks → [Claude Code mods](docs/hooks.md#claude-code-mods)
+
 Manual config snippets for each client → [installation guide](docs/installation.md)
 
 ## Enforcement Mode

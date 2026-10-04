@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "0.53.1",
+  "version": "1.0.0",
   "description": "Save up to 80% tokens when AI reads code — MCP server for token-efficient code navigation, AST-aware structural reading instead of dumping full files into context window",
   "type": "module",
   "main": "dist/index.js",
@@ -28,6 +28,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "test:mod": "node scripts/test-mod.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "bench:hook": "node scripts/bench-hook.mjs",

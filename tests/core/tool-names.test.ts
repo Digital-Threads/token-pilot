@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  setPluginInstall,
   tpTool,
   toolPrefix,
   tpToolBothNames,
@@ -44,5 +45,18 @@ describe("tpToolBothNames", () => {
       "mcp__token-pilot__outline",
       "mcp__plugin_token-pilot_token-pilot__outline",
     ]);
+  });
+});
+
+describe("setPluginInstall", () => {
+  // The Claude Code mod has no process.env to tell a plugin install apart.
+  it("takes the install kind from setPluginInstall, without process.env", () => {
+    setPluginInstall(true);
+    expect(toolPrefix()).toBe("mcp__plugin_token-pilot_token-pilot__");
+
+    setPluginInstall(false);
+    expect(toolPrefix()).toBe("mcp__token-pilot__");
+
+    setPluginInstall(undefined);
   });
 });

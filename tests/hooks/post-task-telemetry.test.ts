@@ -47,7 +47,7 @@ beforeEach(async () => {
   _resetAgentIndexCache();
   // Force the next getAgentIndex() call to use our fixture dir by
   // seeding it directly.
-  const { buildAgentIndex } = await import("../../src/core/agent-matcher.ts");
+  const { buildAgentIndex } = await import("../../src/core/agent-index-fs.ts");
   const idx = await buildAgentIndex(agentsDir);
   // Monkey-reach into the module: there's no public setter, but
   // processPostTask calls getAgentIndex(defaultAgentsDir()) which resolves

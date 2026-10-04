@@ -165,3 +165,25 @@ describe("appendError integration (writes to overridden cwd)", () => {
     await rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("pruneErrorArchives", () => {
+  // With the Claude Code mod serving every hook, no CLI error append ever
+  // prunes; the MCP server runs this at start instead.
+  it("deletes archives older than 30 days and keeps the rest", async () => {
+    const { mkdtempSync, writeFileSync, readdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { pruneErrorArchives } = await import("../../src/core/error-log.ts");
+    const dir = mkdtempSync(join(tmpdir(), "tp-errors-"));
+    const now = 100 * 24 * 3600 * 1000;
+    const old = now - 31 * 24 * 3600 * 1000;
+    const recent = now - 24 * 3600 * 1000;
+    for (const name of [`hook-errors.${old}.jsonl`, `hook-errors.${recent}.jsonl`, "hook-errors.jsonl"]) {
+      writeFileSync(join(dir, name), "x\n");
+    }
+
+    await pruneErrorArchives(dir, now);
+
+    expect(readdirSync(dir).sort()).toEqual([`hook-errors.${recent}.jsonl`, "hook-errors.jsonl"]);
+  });
+});

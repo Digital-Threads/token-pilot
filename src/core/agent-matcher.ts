@@ -48,8 +48,6 @@
  * `buildAgentIndex` which is a one-shot loader called at startup.
  */
 
-import { promises as fs } from "node:fs";
-import { join } from "node:path";
 
 /** One parsed `tp-*` agent. Only fields the matcher needs. */
 export interface ParsedAgent {
@@ -262,31 +260,35 @@ export function parseAgent(name: string, body: string): ParsedAgent | null {
 }
 
 /**
- * Load every `tp-*.md` under a directory and build an in-memory index.
- * Non-tp-* files are silently skipped. Unreadable files are skipped
- * with no throw — an agent directory isn't a runtime dep.
+ * Index tp-*.md agent files the caller already read — from disk in the CLI
+ * (core/agent-index-fs.ts), through `$.fs` in the Claude Code mod. Files that
+ * are not tp-*.md, or do not parse, are skipped.
  */
-export async function buildAgentIndex(agentsDir: string): Promise<AgentIndex> {
-  let entries: string[];
-  try {
-    entries = await fs.readdir(agentsDir);
-  } catch {
-    return { agents: [] };
-  }
+export function buildAgentIndexFromFiles(
+  files: ReadonlyArray<{ fileName: string; body: string }>,
+): AgentIndex {
   const agents: ParsedAgent[] = [];
-  for (const entry of entries) {
-    if (!entry.startsWith("tp-") || !entry.endsWith(".md")) continue;
-    const name = entry.slice(0, -".md".length);
-    let body: string;
-    try {
-      body = await fs.readFile(join(agentsDir, entry), "utf-8");
-    } catch {
-      continue;
-    }
-    const parsed = parseAgent(name, body);
+  for (const { fileName, body } of files) {
+    if (!fileName.startsWith("tp-") || !fileName.endsWith(".md")) continue;
+    const parsed = parseAgent(fileName.slice(0, -".md".length), body);
     if (parsed) agents.push(parsed);
   }
+
   return { agents };
+}
+
+/** Multi-word triggers may match in the prompt; one-word ones only in the description. */
+function triggerHaystack(trigger: string, description: string, both: string): string {
+  return trigger.includes(" ") ? both : description;
+}
+
+/**
+ * A trigger phrase as whole words: "implement y" must not match
+ * "implement your", nor "plan" match "planning".
+ */
+function hasPhrase(haystack: string, phrase: string): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w])${escaped}(?![\\w])`).test(haystack);
 }
 
 /**
@@ -296,11 +298,22 @@ export async function buildAgentIndex(agentsDir: string): Promise<AgentIndex> {
 export function scoreAgent(
   agent: ParsedAgent,
   userDescriptionLower: string,
+  extraLower = "",
 ): number {
+  // Keywords and one-word triggers count on the short description only. A
+  // long prompt is full of generic words ("how", "file", "only") and of
+  // substrings like "plan" in "planning" that piled up to a confident, wrong
+  // agent — and a hard deny. The prompt still counts through the author's
+  // multi-word trigger phrases ("review these changes") and the negatives.
+  const both = extraLower
+    ? `${userDescriptionLower} ${extraLower}`
+    : userDescriptionLower;
   let score = 0;
 
   for (const trigger of agent.quotedTriggers) {
-    if (userDescriptionLower.includes(trigger)) score += 2;
+    if (hasPhrase(triggerHaystack(trigger, userDescriptionLower, both), trigger)) {
+      score += 2;
+    }
   }
 
   for (const kw of agent.keywords) {
@@ -308,7 +321,7 @@ export function scoreAgent(
   }
 
   for (const neg of agent.negative) {
-    if (userDescriptionLower.includes(neg)) score -= 1;
+    if (both.includes(neg)) score -= 1;
   }
 
   return score;
@@ -323,13 +336,15 @@ export function scoreAgent(
 export function matchTpAgent(
   description: string,
   index: AgentIndex,
+  extra = "",
 ): MatchResult | null {
-  if (!description || index.agents.length === 0) return null;
+  if ((!description && !extra) || index.agents.length === 0) return null;
   const needle = description.toLowerCase();
+  const extraLower = extra.toLowerCase();
 
   let best: { agent: ParsedAgent; score: number } | null = null;
   for (const agent of index.agents) {
-    const score = scoreAgent(agent, needle);
+    const score = scoreAgent(agent, needle, extraLower);
     if (!best) {
       best = { agent, score };
       continue;
@@ -349,7 +364,10 @@ export function matchTpAgent(
 
   // High confidence when score is strong OR at least one quoted trigger
   // matched (quoted = explicit author-blessed phrase).
-  const hitQuoted = best.agent.quotedTriggers.some((t) => needle.includes(t));
+  const both = extraLower ? `${needle} ${extraLower}` : needle;
+  const hitQuoted = best.agent.quotedTriggers.some((t) =>
+    hasPhrase(triggerHaystack(t, needle, both), t),
+  );
   const confidence: "high" | "low" =
     best.score >= 3 || hitQuoted ? "high" : "low";
 

@@ -12,11 +12,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import {
-  decideMcpPath,
-  findCheckout,
-  renderMcpPathOutput,
-} from "./mcp-path.js";
+import { findCheckout } from "./find-checkout.js";
+import { decideMcpPath, renderMcpPathOutput } from "./mcp-path.js";
 
 try {
   const input = JSON.parse(readFileSync(0, "utf-8"));

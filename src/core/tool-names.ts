@@ -22,9 +22,21 @@ export function tpTool(name: string): string {
   return toolPrefix() + name;
 }
 
+let pluginInstall: boolean | undefined;
+
+/**
+ * The Claude Code mod knows it runs as a plugin but has no process.env to
+ * tell; it declares it here once. `undefined` returns to env detection.
+ */
+export function setPluginInstall(value: boolean | undefined): void {
+  pluginInstall = value;
+}
+
 /** The prefix alone — for messages that list several tools. */
 export function toolPrefix(): string {
-  return process.env.CLAUDE_PLUGIN_ROOT ? PLUGIN_PREFIX : NPM_PREFIX;
+  const isPlugin =
+    pluginInstall ?? Boolean(globalThis.process?.env?.CLAUDE_PLUGIN_ROOT);
+  return isPlugin ? PLUGIN_PREFIX : NPM_PREFIX;
 }
 
 /**

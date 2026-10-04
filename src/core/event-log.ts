@@ -22,8 +22,16 @@
 
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
+import {
+  ROTATION_THRESHOLD_BYTES,
+  diagnosticEvent,
+  shouldRotate,
+  tagEvent,
+  type DiagnosticArgs,
+} from "./hook-event.js";
 
-export const ROTATION_THRESHOLD_BYTES = 10_000_000;
+export { ROTATION_THRESHOLD_BYTES, shouldRotate };
+
 export const RETENTION_MAX_AGE_DAYS = 30;
 export const RETENTION_MAX_TOTAL_BYTES = 100_000_000;
 
@@ -136,16 +144,6 @@ export function currentLogPath(projectRoot: string): string {
 
 // ─── pure: rotation predicate ───────────────────────────────────────────────
 
-/**
- * Decide whether the current log file has grown past the rotation
- * threshold and should be archived before the next append.
- */
-export function shouldRotate(
-  stat: { size: number },
-  thresholdBytes: number = ROTATION_THRESHOLD_BYTES,
-): boolean {
-  return stat.size >= thresholdBytes;
-}
 
 // ─── pure: retention policy ─────────────────────────────────────────────────
 
@@ -238,18 +236,8 @@ export async function appendEvent(
     // emitted inside a `token-pilot workflow` boundary is sliceable.
     // Read the env var directly here to keep call sites unchanged; an
     // explicit workflow_id on the event always wins.
-    const wf =
-      event.workflow_id ??
-      process.env.TOKEN_PILOT_WORKFLOW_ID ??
-      process.env.CLAUDE_CODE_WORKFLOW_ID ??
-      process.env.LOOM_WORKFLOW_ID ??
-      undefined;
-    // Loom spine: tag the task id when the session was launched by Loom.
-    // Env-driven so call sites stay unchanged; absent outside Loom → no field.
-    const taskId = event.task_id ?? process.env.LOOM_TASK_ID ?? undefined;
-    let tagged = event;
-    if (wf) tagged = { ...tagged, workflow_id: wf };
-    if (taskId) tagged = { ...tagged, task_id: taskId };
+    // Loom spine: the task id too. Env-driven so call sites stay unchanged.
+    const tagged = tagEvent(event, process.env);
     await ensureLogDir(projectRoot);
     await rotateIfNeeded(projectRoot);
     const line = JSON.stringify(tagged) + "\n";
@@ -276,33 +264,9 @@ export async function appendEvent(
  */
 export async function appendDiagnostic(
   projectRoot: string,
-  args: {
-    code: string;
-    level?: "info" | "warn" | "error";
-    detail?: Record<string, unknown>;
-    sessionId?: string;
-    agentType?: string | null;
-    agentId?: string | null;
-    durationMs?: number;
-  },
+  args: DiagnosticArgs,
 ): Promise<void> {
-  const rec: HookEvent = {
-    ts: Date.now(),
-    session_id: args.sessionId ?? "diagnostic",
-    agent_type: args.agentType ?? null,
-    agent_id: args.agentId ?? null,
-    event: "diagnostic",
-    file: "",
-    lines: 0,
-    estTokens: 0,
-    summaryTokens: 0,
-    savedTokens: 0,
-    level: args.level ?? "info",
-    code: args.code,
-    detail: args.detail,
-    duration_ms: args.durationMs,
-  };
-  await appendEvent(projectRoot, rec);
+  await appendEvent(projectRoot, diagnosticEvent(args, Date.now()));
 }
 
 /**

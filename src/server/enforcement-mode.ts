@@ -39,7 +39,10 @@ export const ENFORCEMENT_MODE_NAMES = [
  */
 export function parseEnforcementMode(
   raw: string | undefined,
-  warn: (msg: string) => void = (m) => process.stderr.write(m + "\n"),
+  // No `process` inside the Claude Code mod; there the warning is dropped.
+  warn: (msg: string) => void = (m) => {
+    globalThis.process?.stderr?.write(m + "\n");
+  },
 ): EnforcementMode {
   if (!raw || raw.trim() === "") return "deny";
   const v = raw.trim().toLowerCase();

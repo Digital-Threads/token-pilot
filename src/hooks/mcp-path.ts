@@ -20,8 +20,7 @@
  * hook says so, rather than letting the answer pass for the worktree's.
  */
 
-import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "../core/portable-path.js";
 
 export interface McpPathInput {
   tool_name?: string;
@@ -134,21 +133,4 @@ export function renderMcpPathOutput(decision: McpPathDecision): string | null {
       ...(decision.note ? { additionalContext: decision.note } : {}),
     },
   });
-}
-
-/**
- * The git checkout `dir` belongs to: the nearest ancestor holding a `.git`
- * entry — a directory for the main checkout, a file for a linked worktree,
- * which is exactly the distinction this hook needs.
- */
-export function findCheckout(dir: string): string | null {
-  let current = resolve(dir);
-
-  for (;;) {
-    if (existsSync(join(current, ".git"))) return current;
-
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
 }

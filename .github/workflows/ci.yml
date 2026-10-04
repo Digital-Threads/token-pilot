@@ -41,6 +41,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # The Claude Code mod (hooks/mod) runs in Claude Code's own plugin
+      # engine, not under vitest. Pinned: mods are new and their API moves.
+      - name: Mod tests (Claude Code plugin engine)
+        run: |
+          npm i -g @anthropic-ai/claude-code@2.1.289
+          npm run test:mod
+
       - name: Package check
         run: npm pack --dry-run
 
