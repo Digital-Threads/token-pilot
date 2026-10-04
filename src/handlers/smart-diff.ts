@@ -153,7 +153,9 @@ function scopeArgs(args: SmartDiffArgs): string[] {
       return ['diff', '--cached', ...common];
     case 'commit':
       // first-parent: a merge commit shows what it brought in, not nothing.
-      return ['show', '--format=', '--diff-merges=first-parent', ...common, args.ref!];
+      // `-m --first-parent` rather than `--diff-merges=first-parent`, which
+      // git < 2.31 rejects; both give the same diff on current git.
+      return ['show', '--format=', '-m', '--first-parent', ...common, args.ref!];
     case 'branch':
       return ['diff', ...common, `${args.ref!}...HEAD`];
     case 'unstaged':
