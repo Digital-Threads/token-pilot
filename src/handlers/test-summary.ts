@@ -85,9 +85,24 @@ export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
+ * Kill the command and everything it started: its process group on Unix.
+ * Windows has no process groups, so killing the shell (cmd.exe) would
+ * orphan the test runner: `taskkill /T` walks the tree. Best-effort, never throws.
+ */
+export function killTree(pid: number, signal: NodeJS.Signals, platform: NodeJS.Platform = process.platform): void {
+  try {
+    if (platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {});
+    } else {
+      process.kill(-pid, signal);
+    }
+  } catch { /* already gone */ }
+}
+
+/**
  * Run through the shell, like a terminal would: env prefixes (`CI=1 npm
- * test`) and `&&` work. Its own process group, so a timeout kills the test
- * runner too, not just the shell.
+ * test`) and `&&` work. Its own process group (a tree kill on Windows), so a
+ * timeout kills the test runner too, not just the shell.
  */
 function runCommand(command: string, cwd: string, timeoutMs: number): Promise<RunResult> {
   return new Promise((done) => {
@@ -113,10 +128,7 @@ function runCommand(command: string, cwd: string, timeoutMs: number): Promise<Ru
     });
 
     const kill = (signal: NodeJS.Signals) => {
-      try {
-        if (ownGroup && child.pid) process.kill(-child.pid, signal);
-        else child.kill(signal);
-      } catch { /* already gone */ }
+      if (child.pid) killTree(child.pid, signal);
     };
 
     const collect = (b: Buffer) => {
