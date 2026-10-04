@@ -292,4 +292,36 @@ describe('formatOutline scope parameter', () => {
     expect(outputDefault).toContain('IMPORTS:');
     expect(outputDefault).toContain('internalHelper');
   });
+
+  it('does not repeat modifiers that the signature already has', () => {
+    const output = formatOutline(makeStructure([
+      makeSymbol({
+        name: 'two',
+        signature: 'private static async function two()',
+        visibility: 'private',
+        static: true,
+        async: true,
+      }),
+    ]));
+    expect(output).toContain('- private static async function two() [L1-10]');
+    expect(output).not.toMatch(/private private|static static|async async/);
+  });
+
+  it('lists nested functions without class-style visibility groups', () => {
+    const inner = makeSymbol({ name: 'inner', signature: 'function inner() {', visibility: 'default', location: { startLine: 2, endLine: 4, lineCount: 3 } });
+    const outer = makeSymbol({ name: 'outer', signature: 'function outer() {', children: [inner] });
+    const output = formatOutline(makeStructure([outer]), { maxDepth: 3 });
+    expect(output).not.toContain('Public Methods:');
+    expect(output).toContain('function inner() { [L2-4]');
+  });
+
+  it('shows struct and impl blocks by their own keyword', () => {
+    const output = formatOutline(makeStructure([
+      makeSymbol({ name: 'Server', kind: 'class', signature: 'type Server struct {' }),
+      makeSymbol({ name: 'Foo', kind: 'class', signature: 'impl Foo {' }),
+    ]));
+    expect(output).toContain('struct Server:');
+    expect(output).toContain('impl Foo:');
+    expect(output).not.toContain('class Server:');
+  });
 });
