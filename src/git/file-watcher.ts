@@ -73,13 +73,14 @@ export class FileWatcher {
     const absPath = resolve(filePath);
     const entry = this.fileCache.get(absPath);
     if (entry) {
-      // keep the oldest unseen version; a second edit must not hide the first
-      if (!this.baselines.has(absPath)) {
-        this.baselines.set(absPath, entry);
-        // ponytail: FIFO cap; raise it if sessions edit more files between read_diff calls
-        if (this.baselines.size > FileWatcher.MAX_BASELINES) {
-          this.baselines.delete(this.baselines.keys().next().value!);
-        }
+      // The cache was emptied at the previous change, so an entry now is a
+      // newer read: it replaces the baseline. With no read in between the
+      // baseline stays, so a second edit does not hide the first.
+      this.baselines.delete(absPath);
+      this.baselines.set(absPath, entry);
+      // ponytail: FIFO cap; raise it if sessions edit more files between read_diff calls
+      if (this.baselines.size > FileWatcher.MAX_BASELINES) {
+        this.baselines.delete(this.baselines.keys().next().value!);
       }
       this.fileCache.invalidate(absPath);
     }
