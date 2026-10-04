@@ -213,6 +213,25 @@ describe('buildFileStructure — TSX', () => {
     expect(ranges(find(s.symbols, 'Page').children)).toEqual({ warn: [17, 17], handleSave: [21, 23] });
     expect(ranges(find(s.symbols, 'Third').children)).toEqual({ run: [43, 45] });
   });
+
+  it('no-semicolon style: an expression const ends where its expression closes', async () => {
+    const s = await structureOf('nosemi.tsx', [
+      '  :3 SheetFooter [class]',
+      '  :14 handleTabClick [function]',
+      '  :16 chained [constant]',
+      '  :20 routes [constant]',
+      '  :24 withSemi [constant]',
+      '  :28 after [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({
+      SheetFooter: [3, 11],
+      handleTabClick: [14, 14],
+      chained: [16, 18],
+      routes: [20, 22],
+      withSemi: [24, 26],
+      after: [28, 30],
+    });
+  });
 });
 
 describe('buildFileStructure — other languages', () => {

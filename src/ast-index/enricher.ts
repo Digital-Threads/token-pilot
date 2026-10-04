@@ -35,6 +35,8 @@ const REGEX_PREFIX_WORDS = new Set([
 ]);
 /** After a `{…}` block these mean the declaration goes on (return type, `=>`, union, `= value`). */
 const CONTINUES_AFTER_BLOCK = new Set(['{', '=', '>', '|', '&', ':', '.']);
+/** A JS line starting with one of these continues the expression above (no ASI). */
+const JS_CONTINUATION = new Set(['.', '?', ':', '(', '[', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>', '=', ',', '`']);
 /** A Go line ending in one of these continues on the next line. */
 const GO_CONTINUATION = new Set([',', '(', '[', '=', '+', '-', '*', '/', '&', '|', '.', ':', '<', '>', '!', '^', '%']);
 const TEST_FILE_RE = /(^|[\\/])(__tests__|tests?)[\\/]|\.(test|spec)\.[cm]?[jt]sx?$/;
@@ -450,7 +452,7 @@ function buildSymbols(
     const next = syms[k];
     const limit = next ? src.lineStarts[next.start - 1] : src.code.length;
     let end = -1;
-    if (brace) end = braceEnd(src, sym, limit, lang === 'Go');
+    if (brace) end = braceEnd(src, sym, limit, lang === 'Go', JS_LANGUAGES.has(lang) && isVarDecl(src.codeLine(sym.decl)));
     else if (lang === 'Python') end = indentEnd(src, sym.decl);
     if (end < 0) end = src.lastCodeLine(limit, sym.decl);
     sym.end = Math.max(end, sym.decl);
@@ -628,9 +630,10 @@ function docText(lines: string[]): string | undefined {
 /**
  * End of a declaration in a brace language: the block it opens, the `;` that
  * ends it, or the last code line before the enclosing block closes / the next
- * symbol starts. -1 when the braces do not balance.
+ * symbol starts. -1 when the braces do not balance. `asi`: a JS const/let/var
+ * without `;` ends where its expression closes, unless the next line goes on.
  */
-function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
+function braceEnd(src: Source, sym: Sym, limit: number, go: boolean, asi = false): number {
   const code = src.code;
   const n = code.length;
   let paren = 0;
@@ -667,6 +670,10 @@ function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
     else if (ch === ')') { if (paren > 0) paren--; }
     else if (ch === '[') bracket++;
     else if (ch === ']') { if (bracket > 0) bracket--; }
+    if (asi && paren === 0 && bracket === 0 && (ch === ')' || ch === ']')) {
+      const k = src.nextCodeIndex(j + 1);
+      if (k >= n || (src.lineOf(k) > src.lineOf(j) && !JS_CONTINUATION.has(code[k]))) return src.lineOf(j);
+    }
     else if (ch === '{') {
       // a block inside (...) or [...] — skip it whole
       const close = src.match[j];
@@ -675,6 +682,10 @@ function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
     j++;
   }
   return src.lastCodeLine(n, sym.decl);
+}
+
+function isVarDecl(line: string): boolean {
+  return /^\s*(?:export\s+)?(?:declare\s+)?(?:const|let|var)\s/.test(line);
 }
 
 /** Python: the block is every following line indented deeper than the header. */
