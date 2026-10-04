@@ -282,14 +282,14 @@ export async function handleFindUsages(
   // Classify the rest: comments are counted, not listed; re-exports and
   // members of multi-line import lists are imports.
   const fileCache = new Map<string, string[] | null>();
-  let comments = 0;
+  let comments: Array<{ file: string }> = [];
   const candidates = [
     ...refUsages.map(u => ({ file: u.path, line: u.line, text: (u.context ?? u.name).trim() })),
     ...additional,
   ];
   for (const r of candidates) {
     if (isCommentLine(r.text)) {
-      comments++;
+      comments.push(r);
       continue;
     }
     const isImport =
@@ -307,6 +307,7 @@ export async function handleFindUsages(
     definitions = definitions.filter(d => inScope(d.file, scope));
     allImports = allImports.filter(i => inScope(i.file, scope));
     allUsages = allUsages.filter(u => inScope(u.file, scope));
+    comments = comments.filter(c => inScope(c.file, scope));
   }
 
   if (args.lang) {
@@ -316,13 +317,14 @@ export async function handleFindUsages(
     definitions = definitions.filter(d => matchesLang(d.file));
     allImports = allImports.filter(i => matchesLang(i.file));
     allUsages = allUsages.filter(u => matchesLang(u.file));
+    comments = comments.filter(c => matchesLang(c.file));
   }
 
   const kind = args.kind ?? 'all';
   if (kind !== 'all') {
     switch (kind) {
-      case 'definitions': allImports = []; allUsages = []; break;
-      case 'imports': definitions = []; allUsages = []; break;
+      case 'definitions': allImports = []; allUsages = []; comments = []; break;
+      case 'imports': definitions = []; allUsages = []; comments = []; break;
       case 'usages': definitions = []; allImports = []; break;
     }
   }
@@ -346,8 +348,8 @@ export async function handleFindUsages(
   if (binaryCapped) {
     notes.push(`ast-index returned its cap of ${FETCH_LIMIT} results for a section — more may exist.`);
   }
-  if (comments > 0) {
-    notes.push(`${comments} mention${comments === 1 ? '' : 's'} in comments not listed.`);
+  if (comments.length > 0) {
+    notes.push(`${comments.length} mention${comments.length === 1 ? '' : 's'} in comments not listed.`);
   }
   const stale = astIndex.isStale?.() ?? false;
   if (stale) {
