@@ -57,6 +57,16 @@ interface RankedFile {
 /** Possible importers checked by reading their imports. */
 const MAX_IMPORTER_CHECKS = 100;
 
+/** Test file by its name (`x.test.ts`, `x_test.go`, `test_x.py`) or a __tests__ dir. */
+export function isTestFile(rel: string): boolean {
+  return /\.(test|spec)\.\w+$|_(test|spec)\.\w+$|(^|\/)test_[^/]+$|(^|\/)__tests__\//.test(rel);
+}
+
+/** Anything under a test location, helpers and fixtures included. */
+export function isTestPath(rel: string): boolean {
+  return TEST_PATTERNS.some(p => p.test(rel));
+}
+
 const TEST_PATTERNS = [
   /\.test\.\w+$/,
   /\.spec\.\w+$/,
@@ -207,7 +217,7 @@ export async function handleRelatedFiles(
   try {
     for (const f of await astIndex.listFiles()) {
       const rel = relOf(f);
-      if (testPaths.includes(rel) || !TEST_PATTERNS.some(p => p.test(rel))) continue;
+      if (testPaths.includes(rel) || !isTestFile(rel)) continue;
       if (testSubject(basename(rel)) === fileBase) {
         testPaths.push(rel);
         addScore(rel, 5, 'test');
@@ -318,7 +328,7 @@ async function getRecentlyChangedFiles(projectRoot: string): Promise<Set<string>
   }
 }
 
-function resolveImportPath(
+export function resolveImportPath(
   sourceFile: string,
   importSource: string,
   projectRoot: string,
@@ -363,7 +373,7 @@ function isFile(p: string): boolean {
 }
 
 /** `cache.test.ts` / `cache.spec.js` / `test_cache.py` / `cache_test.go` → `cache`. */
-function testSubject(name: string): string {
+export function testSubject(name: string): string {
   return name
     .replace(/\.[^.]+$/, '')
     .replace(/[._-](test|spec)$/i, '')
