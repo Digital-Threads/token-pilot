@@ -30,6 +30,18 @@ export function parseFileCount(statsText: string): number {
 }
 
 /**
+ * Entries of a list answer (`symbol`, `usages`, `implementations` with
+ * `--format json`): a bare array before ast-index 3.56, then
+ * `{ schema_version, items, pagination }`.
+ */
+export function jsonItems<T>(json: unknown): T[] {
+  if (Array.isArray(json)) return json;
+  const items = (json as { items?: unknown } | null)?.items;
+
+  return Array.isArray(items) ? items : [];
+}
+
+/**
  * Parse text output from `ast-index outline`:
  *   Outline of src/file.ts:
  *     :10 ClassName [class]

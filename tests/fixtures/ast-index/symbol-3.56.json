@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "items": [
+    {
+      "name": "SymbolResolver",
+      "kind": "class",
+      "line": 5,
+      "signature": "export class SymbolResolver {",
+      "path": "src/core/symbol-resolver.ts"
+    }
+  ],
+  "pagination": {
+    "total": 1,
+    "returned": 1,
+    "truncated": false,
+    "limit": 20
+  }
+}

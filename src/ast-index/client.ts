@@ -47,6 +47,7 @@ import {
   parseModuleDepText,
   parseUnusedDepsText,
   parseModuleApiText,
+  jsonItems,
 } from "./parser.js";
 import { buildFileStructure } from "./enricher.js";
 import { blockAt, codeLines, mentions } from "./references.js";
@@ -473,8 +474,7 @@ export class AstIndexClient {
 
   /** First `symbol --format json` entry outside excluded directories. */
   private firstSymbol(json: string): AstIndexSymbolDetail | null {
-    const raw: AstIndexSymbolRaw[] = JSON.parse(json);
-    if (!Array.isArray(raw)) return null;
+    const raw = jsonItems<AstIndexSymbolRaw>(JSON.parse(json));
     const first = raw.find((s) => this.keep(s.path));
     if (!first) return null;
 
@@ -612,8 +612,7 @@ export class AstIndexClient {
         "--format",
         "json",
       ]);
-      const raw: AstIndexUsageRaw[] = JSON.parse(result);
-      if (!Array.isArray(raw)) return [];
+      const raw = jsonItems<AstIndexUsageRaw>(JSON.parse(result));
       return raw.filter((u) => this.keep(u.path)).map((u) => ({
         file: u.path,
         line: u.line,
@@ -722,7 +721,7 @@ export class AstIndexClient {
       ]);
       let list: Array<AstIndexImplementation & { path?: string }>;
       try {
-        list = JSON.parse(result);
+        list = jsonItems(JSON.parse(result));
       } catch {
         list = parseImplementationsText(result);
       }
