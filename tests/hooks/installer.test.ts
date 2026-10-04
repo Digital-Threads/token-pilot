@@ -316,4 +316,65 @@ describe("Hook Installer", () => {
     expect(readHook.hooks[0].command).toContain("/opt/node/bin/node");
     expect(readHook.hooks[0].command).not.toBe("token-pilot hook-read");
   });
+
+  const writeSettings = async (settings: unknown) => {
+    await mkdir(join(tempDir, ".claude"), { recursive: true });
+    await writeFile(join(tempDir, ".claude", "settings.json"), JSON.stringify(settings));
+  };
+  const readSettings = async () =>
+    JSON.parse(await readFile(join(tempDir, ".claude", "settings.json"), "utf-8"));
+  const opts = { scriptPath: "/opt/token-pilot/dist/index.js", nodeExecPath: "/usr/bin/node" };
+
+  it("uninstall removes a token-pilot UserPromptSubmit entry left on its own", async () => {
+    await writeSettings({
+      hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: "token-pilot hook-user-prompt" }] }] },
+    });
+
+    const result = await uninstallHook(tempDir);
+
+    expect(result.removed).toBe(true);
+    expect((await readSettings()).hooks).toBeUndefined();
+  });
+
+  // A stale command (npx-cache snapshot, bare `token-pilot`) in any event
+  // calls an old binary: every event is cleaned, not just PreToolUse.
+  it("replaces stale entries in every event, not just PreToolUse", async () => {
+    const stale = (a: string) => ({
+      type: "command",
+      command: `node /home/u/.npm/_npx/abc123/node_modules/token-pilot/dist/index.js ${a}`,
+    });
+    const user = { matcher: "Bash", hooks: [{ type: "command", command: "my-audit.sh" }] };
+    await writeSettings({
+      hooks: {
+        PreToolUse: [{ matcher: "Read", hooks: [stale("hook-read")] }, user],
+        SessionStart: [{ hooks: [stale("hook-session-start")] }],
+        UserPromptSubmit: [{ hooks: [stale("hook-user-prompt")] }],
+        PostToolUse: [{ matcher: "Bash", hooks: [stale("hook-post-bash")] }],
+        SubagentStop: [{ hooks: [stale("hook-subagent-stop")] }],
+      },
+    });
+
+    expect((await installHook(tempDir, opts)).installed).toBe(true);
+
+    const text = JSON.stringify(await readSettings());
+    expect(text).not.toContain("_npx");
+    expect(text).toContain("my-audit.sh");
+    expect(text).toContain("/usr/bin/node /opt/token-pilot/dist/index.js hook-subagent-stop");
+  });
+
+  it("a stale entry outside PreToolUse does not count as installed", async () => {
+    await installHook(tempDir, opts);
+    const settings = await readSettings();
+    settings.hooks.SubagentStop = [{ hooks: [{ type: "command", command: "token-pilot hook-subagent-stop" }] }];
+    await writeSettings(settings);
+
+    const result = await installHook(tempDir, opts);
+
+    expect(result.installed).toBe(true);
+    const after = await readSettings();
+    expect(after.hooks.SubagentStop).toHaveLength(1);
+    expect(after.hooks.SubagentStop[0].hooks[0].command).toBe(
+      "/usr/bin/node /opt/token-pilot/dist/index.js hook-subagent-stop",
+    );
+  });
 });
