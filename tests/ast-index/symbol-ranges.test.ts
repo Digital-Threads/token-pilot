@@ -298,6 +298,14 @@ describe('buildFileStructure — other languages', () => {
     expect(ranges(find(s.symbols, 'Mailer').children)).toEqual({ body: [3, 7], raw: [9, 14], quoted: [16, 20], last: [22, 24] });
   });
 
+  it('Kotlin: strings nested inside ${…} templates keep their braces to themselves', async () => {
+    const s = await structureOf('Sample.kt', [
+      '  :3 Greeter [class]', '  :4 greet [function]', '  :8 raw [function]', '  :14 last [function]', '  :19 helper [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({ Greeter: [3, 17], helper: [19, 21] });
+    expect(ranges(find(s.symbols, 'Greeter').children)).toEqual({ greet: [4, 6], raw: [8, 12], last: [14, 16] });
+  });
+
   it('a quote that never closes is not a string (PHP apostrophe in a comment-free line)', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tp-ranges-'));
     try {

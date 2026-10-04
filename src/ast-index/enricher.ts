@@ -30,6 +30,8 @@ const SINGLE_LINE_QUOTES = new Set([
 ]);
 const TRIPLE_DOUBLE_QUOTES = new Set(['Python', 'Kotlin', 'Java', 'Swift', 'Scala', 'C#', 'Dart', 'Elixir']);
 const TRIPLE_SINGLE_QUOTES = new Set(['Python', 'Dart']);
+/** Languages whose strings hold `${…}` code (Scala only in `s"…"`-style interpolators). */
+const DOLLAR_TEMPLATES = new Set(['Kotlin', 'Dart', 'Scala']);
 const REGEX_PREFIX_WORDS = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
 ]);
@@ -195,8 +197,8 @@ function isWordChar(ch: string): boolean {
 
 /**
  * Ranges of comments (false) and string/regex literals (true) to blank out.
- * Code inside JS template interpolations `${…}` stays visible; the `${` and
- * its closing `}` are blanked so they never count as a block. In JSX/TSX
+ * Code inside template interpolations `${…}` (JS, Kotlin, Dart, Scala) stays
+ * visible; the `${` and its closing `}` are blanked so they never count as a block. In JSX/TSX
  * `</tag>` and `/>` are tags, never the start of a regex literal.
  */
 function maskSource(raw: string, lang: string, jsx = false): Array<[number, number, boolean]> {
@@ -209,7 +211,8 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
   const tripleSq = TRIPLE_SINGLE_QUOTES.has(lang);
   const n = raw.length;
   const out: Array<[number, number, boolean]> = [];
-  const interpolation: number[] = [];
+  /** Open `${…}`: brace depth inside it, and the string it returns to (`, ", """…). */
+  const interpolation: Array<{ depth: number; close: string }> = [];
   let prevSig = '';
   let prevWord = '';
 
@@ -225,7 +228,7 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
       if (ch === '\\') { j++; continue; }
       if (ch === '`') return j + 1;
       if (ch === '$' && raw[j + 1] === '{') {
-        interpolation.push(0);
+        interpolation.push({ depth: 0, close: '`' });
         return j + 2;
       }
     }
@@ -245,27 +248,44 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
    */
   const scanQuoted = (i: number, q: string): number => {
     const triple = (q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q;
-    const kind = triple ? q + q + q : q;
+    const close = triple ? q + q + q : q;
+    const dollar = DOLLAR_TEMPLATES.has(lang) && (q === '"' || lang === 'Dart')
+      && (lang !== 'Scala' || isWordChar(raw[i - 1] ?? ''));
+    // a failed ${}-string never went past a `${`, so the same reasoning holds
+    const kind = dollar ? close + '$' : close;
     if (i < (quoteFail.get(kind) ?? -1)) return -1;
-    const fail = (at: number): number => {
-      quoteFail.set(kind, at);
-      return -1;
-    };
+    const e = scanString(i + close.length, close, dollar);
+    if (e < 0) quoteFail.set(kind, failedAt);
 
-    if (triple) {
-      for (let j = i + 3; j < n; j++) {
-        if (raw[j] === '\\') { j++; continue; }
-        if (raw[j] === q && raw[j + 1] === q && raw[j + 2] === q) return j + 3;
-      }
-      return fail(n);
-    }
-    for (let j = i + 1; j < n; j++) {
+    return e;
+  };
+
+  let failedAt = 0;
+
+  /**
+   * The rest of a string closed by `close`, from `from`: after its closing
+   * quote, after a `${` that opens code (`dollar`), at the newline of a
+   * single-line string, or -1 with `failedAt` set to where it stopped.
+   */
+  const scanString = (from: number, close: string, dollar: boolean): number => {
+    const q = close[0];
+    const triple = close.length === 3;
+    for (let j = from; j < n; j++) {
       const ch = raw[j];
       if (ch === '\\') { j++; continue; }
-      if (ch === q) return j + 1;
-      if (ch === '\n' && singleLine) return js ? fail(j) : j;
+      if (ch === q && (!triple || (raw[j + 1] === q && raw[j + 2] === q))) return j + close.length;
+      if (dollar && ch === '$' && raw[j + 1] === '{') {
+        interpolation.push({ depth: 0, close });
+        return j + 2;
+      }
+      if (ch === '\n' && singleLine && !triple) {
+        if (!js) return j;
+        failedAt = j;
+        return -1;
+      }
     }
-    return fail(n);
+    failedAt = n;
+    return -1;
   };
 
   /** Per word at a line start (after spaces/tabs): [line start, word end] pairs, in order. */
@@ -402,19 +422,21 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
       }
     }
 
-    if (js && interpolation.length > 0) {
-      const top = interpolation.length - 1;
-      if (c === '{') interpolation[top]++;
+    if (interpolation.length > 0) {
+      const top = interpolation[interpolation.length - 1];
+      if (c === '{') top.depth++;
       else if (c === '}') {
-        if (interpolation[top] === 0) {
+        if (top.depth === 0) {
           interpolation.pop();
-          const e = scanTemplate(i + 1);
+          // back in the string; one that never closes runs to the end of the file
+          const back = top.close === '`' ? scanTemplate(i + 1) : scanString(i + 1, top.close, true);
+          const e = back < 0 ? n : back;
           out.push([i, e, true]);
           prevSig = 'a';
           i = e;
           continue;
         }
-        interpolation[top]--;
+        top.depth--;
       }
     }
 
