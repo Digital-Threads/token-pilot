@@ -110,6 +110,7 @@ vi.mock("../src/core/validation.js", async () => {
 
 vi.mock("../src/integration/context-mode-detector.js", () => ({
   detectContextMode: mockDeps.detectContextMode,
+  enabledPluginIds: () => [],
 }));
 
 import * as indexModule from "../src/index.ts";

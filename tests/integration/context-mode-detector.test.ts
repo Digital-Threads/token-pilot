@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { detectContextMode } from '../../src/integration/context-mode-detector.js';
+import {
+  detectContextMode,
+  enabledPluginIds,
+  isContextModeInstalledSync,
+} from '../../src/integration/context-mode-detector.js';
 
 describe('detectContextMode', () => {
   let testDir: string;
@@ -116,5 +120,51 @@ describe('detectContextMode', () => {
   it('includes tool prefix in all results', async () => {
     const result = await detectContextMode(testDir);
     expect(result.toolPrefix).toContain('context-mode');
+  });
+
+  describe('Claude Code plugin installs (no .mcp.json)', () => {
+    let savedConfigDir: string | undefined;
+    beforeEach(() => {
+      savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
+    });
+    afterEach(() => {
+      if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+    });
+
+    const settings = async (dir: string, enabledPlugins: Record<string, boolean>, file = 'settings.json') => {
+      await mkdir(resolve(dir, '.claude'), { recursive: true });
+      await writeFile(resolve(dir, '.claude', file), JSON.stringify({ enabledPlugins }));
+    };
+
+    it('detects context-mode enabled as a plugin in user settings', async () => {
+      await settings(homeDir, { 'context-mode@context-mode': true, 'token-pilot@token-pilot': true });
+      const result = await detectContextMode(testDir);
+      expect(result).toMatchObject({ detected: true, source: 'plugin' });
+      expect(isContextModeInstalledSync(testDir)).toBe(true);
+    });
+
+    it('detects it from project settings too', async () => {
+      await settings(testDir, { 'context-mode@claude-context-mode': true }, 'settings.local.json');
+      expect((await detectContextMode(testDir)).detected).toBe(true);
+    });
+
+    it('a plugin switched off is not detected', async () => {
+      await settings(homeDir, { 'context-mode@context-mode': false });
+      expect((await detectContextMode(testDir)).detected).toBe(false);
+      expect(isContextModeInstalledSync(testDir)).toBe(false);
+    });
+
+    it('project settings override user settings', async () => {
+      await settings(homeDir, { 'context-mode@context-mode': true });
+      await settings(testDir, { 'context-mode@context-mode': false });
+      expect((await detectContextMode(testDir)).detected).toBe(false);
+    });
+
+    it('lists enabled plugin ids', async () => {
+      await settings(homeDir, { 'token-pilot@token-pilot': true, 'caveman@caveman': false });
+      expect(enabledPluginIds(testDir)).toEqual(['token-pilot@token-pilot']);
+    });
   });
 });

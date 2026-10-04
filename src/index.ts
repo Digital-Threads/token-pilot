@@ -1487,14 +1487,16 @@ export async function handleDoctor() {
   // because plugin users don't need `install-hook` (hooks come from
   // hooks/hooks.json); npm users do. dev/worktree users
   // are usually contributors running from a local checkout.
-  let installMode: string;
-  if (process.env.CLAUDE_PLUGIN_ROOT) {
-    installMode = `plugin (${process.env.CLAUDE_PLUGIN_ROOT})`;
-  } else if (process.argv[1]?.includes("/.claude/worktrees/")) {
-    installMode = "dev / worktree (contributor)";
-  } else {
-    installMode = "npm / npx";
-  }
+  const { describeInstallMode } = await import("./cli/install-mode.js");
+  const { enabledPluginIds } =
+    await import("./integration/context-mode-detector.js");
+  const installMode = describeInstallMode({
+    pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
+    scriptPath: process.argv[1],
+    pluginEnabled: enabledPluginIds(cwd).some((id) =>
+      id.startsWith("token-pilot@"),
+    ),
+  });
   console.log(`Install mode:   ${installMode}`);
 
   // ── Environment ──
