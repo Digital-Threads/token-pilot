@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { isExcludedPath, type AstIndexClient } from '../ast-index/client.js';
@@ -21,7 +21,7 @@ export interface FindUnusedArgs {
  */
 const CANDIDATE_POOL = 20_000;
 
-/** Files larger than this are skipped by the non-git word scan. */
+/** Files larger than this are not searched (and the answer says so). */
 const MAX_SCAN_FILE_SIZE = 1_000_000;
 
 /**
@@ -58,61 +58,72 @@ function isExported(sym: AstIndexUnusedSymbol): boolean {
   return /\b(public|pub|export)\b/.test(sig) || /^[A-Z]/.test(sym.name);
 }
 
+/** Project files: tracked and untracked-but-not-ignored in a git repository, else the indexed list. */
+async function projectFiles(projectRoot: string, astIndex: AstIndexClient): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+      { cwd: projectRoot, maxBuffer: 64 * 1024 * 1024, timeout: 30_000 },
+    );
+    return [...new Set(stdout.split('\0').filter(Boolean))];
+  } catch {
+    return astIndex.listFiles();
+  }
+}
+
 /**
- * `file:line:name` of every word occurrence of `names` in project files, or
- * null when no search could run. Git repos use `git grep` over tracked and
- * untracked (not ignored) files; otherwise the indexed file list is scanned.
+ * Every whole-word occurrence of `names` in project files (binary files left
+ * out, as `git grep -I` does), plus how many files were too large to
+ * search; null when there is no file list. Each file is read once and its
+ * words looked up in a Set — `git grep -w -F` with a pattern per name
+ * crawls when a name is one letter long. A word is [A-Za-z0-9_]+, as for
+ * `git grep -w`; a name with other characters ("impl Foo") is matched as
+ * text with a word boundary on both sides.
  */
 async function wordOccurrences(
   names: string[],
   projectRoot: string,
   astIndex: AstIndexClient,
-): Promise<Array<{ file: string; line: number; name: string }> | null> {
-  if (names.length === 0) return [];
-
-  try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['grep', '--untracked', '-I', '-n', '-o', '-w', '-F', ...names.flatMap((n) => ['-e', n])],
-      { cwd: projectRoot, maxBuffer: 64 * 1024 * 1024, timeout: 30_000 },
-    );
-    return parseGrep(stdout);
-  } catch (err) {
-    // exit 1 = no match anywhere
-    if ((err as { code?: number }).code === 1) return [];
-  }
-
-  const files = await astIndex.listFiles();
+): Promise<{ found: Array<{ file: string; line: number; name: string }>; tooLarge: number } | null> {
+  if (names.length === 0) return { found: [], tooLarge: 0 };
+  const files = await projectFiles(projectRoot, astIndex);
   if (files.length === 0) return null;
 
-  const wanted = new Set(names);
-  const out: Array<{ file: string; line: number; name: string }> = [];
+  const words = new Set(names.filter((n) => /^\w+$/.test(n)));
+  const phrases = names.filter((n) => !words.has(n));
+  const isWord = (ch: string | undefined) => ch !== undefined && /\w/.test(ch);
+  const found: Array<{ file: string; line: number; name: string }> = [];
+  let tooLarge = 0;
+
   for (const file of files) {
+    // never counted as a reference anyway
+    if (isExcludedPath(file)) continue;
+    let buf: Buffer;
     try {
-      const abs = resolve(projectRoot, file);
-      if ((await stat(abs)).size > MAX_SCAN_FILE_SIZE) continue;
-      const lines = (await readFile(abs, 'utf-8')).split('\n');
-      lines.forEach((text, i) => {
-        for (const m of text.matchAll(/[A-Za-z0-9_$]+/g)) {
-          if (wanted.has(m[0])) out.push({ file, line: i + 1, name: m[0] });
-        }
-      });
+      buf = await readFile(resolve(projectRoot, file));
     } catch {
-      // unreadable file — skip
+      continue;
     }
+    if (buf.length > MAX_SCAN_FILE_SIZE) {
+      tooLarge++;
+      continue;
+    }
+    if (buf.subarray(0, 8000).includes(0)) continue;
+
+    buf.toString('utf-8').split('\n').forEach((text, i) => {
+      for (const m of text.matchAll(/\w+/g)) {
+        if (words.has(m[0])) found.push({ file, line: i + 1, name: m[0] });
+      }
+      for (const name of phrases) {
+        for (let k = text.indexOf(name); k >= 0; k = text.indexOf(name, k + 1)) {
+          if (!isWord(text[k - 1]) && !isWord(text[k + name.length])) found.push({ file, line: i + 1, name });
+        }
+      }
+    });
   }
 
-  return out;
-}
-
-/** `git grep -n -o` lines: `path:line:match`. */
-function parseGrep(stdout: string): Array<{ file: string; line: number; name: string }> {
-  const out: Array<{ file: string; line: number; name: string }> = [];
-  for (const row of stdout.split('\n')) {
-    const m = row.match(/^(.+?):(\d+):(.+)$/);
-    if (m) out.push({ file: m[1], line: parseInt(m[2], 10), name: m[3] });
-  }
-  return out;
+  return { found, tooLarge };
 }
 
 export async function handleFindUnused(
@@ -161,7 +172,7 @@ export async function handleFindUnused(
   }
   const referenced = new Set<string>();
   const defLines = new Set(candidates.map(s => `${s.path}:${s.line}:${s.name}`));
-  for (const o of occurrences) {
+  for (const o of occurrences.found) {
     if (isExcludedPath(o.file)) continue;
     if (!defLines.has(`${o.file}:${o.line}:${o.name}`)) referenced.add(o.name);
   }
@@ -205,6 +216,9 @@ export async function handleFindUnused(
   }
   if (langExcluded > 0) {
     footer.push(`(${langExcluded} constructors/protocol methods excluded)`);
+  }
+  if (occurrences.tooLarge > 0) {
+    footer.push(`(${occurrences.tooLarge} files over 1 MB were not searched for references)`);
   }
   if (poolCapped) {
     footer.push(`ast-index returned its candidate cap of ${CANDIDATE_POOL} — more may exist; narrow with module=.`);
