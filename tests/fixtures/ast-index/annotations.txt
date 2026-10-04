@@ -1,0 +1,5 @@
+Classes with @Service (2):
+  src/main/java/com/x/Svc.java:5
+    @Service
+  src/main/java/com/x/Other.java:3
+    @Service

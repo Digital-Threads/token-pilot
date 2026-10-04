@@ -7,10 +7,65 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  parseAgrepText,
+  parseAnnotationsText,
   parseCallTreeText,
+  parseDeprecatedText,
   parseImportsText,
   parseJsImports,
+  parseTodoText,
 } from "../../src/ast-index/parser.js";
+
+describe("code-audit parsers (grouped blocks)", () => {
+  it("parseTodoText reads `KIND (n):` groups of path:line + comment", () => {
+    const entries = parseTodoText(fixture("todo.txt"));
+
+    expect(entries).toHaveLength(4);
+    expect(entries).toContainEqual({
+      file: "web/a.ts",
+      line: 9,
+      kind: "TODO",
+      text: "(alice): handle errors",
+    });
+    expect(entries).toContainEqual({
+      file: "src/main/java/com/x/Svc.java",
+      line: 15,
+      kind: "FIXME",
+      text: "broken when null",
+    });
+    expect(entries).toContainEqual({
+      file: "src/main/java/com/x/Other.java",
+      line: 6,
+      kind: "HACK",
+      text: "temporary workaround",
+    });
+    expect(parseTodoText(fixture("todo-empty.txt"))).toEqual([]);
+  });
+
+  it("parseDeprecatedText reads path:line + the marker line", () => {
+    expect(parseDeprecatedText(fixture("deprecated.txt"))).toEqual([
+      { kind: "", name: "", file: "web/a.ts", line: 10, message: "use newThing" },
+      { kind: "", name: "", file: "src/main/java/com/x/Svc.java", line: 8, message: undefined },
+      { kind: "", name: "", file: "src/main/java/com/x/Svc.java", line: 11, message: "use newer" },
+      { kind: "", name: "", file: "src/main/java/com/x/Svc.java", line: 12, message: undefined },
+    ]);
+  });
+
+  it("parseAnnotationsText reads path:line entries", () => {
+    expect(parseAnnotationsText(fixture("annotations.txt"), "Service")).toEqual([
+      { kind: "", name: "", file: "src/main/java/com/x/Svc.java", line: 5, annotation: "Service" },
+      { kind: "", name: "", file: "src/main/java/com/x/Other.java", line: 3, annotation: "Service" },
+    ]);
+    expect(parseAnnotationsText(fixture("annotations-empty.txt"), "Nope")).toEqual([]);
+  });
+
+  it("parseAgrepText reads ast-grep json: one entry per match, 1-based lines", () => {
+    expect(parseAgrepText(fixture("agrep.json"))).toEqual([
+      { file: "web/b.ts", line: 2, text: "console.log(a);" },
+      { file: "web/b.ts", line: 6, text: "console.log( … (3 lines)" },
+    ]);
+  });
+});
 
 describe("parseImportsText", () => {
   it("keeps type-only, mixed, side-effect and require imports", () => {

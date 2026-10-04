@@ -404,6 +404,18 @@ export class AstIndexClient {
     };
   }
 
+  /**
+   * `limit + 1` was asked for: more than `limit` parsed means truncated.
+   * Excluded paths are dropped after that check.
+   */
+  private capped<T extends { file: string }>(
+    entries: T[],
+    limit: number,
+  ): T[] & { truncated?: boolean } {
+    const kept = entries.slice(0, limit).filter((e) => this.keep(e.file));
+    return entries.length > limit ? Object.assign(kept, { truncated: true }) : kept;
+  }
+
   /** False for paths inside node_modules / dist / coverage / .git. */
   private keep(path: string | undefined): boolean {
     return !!path && !isExcludedPath(path, this.projectRoot);
@@ -998,13 +1010,14 @@ export class AstIndexClient {
       );
     }
 
-    const limit = options?.limit ?? 50;
-    const args = ["agrep", pattern];
+    // --json: one record per match. The text form prints every line of a
+    // multi-line match. No cap here — the caller shows `limit` of the total.
+    const args = ["agrep", pattern, "--json"];
     if (options?.lang) args.push("--lang", options.lang);
 
     try {
       const result = await this.exec(args, 15000);
-      return parseAgrepText(result).slice(0, limit);
+      return parseAgrepText(result).filter((m) => this.keep(m.file));
     } catch (err) {
       console.error(
         `[token-pilot] ast-index agrep failed: ${err instanceof Error ? err.message : err}`,
@@ -1013,12 +1026,13 @@ export class AstIndexClient {
     }
   }
 
-  async todo(): Promise<AstIndexTodoEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async todo(limit = 50): Promise<AstIndexTodoEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["todo"], 15000);
-      return parseTodoText(result);
+      const result = await this.exec(["todo", "--limit", String(limit + 1)], 15000);
+      return this.capped(parseTodoText(result), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index todo failed: ${err instanceof Error ? err.message : err}`,
@@ -1027,12 +1041,13 @@ export class AstIndexClient {
     }
   }
 
-  async deprecated(): Promise<AstIndexDeprecatedEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async deprecated(limit = 50): Promise<AstIndexDeprecatedEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["deprecated"], 15000);
-      return parseDeprecatedText(result);
+      const result = await this.exec(["deprecated", "--limit", String(limit + 1)], 15000);
+      return this.capped(parseDeprecatedText(result), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index deprecated failed: ${err instanceof Error ? err.message : err}`,
@@ -1041,12 +1056,19 @@ export class AstIndexClient {
     }
   }
 
-  async annotations(name: string): Promise<AstIndexAnnotationEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async annotations(
+    name: string,
+    limit = 50,
+  ): Promise<AstIndexAnnotationEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["annotations", name], 15000);
-      return parseAnnotationsText(result, name);
+      const result = await this.exec(
+        ["annotations", name, "--limit", String(limit + 1)],
+        15000,
+      );
+      return this.capped(parseAnnotationsText(result, name), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index annotations failed: ${err instanceof Error ? err.message : err}`,

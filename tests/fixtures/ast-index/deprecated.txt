@@ -1,0 +1,9 @@
+@Deprecated items (4):
+  web/a.ts:10
+    /** @deprecated use newThing */
+  src/main/java/com/x/Svc.java:8
+    @Deprecated
+  src/main/java/com/x/Svc.java:11
+    /** @deprecated use newer */
+  src/main/java/com/x/Svc.java:12
+    @Deprecated

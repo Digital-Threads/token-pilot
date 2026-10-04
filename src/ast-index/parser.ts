@@ -241,7 +241,28 @@ export function parseJsImports(text: string): AstIndexImportEntry[] {
   return entries;
 }
 
+/**
+ * Parse `ast-index agrep --json` (ast-grep's JSON): one entry per match,
+ * 0-based lines made 1-based; a multi-line match shows its first line and
+ * its length. Falls back to the text form `file:line:source` — which prints
+ * every line of a multi-line match, so it cannot count matches.
+ */
 export function parseAgrepText(text: string): AstIndexAgrepMatch[] {
+  try {
+    const json = JSON.parse(text);
+    if (Array.isArray(json)) {
+      return json.map((m: { file: string; lines?: string; text?: string; range: { start: { line: number }; end: { line: number } } }) => {
+        const first = (m.lines ?? m.text ?? '').split('\n')[0].trim();
+        const span = m.range.end.line - m.range.start.line + 1;
+        return {
+          file: m.file,
+          line: m.range.start.line + 1,
+          text: span > 1 ? `${first} … (${span} lines)` : first,
+        };
+      });
+    }
+  } catch { /* text output */ }
+
   const results: AstIndexAgrepMatch[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -254,11 +275,51 @@ export function parseAgrepText(text: string): AstIndexAgrepMatch[] {
   return results;
 }
 
+/**
+ * The grouped-block layout of `todo`, `deprecated` and `annotations`
+ * (text only — `--format json` is ignored):
+ *   TODO (2):                  ← group header (todo only)
+ *     web/a.ts:9               ← location
+ *       // TODO(alice): fix    ← the source line
+ */
+function parseLocationBlocks(text: string): Array<{ group?: string; file: string; line: number; source: string }> {
+  const out: Array<{ group?: string; file: string; line: number; source: string }> = [];
+  let group: string | undefined;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const header = raw.match(/^(\w+) \(\d+\):$/);
+    if (header) {
+      group = header[1];
+      continue;
+    }
+    const loc = raw.match(/^ {2}(\S.*?):(\d+)$/);
+    if (loc) {
+      out.push({ group, file: loc[1], line: parseInt(loc[2], 10), source: '' });
+      continue;
+    }
+    if (/^ {3,}/.test(raw) && out.length > 0 && !out[out.length - 1].source) {
+      out[out.length - 1].source = line;
+    }
+  }
+  return out;
+}
+
 export function parseTodoText(text: string): AstIndexTodoEntry[] {
   const results: AstIndexTodoEntry[] = [];
+  for (const b of parseLocationBlocks(text)) {
+    const kind = (b.group ?? b.source.match(/\b(TODO|FIXME|HACK|XXX)\b/i)?.[1] ?? 'TODO').toUpperCase();
+    const body = b.source
+      .replace(/^(\/\/+|#+|\/\*+|\*+|<!--|--)\s*/, '')
+      .replace(new RegExp(`^${kind}\\b:?\\s*`, 'i'), '')
+      .replace(/^:\s*/, '')
+      .replace(/\s*(\*\/|-->)$/, '');
+    results.push({ file: b.file, line: b.line, kind, text: body });
+  }
+
+  // Older single-line form: file:line: TODO: text
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    const match = line.match(/^(.+?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
+    const match = line.match(/^(\S.*?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
     if (match) {
       results.push({ file: match[1], line: parseInt(match[2], 10), kind: match[3].toUpperCase(), text: match[4].trim() });
     }
@@ -266,11 +327,18 @@ export function parseTodoText(text: string): AstIndexTodoEntry[] {
   return results;
 }
 
+/** Entries have no symbol name: the binary prints only the marker line. */
 export function parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
-  const results: AstIndexDeprecatedEntry[] = [];
+  const results: AstIndexDeprecatedEntry[] = parseLocationBlocks(text).map(b => ({
+    kind: '',
+    name: '',
+    file: b.file,
+    line: b.line,
+    message: b.source.match(/@deprecated\s+(.+?)\s*(\*\/)?$/i)?.[1] || undefined,
+  }));
+
+  // Older single-line form: kind name (file:line) - message
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    // Try format: kind name (file:line) - message  OR  kind name (file:line)
     const match = line.match(/^(\w+)\s+(\S+)\s+\((.+?):(\d+)\)(?:\s*-\s*(.+))?$/);
     if (match) {
       results.push({ kind: match[1], name: match[2], file: match[3], line: parseInt(match[4], 10), message: match[5]?.trim() });
@@ -279,11 +347,18 @@ export function parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
   return results;
 }
 
+/** Entries have no symbol name: the binary prints only the annotation line. */
 export function parseAnnotationsText(text: string, annotationName: string): AstIndexAnnotationEntry[] {
-  const results: AstIndexAnnotationEntry[] = [];
+  const results: AstIndexAnnotationEntry[] = parseLocationBlocks(text).map(b => ({
+    kind: '',
+    name: '',
+    file: b.file,
+    line: b.line,
+    annotation: annotationName,
+  }));
+
+  // Older single-line form: [@Annotation] kind name (file:line)
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    // Try format: kind name (file:line)  OR  @Annotation kind name (file:line)
     const match = line.match(/^(?:@\S+\s+)?(\w+)\s+(\S+)\s+\((.+?):(\d+)\)$/);
     if (match) {
       results.push({ kind: match[1], name: match[2], file: match[3], line: parseInt(match[4], 10), annotation: annotationName });
