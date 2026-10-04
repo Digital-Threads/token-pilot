@@ -4,15 +4,17 @@
  * Covers: pure aggregation math, low-value flagging threshold, JSON
  * output shape, empty-dataset message, end-to-end through runToolAudit.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   aggregateToolCalls,
   formatTable,
+  handleToolAudit,
   runToolAudit,
 } from "../../src/cli/tool-audit.ts";
+import { handleStats } from "../../src/cli/stats.ts";
 import { appendToolCall } from "../../src/core/tool-call-log.ts";
 import type { ToolCallEvent } from "../../src/core/tool-call-log.ts";
 
@@ -201,5 +203,30 @@ describe("runToolAudit (e2e)", () => {
     const { stdout, exitCode } = await runToolAudit({ projectRoot: tempDir });
     expect(exitCode).toBe(0);
     expect(stdout).toMatch(/No tool calls recorded yet/);
+  });
+});
+
+describe("--help on the report commands", () => {
+  async function capture(run: () => Promise<number>): Promise<string> {
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await run();
+      return spy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("tool-audit --help prints usage, not the report", async () => {
+    await appendToolCall(tempDir, mk({ tool: "smart_read" }));
+    const out = await capture(() => handleToolAudit(["--help"], { projectRoot: tempDir }));
+    expect(out).toMatch(/Usage: token-pilot tool-audit/);
+    expect(out).not.toMatch(/smart_read/);
+  });
+
+  it("stats --help prints usage, not the report", async () => {
+    const out = await capture(() => handleStats(["-h"], { projectRoot: tempDir }));
+    expect(out).toMatch(/Usage: token-pilot stats/);
+    expect(out).not.toMatch(/No events yet/);
   });
 });

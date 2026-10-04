@@ -85,6 +85,7 @@ import {
 } from "./hooks/user-prompt.js";
 import { handleStats } from "./cli/stats.js";
 import { handleToolAudit } from "./cli/tool-audit.js";
+import { TOOL_DEFINITIONS } from "./server/tool-definitions.js";
 import { promptYesNo } from "./cli/install-agents.js";
 import { runClaudeCodeEnvCheck } from "./cli/doctor-env-check.js";
 import {
@@ -528,6 +529,14 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // v0.34.0 — surface ~/.token-pilot/hook-errors.jsonl with optional
       // filters: --tail=N --code=<x> --hook=<y> --level=<info|warn|error>
       const args = cliArgs.slice(1);
+      if (args.includes("--help") || args.includes("-h")) {
+        console.log(
+          "Usage: token-pilot errors [--tail=N] [--code=X] [--hook=Y] [--level=info|warn|error]\n" +
+            "  Hook and tool errors from ~/.token-pilot/hook-errors.jsonl (one log for all projects).\n" +
+            "  --tail=N  list the N most recent (the total still counts every match)",
+        );
+        return;
+      }
       const flag = (k: string) => {
         for (const a of args) {
           if (a.startsWith(`--${k}=`)) return a.slice(k.length + 3);
@@ -2032,6 +2041,18 @@ export async function checkAllUpdates(
 }
 
 export function printHelp() {
+  // From the definitions themselves, so the list cannot drift.
+  const toolNames = TOOL_DEFINITIONS.map((t) => t.name);
+  const toolLines: string[] = [];
+  for (const name of toolNames) {
+    const last = toolLines.length - 1;
+    if (last >= 0 && toolLines[last].length + name.length + 2 <= 78) {
+      toolLines[last] += `, ${name}`;
+    } else {
+      toolLines.push(`  ${name}`);
+    }
+  }
+
   console.log(`token-pilot v${getVersion()} — MCP server for token-efficient code reading
 
 Usage:
@@ -2045,6 +2066,11 @@ Usage:
                                     Remove the Codex CLI hooks
   token-pilot install-ast-index     Download ast-index binary (auto on first run)
   token-pilot doctor                Run diagnostics (check ast-index, config, updates)
+  token-pilot stats [--session[=<id>]] [--by-agent] [--tasks] [--workflows]
+                                    Hook savings from .token-pilot/hook-events.jsonl
+  token-pilot errors [--tail=N] [--code=X] [--hook=Y] [--level=L]
+                                    Errors from ~/.token-pilot/hook-errors.jsonl
+  token-pilot tool-audit [--json]   Per-tool calls and savings (tool-calls.jsonl)
   token-pilot save-doc <name>       Save stdin to .token-pilot/docs/<name>.md
   token-pilot list-docs             List saved docs
   token-pilot --version             Show version
@@ -2053,12 +2079,8 @@ Usage:
 Quick start:
   npx token-pilot init              Setup .mcp.json (token-pilot + context-mode)
 
-MCP Tools (23):
-  smart_read, read_symbol, read_symbols, read_range, read_section, read_diff,
-  read_for_edit, smart_read_many, find_usages, find_unused, related_files,
-  outline, project_overview, session_analytics, code_audit, module_info,
-  module_route, smart_diff, explore_area, smart_log, test_summary,
-  session_snapshot, session_budget
+MCP Tools (${toolNames.length}):
+${toolLines.join(",\n")}
 `);
   process.exit(0);
 }

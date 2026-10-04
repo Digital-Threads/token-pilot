@@ -201,11 +201,14 @@ describe("index CLI helpers", () => {
     expect(logSpy).toHaveBeenCalled();
 
     await expect(indexModule.main(["--help"])).rejects.toThrow("EXIT:0");
-    expect(
-      logSpy.mock.calls.some((call) =>
-        String(call[0]).includes("MCP Tools (23)"),
-      ),
-    ).toBe(true);
+    const help = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    // The real tool count, every tool, and the report commands.
+    expect(help).toContain("MCP Tools (25)");
+    expect(help).toContain("call_tree");
+    expect(help).toContain("explore,");
+    for (const cmd of ["token-pilot stats", "token-pilot errors", "token-pilot tool-audit"]) {
+      expect(help).toContain(cmd);
+    }
   });
 
   it("dispatches the default main path to server startup", async () => {

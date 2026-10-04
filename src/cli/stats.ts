@@ -295,6 +295,18 @@ export async function handleStats(
   argv: string[],
   opts?: { projectRoot?: string },
 ): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(
+      "Usage: token-pilot stats [--session[=<id>]] [--by-agent] [--tasks] [--workflows] [--no-merge]\n" +
+        "  Hook savings from .token-pilot/hook-events.jsonl (subdirectory logs merged unless --no-merge).\n" +
+        "  --session     most recent session, or the given id\n" +
+        "  --by-agent    grouped by agent type\n" +
+        "  --tasks       subagent calls and routing misses\n" +
+        "  --workflows   completed token-pilot workflows\n",
+    );
+    return 0;
+  }
+
   const projectRoot = opts?.projectRoot ?? process.cwd();
 
   // v0.33.0 (B5) — `--no-merge` disables the repo-tree walk and reads

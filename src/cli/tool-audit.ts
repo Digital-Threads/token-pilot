@@ -201,6 +201,15 @@ export async function handleToolAudit(
   argv: string[],
   opts?: { projectRoot?: string },
 ): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(
+      "Usage: token-pilot tool-audit [--json]\n" +
+        "  Per-tool calls, tokens returned and estimated savings from .token-pilot/tool-calls.jsonl.\n" +
+        "  --json  machine-readable output\n",
+    );
+    return 0;
+  }
+
   const json = argv.includes("--json");
   const projectRoot = opts?.projectRoot ?? process.cwd();
   const { stdout, exitCode } = await runToolAudit({ projectRoot, json });
