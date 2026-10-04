@@ -236,6 +236,8 @@ interface Segment {
   redirs: Array<{ v: string; fd: string; target: string }>;
   /** The next command of the pipeline, when stdout goes into a pipe. */
   pipedTo: Segment | null;
+  /** Stdin comes from the previous command of a pipeline. */
+  pipedFrom: boolean;
   /** Inside `$( )`, `<( )` or backticks: the output is captured, not shown. */
   consumed: boolean;
   /** Filled by strip(). */
@@ -256,6 +258,7 @@ function parse(tokens: Token[]): Segment[] {
     words: [],
     redirs: [],
     pipedTo: null,
+    pipedFrom: false,
     consumed: false,
     cmd: "",
     args: [],
@@ -267,6 +270,7 @@ function parse(tokens: Token[]): Segment[] {
     if (cur.words.length === 0 && cur.redirs.length === 0) return;
     cur.consumed = backtick || parens.some(Boolean);
     if (pipeFrom) pipeFrom.pipedTo = cur;
+    cur.pipedFrom = pipeFrom !== null;
     pipeFrom = null;
     segs.push(cur);
     last = cur;
@@ -441,8 +445,12 @@ const GREP_LONG_VALUES = new Set(["regexp", "file", "max-count", "after-context"
 const RG_LONG_VALUES = new Set(["regexp", "file", "glob", "iglob", "max-count", "after-context", "before-context", "context", "type", "type-not", "threads", "max-columns", "encoding", "replace", "max-depth", "sort", "sortr", "pre", "pre-glob", "max-filesize", "engine", "colors", "type-add"]);
 const SEARCH_BOUNDS = ["max-count", "count", "count-matches", "files-with-matches", "files-without-match", "name-only", "quiet", "silent", "files"];
 
-/** Unbounded recursive search: grep -r and friends, rg, git grep. */
-function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[]): boolean {
+/**
+ * Unbounded recursive search: grep -r and friends, rg, git grep.
+ * `readsStdin`: rg with no path searches a piped or redirected stdin, not the
+ * tree (grep -r and git grep walk the tree whatever stdin is).
+ */
+function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[], readsStdin = false): boolean {
   const opts =
     tool === "rg"
       ? parseOptions(args, "efgmABCtTjMErd", RG_LONG_VALUES)
@@ -465,6 +473,7 @@ function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[]): bool
 
   const patternGiven = opts.short.has("e") || opts.short.has("f") || opts.long.has("regexp") || opts.long.has("file");
   const paths = patternGiven ? opts.operands : opts.operands.slice(1);
+  if (paths.length === 0 && readsStdin) return false;
 
   // Every path names a single file: nothing is walked.
   return !(paths.length > 0 && paths.every(looksLikeFile));
@@ -784,7 +793,10 @@ function judge(seg: Segment, args: string[], opts: PreBashOptions, depth: number
   if (cmd === "grep" || cmd === "egrep" || cmd === "fgrep") {
     return recursiveSearch("grep", args) ? searchDenied() : ALLOW;
   }
-  if (cmd === "rg") return recursiveSearch("rg", args) ? searchDenied() : ALLOW;
+  if (cmd === "rg") {
+    const readsStdin = seg.pipedFrom || seg.redirs.some((r) => r.v.startsWith("<"));
+    return recursiveSearch("rg", args, readsStdin) ? searchDenied() : ALLOW;
+  }
   if (cmd === "git") return gitDecision(args);
   if (cmd === "find") return findDecision(args, opts.projectRoot);
 

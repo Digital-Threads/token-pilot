@@ -193,3 +193,18 @@ table("code extensions", [
   ["cat src/a.cjs", "deny"],
   ["cat notes.md", "allow"],
 ]);
+
+// Review 1.0.2 — rg with no path reads its stdin when that is a pipe;
+// grep -r and git grep walk the tree whatever stdin is.
+table("search reading a pipe", [
+  ["ps aux | rg node", "allow"],
+  ["env | rg PATH", "allow"],
+  ["journalctl -u foo | rg -i error", "allow"],
+  ["git log --oneline -n 50 | rg fix", "allow"],
+  ["docker logs foo | rg error", "allow"],
+  ["rg --files | rg pre-bash", "allow"],
+  ["rg ERROR < app.log", "allow"],
+  ["echo x | rg foo src", "deny"],
+  ["ls | grep -r x", "deny"],
+  ["git log -n 5 | git grep fix", "deny"],
+]);
