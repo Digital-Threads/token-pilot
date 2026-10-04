@@ -29,6 +29,7 @@ const FILES: Record<string, string> = {
   'src/real.ts': 'export function realCaller() {\n  return handleFindUsages(2);\n}\n',
   'src/arr.ts': 'export function usesArrayFind(xs: number[]) {\n  return xs.find((x) => x > 1);\n}\n',
   'src/direct.ts': 'export function callsFind() {\n  return find(3);\n}\n',
+  'src/commented.ts': 'export function commented() {\n  // handleFindUsages runs elsewhere\n  return 1;\n}\n',
 };
 
 describe('explore blast radius', () => {
@@ -94,6 +95,35 @@ describe('explore blast radius', () => {
 
     expect(text).toContain('callsFind');
     expect(text).not.toContain('usesArrayFind');
+  });
+
+  it('ranks a symbol only when it matches the query or references a symbol that does', async () => {
+    const result = await handleExplore(
+      { query: 'handleFindUsages' },
+      root,
+      stub({
+        query: 'handleFindUsages',
+        dominantLanguage: 'typescript',
+        symbols: [
+          { name: 'handleFindUsages', kind: 'function', path: 'src/find-usages.ts', line: 1, score: 1000, vendor: false },
+          { name: 'recordWithTrace', kind: 'function', path: 'src/server.ts', line: 2, score: 27, vendor: false },
+          { name: 'realCaller', kind: 'function', path: 'src/real.ts', line: 1, score: 27, vendor: false },
+          { name: 'commented', kind: 'function', path: 'src/commented.ts', line: 1, score: 27, vendor: false },
+        ],
+        files: [],
+        neighbours: [
+          { name: 'commented', kind: 'function', path: 'src/commented.ts', line: 1, link: 'caller' },
+        ],
+        tests: [],
+      }),
+    );
+    const text = result.content[0].text;
+
+    expect(text).toContain('function realCaller');
+    expect(text).not.toContain('recordWithTrace');
+    expect(text).not.toContain('commented  src');
+    expect(text).toMatch(/2 ranked symbols not shown/);
+    expect(result.meta.symbolCount).toBe(2);
   });
 
   it('import statements are not ranked as symbols', async () => {

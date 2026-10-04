@@ -1,6 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { AstIndexClient } from "../ast-index/client.js";
+import { blockAt, codeLines, mentions } from "../ast-index/references.js";
 import type { AstIndexExploreNeighbour, AstIndexExploreSymbol } from "../ast-index/types.js";
 import type { ExploreArgs } from "../core/validation.js";
 
@@ -37,8 +36,15 @@ export async function handleExplore(
     graph: args.graph,
   });
   // Import statements are not symbols; tests groups without tests say nothing.
-  const symbols = raw.symbols.filter((s) => s.kind !== "import");
-  const neighbours = await realNeighbours(raw.neighbours, symbols, projectRoot);
+  const ranked = raw.symbols.filter((s) => s.kind !== "import");
+  const files = new Map<string, Promise<string[] | null>>();
+  const linesOf = (path: string): Promise<string[] | null> => {
+    if (!files.has(path)) files.set(path, codeLines(projectRoot, path));
+    return files.get(path)!;
+  };
+  const symbols = await relevantSymbols(ranked, raw.query || args.query, linesOf);
+  const hiddenSymbols = ranked.length - symbols.length;
+  const neighbours = await realNeighbours(raw.neighbours, symbols, linesOf);
   const hidden = raw.neighbours.length - neighbours.length;
   const result = {
     ...raw,
@@ -84,6 +90,12 @@ export async function handleExplore(
       lines.push(`${n.link}  ${n.kind} ${n.name}  ${n.path}:${n.line}`);
     }
   }
+  if (hiddenSymbols > 0) {
+    lines.push("");
+    lines.push(
+      `${hiddenSymbols} ranked symbols not shown: their names do not match the query and their bodies do not reference a symbol that does (ast-index also ranks the nearest symbol above a call site).`,
+    );
+  }
   if (hidden > 0) {
     lines.push("");
     lines.push(
@@ -108,7 +120,8 @@ export async function handleExplore(
     result.files.length === 0 &&
     result.neighbours.length === 0 &&
     result.tests.length === 0 &&
-    hidden === 0;
+    hidden === 0 &&
+    hiddenSymbols === 0;
 
   if (empty) {
     const reason =
@@ -147,20 +160,45 @@ export async function handleExplore(
 // ──────────────────────────────────────────────
 
 /**
+ * Ranked symbols worth showing. Next to the query's own hits ast-index ranks
+ * graph callers, named after the nearest symbol above a call site — often a
+ * nested helper that never calls the hit. A symbol whose name does not match
+ * the query stays only when its own body (comments aside) references one
+ * that does. Without any name match there is nothing to check against.
+ */
+async function relevantSymbols(
+  symbols: AstIndexExploreSymbol[],
+  query: string,
+  linesOf: (path: string) => Promise<string[] | null>,
+): Promise<AstIndexExploreSymbol[]> {
+  const words = query.toLowerCase().split(/[^\w$]+/).filter((w) => w.length >= 3);
+  const isHit = (s: AstIndexExploreSymbol) => words.some((w) => s.name.toLowerCase().includes(w));
+  const hits = symbols.filter((s) => isHit(s) && !s.vendor);
+  if (hits.length === 0) return symbols;
+  const out: AstIndexExploreSymbol[] = [];
+
+  for (const s of symbols) {
+    const lines = isHit(s) ? null : await linesOf(s.path);
+    if (isHit(s) || (lines && referencesAny(blockAt(lines, s.line), hits))) out.push(s);
+  }
+
+  return out;
+}
+
+/**
  * Graph neighbours worth showing. ast-index's "caller" is the nearest named
  * symbol above a call site — a nested helper declared earlier in the same
  * function, a constant in a test file — and a function calling an
  * unrelated same-named method (`xs.find(…)` for a `find` function). A
- * caller stays only when its own body references a ranked symbol; a
- * member access (`.name`) counts only for method/property targets.
+ * caller stays only when its own body references a ranked symbol outside
+ * comments; a member access (`.name`) counts only for method/property targets.
  */
 async function realNeighbours(
   neighbours: AstIndexExploreNeighbour[],
   symbols: AstIndexExploreSymbol[],
-  projectRoot: string,
+  linesOf: (path: string) => Promise<string[] | null>,
 ): Promise<AstIndexExploreNeighbour[]> {
   const targets = symbols.filter((s) => !s.vendor);
-  const cache = new Map<string, string[] | null>();
   const out: AstIndexExploreNeighbour[] = [];
 
   for (const n of neighbours) {
@@ -169,16 +207,7 @@ async function realNeighbours(
       out.push(n);
       continue;
     }
-    if (!cache.has(n.path)) {
-      cache.set(
-        n.path,
-        await readFile(resolve(projectRoot, n.path), "utf-8").then(
-          (t) => t.split("\n"),
-          () => null,
-        ),
-      );
-    }
-    const lines = cache.get(n.path);
+    const lines = await linesOf(n.path);
     // its own declaration is not a reference
     const others = targets.filter((t) => t.name !== n.name);
     if (lines && referencesAny(blockAt(lines, n.line), others)) out.push(n);
@@ -187,30 +216,6 @@ async function realNeighbours(
   return out;
 }
 
-/** The declaration at `line` (1-based) through the line that closes it by indentation. */
-function blockAt(lines: string[], line: number): string {
-  const indent = (s: string) => s.length - s.trimStart().length;
-  const start = Math.max(0, line - 1);
-  const base = indent(lines[start] ?? "");
-  const body = [lines[start] ?? ""];
-
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (l.trim() !== "" && indent(l) <= base) {
-      if (/^\s*[}\])]/.test(l)) body.push(l);
-      break;
-    }
-    body.push(l);
-  }
-
-  return body.join("\n");
-}
-
 function referencesAny(block: string, targets: AstIndexExploreSymbol[]): boolean {
-  return targets.some((t) => {
-    const name = t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const member = t.kind === "method" || t.kind === "property";
-    const before = member ? "(^|[^\\w$])" : "(^|[^\\w$.])";
-    return new RegExp(`${before}${name}(?![\\w$])`).test(block);
-  });
+  return targets.some((t) => mentions(block, t.name, t.kind === "method" || t.kind === "property"));
 }
