@@ -291,7 +291,7 @@ export async function handleReadForEdit(
     let resolved_count = 0;
     for (let i = 0; i < args.symbols.length; i++) {
       const symName = args.symbols[i];
-      const resolved = await symbolResolver.resolve(symName, structure);
+      const resolved = await symbolResolver.resolve(symName, structure, absPath);
 
       if (!resolved) {
         sections.push(
@@ -369,7 +369,7 @@ export async function handleReadForEdit(
     if (!structure) {
       structure = (await astIndex.outline(absPath)) ?? undefined;
     }
-    const resolved = await symbolResolver.resolve(args.symbol, structure);
+    const resolved = await symbolResolver.resolve(args.symbol, structure, absPath);
 
     if (!resolved) {
       return {

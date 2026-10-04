@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
+import type { FileStructure } from '../types.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
@@ -57,7 +58,7 @@ export async function handleReadSymbol(
   if (!structure && astIndex) {
     structure = await astIndex.outline(absPath) ?? undefined;
   }
-  const resolved = await symbolResolver.resolve(args.symbol, structure);
+  const resolved = await symbolResolver.resolve(args.symbol, structure, absPath);
 
   if (!resolved) {
     return {
@@ -139,9 +140,10 @@ export async function handleReadSymbol(
   const outputLines: string[] = [
     `FILE: ${args.path}`,
     `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ''})`,
-    '',
-    displaySource,
   ];
+  const sameName = sameNameNote(symbolResolver, args.symbol, structure, resolved.startLine);
+  if (sameName) outputLines.push(sameName);
+  outputLines.push('', displaySource);
 
   // References
   if (resolved.symbol.references.length > 0) {
@@ -194,4 +196,17 @@ export async function handleReadSymbol(
   });
 
   return { content: [{ type: 'text', text: output + formatConfidence(confidenceMeta) }] };
+}
+
+/** "N more symbols named X: L…" when the name is ambiguous in this file, else ''. */
+export function sameNameNote(
+  resolver: SymbolResolver,
+  name: string,
+  structure: FileStructure | undefined,
+  shownStart: number,
+): string {
+  const others = (resolver.findAll?.(name, structure) ?? []).filter((s) => s.location.startLine !== shownStart);
+  if (others.length === 0) return '';
+  const list = others.map((s) => `L${s.location.startLine}-${s.location.endLine} (${s.kind})`).join(', ');
+  return `NOTE: ${others.length} more symbol${others.length > 1 ? 's' : ''} named "${name}": ${list}. Use Parent.${name} or read_range for another one.`;
 }

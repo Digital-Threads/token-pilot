@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { SymbolResolver } from '../../src/core/symbol-resolver.js';
 import type { AstIndexClient } from '../../src/ast-index/client.js';
 import type { FileStructure, SymbolInfo } from '../../src/types.js';
@@ -32,24 +35,73 @@ function makeStructure(symbols: SymbolInfo[]): FileStructure {
 }
 
 describe('SymbolResolver', () => {
-  it('resolves via ast-index when available', async () => {
+  it('resolves via ast-index in the requested file, with the real end line', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tp-resolver-'));
+    const file = join(dir, 'test.ts');
+    await writeFile(file, ['// a', '', '', '', 'function myFunc() {', '  return 1;', '}', '', 'export const x = 1;'].join('\n'));
     const mockClient = {
-      symbol: vi.fn().mockResolvedValue({
-        name: 'myFunc',
-        kind: 'function',
-        file: '/test.ts',
-        start_line: 5,
-        signature: 'function myFunc()',
-      }),
+      symbol: vi.fn().mockResolvedValue({ name: 'myFunc', kind: 'function', file, start_line: 5 }),
     } as unknown as AstIndexClient;
 
-    const resolver = new SymbolResolver(mockClient);
-    const result = await resolver.resolve('myFunc');
+    const result = await new SymbolResolver(mockClient).resolve('myFunc', undefined, file);
+    await rm(dir, { recursive: true, force: true });
 
     expect(result).not.toBeNull();
     expect(result!.symbol.name).toBe('myFunc');
     expect(result!.startLine).toBe(5);
-    expect(result!.symbol.signature).toBe('function myFunc()');
+    expect(result!.endLine).toBe(7); // from the source, not start + 50
+  });
+
+  it('never resolves a symbol from another file', async () => {
+    const mockClient = {
+      symbol: vi.fn().mockResolvedValue({ name: 'handleSmartRead', kind: 'function', file: 'src/handlers/smart-read.ts', start_line: 28 }),
+    } as unknown as AstIndexClient;
+    const resolver = new SymbolResolver(mockClient);
+
+    expect(await resolver.resolve('handleSmartRead', undefined, '/proj/nosyms.ts')).toBeNull();
+    expect(await resolver.resolve('handleSmartRead')).toBeNull();
+    // suffix without a path separator is a different file
+    expect(await resolver.resolve('handleSmartRead', undefined, '/proj/xsrc/handlers/smart-read.ts')).toBeNull();
+  });
+
+  it('Class.method requires that class', async () => {
+    const mockClient = { symbol: vi.fn().mockResolvedValue(null) } as unknown as AstIndexClient;
+    const alpha = makeSymbol('Alpha', 1, 10, [makeSymbol('run', 2, 4)]);
+    const beta = makeSymbol('Beta', 11, 20, [makeSymbol('stop', 12, 14)]);
+    const structure = makeStructure([alpha, beta]);
+    const resolver = new SymbolResolver(mockClient);
+
+    expect(await resolver.resolve('Beta.run', structure)).toBeNull();
+    expect(await resolver.resolve('NoSuchClass.stop', structure)).toBeNull();
+    expect((await resolver.resolve('Alpha.run', structure))!.startLine).toBe(2);
+    expect((await resolver.resolve('Beta::stop', structure))!.startLine).toBe(12);
+  });
+
+  it('finds a class nested in a namespace by Class.method', async () => {
+    const mockClient = { symbol: vi.fn().mockResolvedValue(null) } as unknown as AstIndexClient;
+    const ns = makeSymbol('NS', 1, 30, [makeSymbol('Inner', 2, 20, [makeSymbol('go', 3, 5)])]);
+    const result = await new SymbolResolver(mockClient).resolve('Inner.go', makeStructure([ns]));
+    expect(result!.startLine).toBe(3);
+  });
+
+  it('resolves a Go method by Receiver.Method', async () => {
+    const mockClient = { symbol: vi.fn().mockResolvedValue(null) } as unknown as AstIndexClient;
+    const start = makeSymbol('Start', 9, 13);
+    start.qualifiedName = 'Server.Start';
+    const result = await new SymbolResolver(mockClient).resolve('Server.Start', makeStructure([makeSymbol('Server', 5, 7), start]));
+    expect(result!.startLine).toBe(9);
+  });
+
+  it('lists every symbol with the same name and prefers a declaration over a package', async () => {
+    const mockClient = { symbol: vi.fn().mockResolvedValue(null) } as unknown as AstIndexClient;
+    const pkg = makeSymbol('main', 1, 1);
+    pkg.kind = 'namespace';
+    const fn = makeSymbol('main', 15, 18);
+    const structure = makeStructure([pkg, fn]);
+    const resolver = new SymbolResolver(mockClient);
+
+    expect((await resolver.resolve('main', structure))!.startLine).toBe(15);
+    expect(resolver.findAll('main', structure).map((s) => s.location.startLine)).toEqual([1, 15]);
   });
 
   it('falls back to structure search when ast-index returns null', async () => {

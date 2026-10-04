@@ -6,6 +6,7 @@ import type { ContextRegistry } from "../core/context-registry.js";
 import { estimateTokens } from "../core/token-estimator.js";
 import { resolveSafePath } from "../core/validation.js";
 import { assessConfidence, formatConfidence } from "../core/confidence.js";
+import { sameNameNote } from "./read-symbol.js";
 
 export interface ReadSymbolsArgs {
   path: string;
@@ -118,7 +119,7 @@ export async function handleReadSymbols(
     const symbolName = args.symbols[i];
     const idx = i + 1;
 
-    const resolved = await symbolResolver.resolve(symbolName, structure);
+    const resolved = await symbolResolver.resolve(symbolName, structure, absPath);
 
     if (!resolved) {
       sections.push(
@@ -212,9 +213,10 @@ export async function handleReadSymbols(
 
     const symbolLines: string[] = [
       `SYMBOL ${idx}/${N}: ${symbolName} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ""})`,
-      "",
-      displaySource,
     ];
+    const sameName = sameNameNote(symbolResolver, symbolName, structure, resolved.startLine);
+    if (sameName) symbolLines.push(sameName);
+    symbolLines.push("", displaySource);
 
     if (resolved.symbol.references.length > 0) {
       symbolLines.push("");
