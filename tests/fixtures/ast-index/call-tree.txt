@@ -1,0 +1,11 @@
+Call tree for 'estimateTokens':
+  estimateTokens
+    ← benchmarkFile (scripts/benchmark.ts:72)
+      ← benchmarkRepo (scripts/benchmark.ts:104)
+    ← next (hooks/mod/read.ts:113)
+    ← finalResponseTokens (src/hooks/subagent-stop.ts:136)
+      ← writeFile (tests/hooks/subagent-stop.test.ts:237)
+      ← writeFile (recursive)
+      ← transcript (tests/hooks/subagent-budget.test.ts:70)
+      ← checkSubagentBudget (src/hooks/subagent-stop.ts:203)
+    ← ContextRegistry (tests/core/context-registry.test.ts:26)

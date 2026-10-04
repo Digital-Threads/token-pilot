@@ -18,6 +18,7 @@
  */
 import type { AstIndexClient } from "../ast-index/client.js";
 import type { AstIndexCallTreeNode } from "../ast-index/types.js";
+import { formatConfidence } from "../core/confidence.js";
 
 export interface CallTreeArgs {
   /** Function / method name (unqualified, e.g. `fetchUser`). */
@@ -28,23 +29,67 @@ export interface CallTreeArgs {
 
 const MAX_DEPTH = 6;
 
+/** Callers per level asked from ast-index (its own default). */
+const PER_LEVEL = 10;
+
+const GREP_BASED =
+  "callers are matched by name: calls from anonymous callbacks or top-level code are not attributed, and a same-named function elsewhere can appear";
+
+/** Renders the subtree; true when any level in it hit the per-level cap. */
 function renderNode(
   node: AstIndexCallTreeNode,
   indent: string,
   out: string[],
-): void {
+): boolean {
+  if (node.recursive) {
+    out.push(`${indent}${node.name} (recursive, shown above)`);
+    return false;
+  }
+
   const loc =
     node.file && node.line != null
       ? ` — ${node.file}:${node.line}`
       : node.file
         ? ` — ${node.file}`
         : "";
-  out.push(`${indent}${node.name}${loc}`);
-  if (node.callers && node.callers.length > 0) {
-    for (const child of node.callers) {
-      renderNode(child, indent + "  ", out);
-    }
+  const cap = node.capped ? `  [first ${PER_LEVEL} callers only]` : "";
+  out.push(`${indent}${node.name}${loc}${cap}`);
+
+  let capped = !!node.capped;
+  for (const child of node.callers ?? []) {
+    capped = renderNode(child, indent + "  ", out) || capped;
   }
+
+  return capped;
+}
+
+/** A bare root: say whether the symbol exists and what call-tree cannot see. */
+async function noCallers(
+  symbol: string,
+  astIndex: AstIndexClient,
+): Promise<string> {
+  const refs = await astIndex.refs(symbol, 50);
+  const defs = refs.definitions.filter((d) => !d.name || d.name === symbol);
+  const uses = refs.usages.length;
+  const lines: string[] = [];
+
+  if (defs.length === 0 && uses === 0) {
+    lines.push(
+      `\`${symbol}\` was not found in the index — check the spelling; a file created since the last index update is not visible yet.`,
+    );
+  } else {
+    lines.push(`No callers found for \`${symbol}\` by ast-index call-tree.`);
+    lines.push(
+      uses > 0
+        ? `${uses >= 50 ? "50+" : uses} references exist, though: call-tree only attributes calls made inside a named function, so calls from anonymous callbacks, top-level code and test blocks are missed. Run find_usages("${symbol}") for the full list.`
+        : `find_usages("${symbol}") finds no references either.`,
+    );
+  }
+  lines.push(
+    formatConfidence({ confidence: "low", knownUnknowns: [GREP_BASED] }),
+  );
+
+  return lines.join("\n");
 }
 
 export async function handleCallTree(
@@ -81,7 +126,7 @@ export async function handleCallTree(
 
   const depth = Math.min(Math.max(1, Math.floor(args.depth ?? 3)), MAX_DEPTH);
 
-  const tree = await astIndex.callTree(symbol, depth);
+  const tree = await astIndex.callTree(symbol, depth, PER_LEVEL);
   if (!tree) {
     return {
       content: [
@@ -94,15 +139,38 @@ export async function handleCallTree(
     };
   }
 
+  if (!tree.callers?.length) {
+    return {
+      content: [{ type: "text", text: await noCallers(symbol, astIndex) }],
+      meta: { files: [] },
+    };
+  }
+
   const lines: string[] = [];
   lines.push(
     `CALL TREE for \`${symbol}\` (depth ${depth}, callers of callers…):`,
   );
   lines.push("");
-  renderNode(tree, "  ", lines);
+  const capped = renderNode(tree, "  ", lines);
   lines.push("");
   lines.push(
     "Read bottom-up: indented entries call the parent. Root is the symbol you asked for.",
+  );
+  if (tree.dropped) {
+    lines.push(
+      `${tree.dropped} call sites not shown: ast-index attributed them to call-like text (a constructor, a string, a comment) instead of the enclosing function. find_usages("${symbol}") lists every call site.`,
+    );
+  }
+  lines.push(
+    formatConfidence({
+      confidence: capped ? "low" : "medium",
+      knownUnknowns: capped
+        ? [
+            `at most ${PER_LEVEL} callers per level are shown — levels marked [first ${PER_LEVEL} callers only] have more; use find_usages for the full list`,
+            GREP_BASED,
+          ]
+        : [GREP_BASED],
+    }),
   );
 
   // Collect files for meta so downstream consumers can open them.

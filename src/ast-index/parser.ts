@@ -13,6 +13,7 @@ import type {
   AstIndexTodoEntry,
   AstIndexDeprecatedEntry,
   AstIndexAnnotationEntry,
+  AstIndexCallTreeNode,
   AstIndexModuleEntry,
   AstIndexModuleDep,
   AstIndexUnusedDep,
@@ -219,6 +220,44 @@ export function parseAnnotationsText(text: string, annotationName: string): AstI
     }
   }
   return results;
+}
+
+/**
+ * Parse `ast-index call-tree` (text only — `--format json` is ignored):
+ *   Call tree for 'fn':
+ *     fn
+ *       ← caller (src/a.ts:12)
+ *         ← callerOfCaller (src/b.ts:3)
+ *         ← caller (recursive)
+ * Two spaces of indent per level. Null when there is no root line.
+ */
+export function parseCallTreeText(text: string): AstIndexCallTreeNode | null {
+  let root: AstIndexCallTreeNode | null = null;
+  const stack: Array<{ depth: number; node: AstIndexCallTreeNode }> = [];
+
+  for (const line of text.split('\n')) {
+    if (!line.trim() || line.startsWith('Call tree for')) continue;
+    const depth = Math.floor((line.length - line.trimStart().length) / 2);
+    const body = line.trim();
+
+    if (!root) {
+      root = { name: body, callers: [] };
+      stack.push({ depth, node: root });
+      continue;
+    }
+
+    const m = body.match(/^←\s+(\S+)\s+\((?:(recursive)|(.+):(\d+))\)$/);
+    if (!m) continue;
+    const node: AstIndexCallTreeNode = m[2]
+      ? { name: m[1], recursive: true, callers: [] }
+      : { name: m[1], file: m[3], line: parseInt(m[4], 10), callers: [] };
+
+    while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop();
+    stack[stack.length - 1].node.callers!.push(node);
+    stack.push({ depth, node });
+  }
+
+  return root;
 }
 
 export function parseModuleListText(text: string): AstIndexModuleEntry[] {

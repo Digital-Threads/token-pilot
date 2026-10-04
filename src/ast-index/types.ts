@@ -136,11 +136,17 @@ export interface AstIndexCallerEntry {
   context?: string;
 }
 
-/** ast-index call-tree --format json */
+/** ast-index call-tree (text output, see parseCallTreeText) */
 export interface AstIndexCallTreeNode {
   name: string;
   file?: string;
   line?: number;
+  /** Already shown higher up the tree — no location, no callers. */
+  recursive?: boolean;
+  /** This level hit the per-level cap: more callers may exist. */
+  capped?: boolean;
+  /** Root only: entries dropped because their location is not a definition. */
+  dropped?: number;
   callers?: AstIndexCallTreeNode[];
 }
 

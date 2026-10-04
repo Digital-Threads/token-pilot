@@ -92,6 +92,67 @@ describe("AstIndexClient drops excluded directories from results", () => {
     expect((await client.implementations("Error")).map((i: any) => i.name)).toEqual(["MyError"]);
   });
 
+  it("callTree parses the text output (json is ignored by the binary) and drops vendored callers", async () => {
+    const client = clientWith(() =>
+      [
+        "Call tree for 'fetchUser':",
+        "  fetchUser",
+        "    ← getProfile (src/profile.ts:10)",
+        "    ← wrap (node_modules/lib/index.d.ts:3)",
+        "",
+      ].join("\n"),
+    );
+    const tree = await client.callTree("fetchUser", 2);
+    expect(tree?.callers?.map((c: any) => c.name)).toEqual(["getProfile"]);
+    const args: string[] = client.exec.mock.calls[0][0];
+    expect(args).not.toContain("json");
+    expect(args).toEqual(expect.arrayContaining(["--depth", "2", "--limit"]));
+    expect(tree?.capped).toBeUndefined();
+  });
+
+  it("callTree drops callers whose location is not a symbol definition (grep artefacts)", async () => {
+    const client = clientWith((args) =>
+      args[0] === "query"
+        ? JSON.stringify({
+            rows: [
+              { path: "src/profile.ts", line: 10, name: "getProfile" },
+              { path: "src/router.ts", line: 7, name: "route" },
+            ],
+          })
+        : [
+            "Call tree for 'fetchUser':",
+            "  fetchUser",
+            "    ← getProfile (src/profile.ts:10)",
+            "      ← route (src/router.ts:7)",
+            "    ← Set (src/profile.ts:168)",
+            "      ← import (src/index.ts:1738)",
+            "    ← route (recursive)",
+            "    ← Set (recursive)",
+          ].join("\n"),
+    );
+    const tree = await client.callTree("fetchUser", 2);
+    // "route (recursive)" still points at a shown node; "Set (recursive)" does not.
+    expect(tree?.callers?.map((c: any) => c.name)).toEqual(["getProfile", "route"]);
+    expect(tree?.callers?.[0].callers?.map((c: any) => c.name)).toEqual(["route"]);
+    expect(tree?.dropped).toBe(1);
+  });
+
+  it("callTree marks a level that hit the per-level cap before vendored callers are dropped", async () => {
+    const client = clientWith(() =>
+      [
+        "Call tree for 'f':",
+        "  f",
+        "    ← a (src/a.ts:1)",
+        "    ← b (node_modules/b.d.ts:1)",
+        "    ← c (src/c.ts:1)",
+      ].join("\n"),
+    );
+    const tree = await client.callTree("f", 1, 1);
+    expect(client.exec.mock.calls[0][0]).toEqual(expect.arrayContaining(["--limit", "3"]));
+    expect(tree?.capped).toBe(true);
+    expect(tree?.callers?.map((c: any) => c.name)).toEqual(["a"]);
+  });
+
   it("unusedSymbols", async () => {
     const client = clientWith(() =>
       JSON.stringify([

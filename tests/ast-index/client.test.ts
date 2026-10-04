@@ -402,7 +402,7 @@ describe("AstIndexClient", () => {
             { name: "caller", path: "/repo/a.ts", line: 3 },
           ]);
         case "call-tree":
-          return JSON.stringify({ name: "root", children: [] });
+          return "Call tree for 'root':\n  root\n";
         case "changed":
           return JSON.stringify([
             { name: "Demo", kind: "class", file: "/repo/a.ts", line: 1 },

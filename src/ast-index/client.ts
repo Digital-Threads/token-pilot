@@ -41,6 +41,7 @@ import {
   parseTodoText,
   parseDeprecatedText,
   parseAnnotationsText,
+  parseCallTreeText,
   parseModuleListText,
   parseModuleDepText,
   parseUnusedDepsText,
@@ -83,6 +84,13 @@ const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
 
 /** Row cap for `ast-index query` (its default is 100). */
 const QUERY_ROW_CAP = 200_000;
+
+/** Every file named in a call tree. */
+function collectFiles(node: AstIndexCallTreeNode, out = new Set<string>()): string[] {
+  if (node.file) out.add(node.file);
+  for (const c of node.callers ?? []) collectFiles(c, out);
+  return [...out];
+}
 
 /**
  * True when `projectRoot` is itself a git repo or worktree root. A `.git`
@@ -788,9 +796,15 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Callers tree, `perLevel` callers at most on each level. call-tree prints
+   * text only — `--format json` is ignored. Three times `perLevel` is asked
+   * for because many of the binary's entries are dropped below.
+   */
   async callTree(
     functionName: string,
     depth = 3,
+    perLevel = 10,
   ): Promise<AstIndexCallTreeNode | null> {
     await this.ensureIndex();
     try {
@@ -799,10 +813,53 @@ export class AstIndexClient {
         functionName,
         "--depth",
         String(depth),
-        "--format",
-        "json",
+        "--limit",
+        String(perLevel * 3),
       ]);
-      return JSON.parse(result);
+      const tree = parseCallTreeText(result);
+      if (!tree) return null;
+
+      // call-tree is grep-based: it names a "caller" after the nearest
+      // call-like text above the call site, so `new Set(` or a quoted
+      // `read_symbol("…")` become callers. Keep only nodes whose location
+      // is a real symbol definition in the index.
+      const defs = await this.definitionsIn(collectFiles(tree));
+      let dropped = 0;
+      const prune = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => {
+        const raw = n.callers ?? [];
+        const valid = raw.filter((c) => {
+          if (c.recursive) return true;
+          if (!this.keep(c.file)) return false;
+          const real = !defs || defs.has(`${c.file}:${c.line}:${c.name}`);
+          if (!real) dropped++;
+          return real;
+        });
+        const capped = valid.length > perLevel || raw.length >= perLevel * 3;
+
+        return {
+          ...n,
+          ...(capped ? { capped: true } : {}),
+          callers: valid.slice(0, perLevel).map(prune),
+        };
+      };
+      // A "(recursive)" entry points at a node shown earlier — gone if that
+      // node was dropped.
+      const shown = new Set<string>();
+      const mark = (n: AstIndexCallTreeNode): void => {
+        if (!n.recursive) shown.add(n.name);
+        n.callers?.forEach(mark);
+      };
+      const unlink = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => ({
+        ...n,
+        callers: (n.callers ?? [])
+          .filter((c) => !c.recursive || shown.has(c.name))
+          .map(unlink),
+      });
+      const pruned = prune(tree);
+      mark(pruned);
+      const linked = unlink(pruned);
+
+      return dropped > 0 ? { ...linked, dropped } : linked;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index call-tree failed: ${err instanceof Error ? err.message : err}`,
@@ -1112,6 +1169,23 @@ export class AstIndexClient {
         `[token-pilot] ast-index api failed: ${err instanceof Error ? err.message : err}`,
       );
       return [];
+    }
+  }
+
+  /**
+   * `path:line:name` of every symbol defined in `files`; null when the
+   * index cannot be queried (callers then skip the check).
+   */
+  private async definitionsIn(files: string[]): Promise<Set<string> | null> {
+    if (files.length === 0) return new Set();
+    const list = files.map((f) => `'${f.replace(/'/g, "''")}'`).join(",");
+    try {
+      const rows = await this.queryRows(
+        `SELECT f.path AS path, s.line AS line, s.name AS name FROM symbols s JOIN files f ON f.id = s.file_id WHERE f.path IN (${list})`,
+      );
+      return new Set(rows.map((r) => `${r.path}:${r.line}:${r.name}`));
+    } catch {
+      return null;
     }
   }
 

@@ -16,6 +16,7 @@ function makeStub(
     oversized: boolean;
     tree: AstIndexCallTreeNode | null;
     callTreeSpy: (sym: string, d: number) => void;
+    refs: { definitions: unknown[]; imports: unknown[]; usages: unknown[] };
   }> = {},
 ): AstIndexClient {
   return {
@@ -25,6 +26,8 @@ function makeStub(
       overrides.callTreeSpy?.(sym, d);
       return overrides.tree ?? null;
     },
+    refs: async () =>
+      overrides.refs ?? { definitions: [], imports: [], usages: [] },
   } as unknown as AstIndexClient;
 }
 
@@ -56,6 +59,82 @@ describe("handleCallTree", () => {
     expect(out.meta.files).toEqual(
       expect.arrayContaining(["src/api.ts", "src/profile.ts", "src/router.ts"]),
     );
+  });
+
+  it("says no callers were found and points at the references the tree cannot attribute", async () => {
+    const out = await handleCallTree(
+      { symbol: "handleFindUsages" },
+      makeStub({
+        tree: { name: "handleFindUsages", callers: [] },
+        refs: {
+          definitions: [{ path: "src/handlers/find-usages.ts", line: 152 }],
+          imports: [],
+          usages: [
+            { path: "src/server.ts", line: 833 },
+            { path: "tests/handlers/find-usages.test.ts", line: 23 },
+          ],
+        },
+      }),
+    );
+    const text = out.content[0].text;
+    expect(text).toMatch(/No callers found/);
+    expect(text).toMatch(/2 references/);
+    expect(text).toMatch(/find_usages\("handleFindUsages"\)/);
+    expect(text).toMatch(/CONFIDENCE: low/);
+  });
+
+  it("says the symbol is not in the index when the bare root has no definition either", async () => {
+    const out = await handleCallTree(
+      { symbol: "noSuchFn" },
+      makeStub({ tree: { name: "noSuchFn", callers: [] } }),
+    );
+    expect(out.content[0].text).toMatch(/not found in the index/);
+  });
+
+  it("marks a level that hit the per-level cap and lowers confidence", async () => {
+    const callers = Array.from({ length: 10 }, (_, i) => ({
+      name: `c${i}`,
+      file: "src/a.ts",
+      line: i + 1,
+      callers: [],
+    }));
+    const out = await handleCallTree(
+      { symbol: "x" },
+      makeStub({ tree: { name: "x", capped: true, callers } }),
+    );
+    const text = out.content[0].text;
+    expect(text).toMatch(/x .*first 10 callers only/);
+    expect(text).toMatch(/CONFIDENCE: low/);
+    expect(text).toMatch(/KNOWN UNKNOWNS: .*10 callers per level/);
+  });
+
+  it("says how many grep artefacts were dropped from the tree", async () => {
+    const out = await handleCallTree(
+      { symbol: "x" },
+      makeStub({
+        tree: {
+          name: "x",
+          dropped: 3,
+          callers: [{ name: "a", file: "src/a.ts", line: 1, callers: [] }],
+        },
+      }),
+    );
+    expect(out.content[0].text).toMatch(/3 call sites not shown/);
+  });
+
+  it("marks recursive entries instead of printing them as plain callers", async () => {
+    const out = await handleCallTree(
+      { symbol: "x" },
+      makeStub({
+        tree: {
+          name: "x",
+          callers: [
+            { name: "a", file: "src/a.ts", line: 1, callers: [{ name: "a", recursive: true }] },
+          ],
+        },
+      }),
+    );
+    expect(out.content[0].text).toContain("a (recursive, shown above)");
   });
 
   it("clamps depth between 1 and 6", async () => {
