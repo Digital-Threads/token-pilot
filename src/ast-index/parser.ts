@@ -38,19 +38,21 @@ export function parseFileCount(statsText: string): number {
  *
  * ast-index ≥3.48 prints members at the same indent as their class, so the
  * result is flat; buildFileStructure() rebuilds nesting from real ranges.
- * end_line here is only the "up to the next symbol" estimate.
+ * ast-index ≥3.56 prints `:9-60` for a multi-line symbol and `:9` for a
+ * one-line one; older versions give start lines only, and end_line is then
+ * the "up to the next symbol" estimate.
  */
 export function parseOutlineText(text: string): AstIndexOutlineEntry[] {
   const entries: AstIndexOutlineEntry[] = [];
 
   for (const line of text.split('\n')) {
-    const match = line.match(/^\s*:(\d+)\s+(.+?)\s+\[(\w+)\]\s*$/);
+    const match = line.match(/^\s*:(\d+)(?:-(\d+))?\s+(.+?)\s+\[(\w+)\]\s*$/);
     if (!match) continue;
     entries.push({
-      name: match[2],
-      kind: match[3],
+      name: match[3],
+      kind: match[4],
       start_line: parseInt(match[1], 10),
-      end_line: 0,
+      end_line: match[2] ? parseInt(match[2], 10) : 0,
     });
   }
 
@@ -58,8 +60,16 @@ export function parseOutlineText(text: string): AstIndexOutlineEntry[] {
   return entries;
 }
 
+/** Fills missing end lines: one-line symbols when the output has ranges, else an estimate. */
 function computeEndLines(entries: AstIndexOutlineEntry[]): void {
+  const ranged = entries.some((e) => e.end_line > 0);
+
   for (let i = 0; i < entries.length; i++) {
+    if (entries[i].end_line > 0) continue;
+    if (ranged) {
+      entries[i].end_line = entries[i].start_line;
+      continue;
+    }
     entries[i].end_line = i < entries.length - 1
       ? Math.max(entries[i].start_line, entries[i + 1].start_line - 1)
       : entries[i].start_line + 10; // estimated

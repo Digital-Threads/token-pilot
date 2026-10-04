@@ -9,13 +9,14 @@ import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { parseOutlineText } from '../../src/ast-index/parser.js';
 import { buildFileStructure } from '../../src/ast-index/enricher.js';
 import type { FileStructure, SymbolInfo } from '../../src/types.js';
 
 const FIX = join(__dirname, '..', 'fixtures', 'symbols');
+const OUTLINES = join(__dirname, '..', 'fixtures', 'ast-index');
 
 async function structureOf(file: string, outline: string[]): Promise<FileStructure> {
   return buildFileStructure(join(FIX, file), parseOutlineText(outline.join('\n')));
@@ -38,6 +39,26 @@ describe('parseOutlineText', () => {
   it('keeps names with spaces (Rust "impl Foo")', () => {
     const entries = parseOutlineText('Outline of a.rs:\n  :5 impl Foo [class]\n  :6 new [function]');
     expect(entries.map((e) => e.name)).toEqual(['impl Foo', 'new']);
+  });
+
+  // Real `outline` of tests/fixtures/symbols/component.tsx from both versions:
+  // 3.56 prints `:start-end` for a multi-line symbol, `:start` for a one-line one.
+  const outline350 = readFileSync(join(OUTLINES, 'outline-3.50.txt'), 'utf-8');
+  const outline356 = readFileSync(join(OUTLINES, 'outline-3.56.txt'), 'utf-8');
+  const spans = (text: string) => parseOutlineText(text).map((e) => `${e.name} ${e.start_line}-${e.end_line}`);
+
+  it('ast-index 3.56: reads `:start-end` ranges and keeps one-line symbols on their line', () => {
+    expect(spans(outline356)).toEqual([
+      'Props 3-3', 'List 5-12', 'Page 14-34', 'warn 17-17', 'handleSave 21-23',
+      'ratio 36-36', 'Other 38-40', 'Third 42-46', 'run 43-45',
+    ]);
+  });
+
+  it('ast-index 3.50: start lines only, ends estimated up to the next symbol', () => {
+    expect(spans(outline350)).toEqual([
+      'Props 3-4', 'List 5-13', 'Page 14-16', 'warn 17-20', 'handleSave 21-35',
+      'ratio 36-37', 'Other 38-41', 'Third 42-42', 'run 43-53',
+    ]);
   });
 });
 
@@ -212,6 +233,17 @@ describe('buildFileStructure — TSX', () => {
     });
     expect(ranges(find(s.symbols, 'Page').children)).toEqual({ warn: [17, 17], handleSave: [21, 23] });
     expect(ranges(find(s.symbols, 'Third').children)).toEqual({ run: [43, 45] });
+  });
+
+  it('the ast-index 3.56 ranged outline builds the same structure as the 3.50 one', async () => {
+    const file = join(FIX, 'component.tsx');
+    const structureFromOutline = (name: string) =>
+      buildFileStructure(file, parseOutlineText(readFileSync(join(OUTLINES, name), 'utf-8')));
+
+    const v356 = await structureFromOutline('outline-3.56.txt');
+    const v350 = await structureFromOutline('outline-3.50.txt');
+
+    expect(v356.symbols).toEqual(v350.symbols);
   });
 
   it('no-semicolon style: an expression const ends where its expression closes', async () => {
