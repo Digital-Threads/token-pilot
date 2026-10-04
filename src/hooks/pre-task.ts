@@ -17,13 +17,17 @@
  *
  *   1. tool_name is not Agent (or legacy Task)       → allow
  *   2. subagent_type ∈ tp-*                          → allow
- *   3. description contains an ESCAPE phrase         → allow
- *      (ad-hoc / research / explore / multi-step / across the codebase)
- *   4. matchTpAgent returns null                     → allow
- *   5. TOKEN_PILOT_FORCE_SUBAGENTS=1 OR mode=strict  → deny
- *      (hard-block: agent author opted into pedantic routing)
- *   6. confidence=high                               → advise
- *   7. confidence=low                                → advise (softer msg)
+ *   3. FORCE_SUBAGENTS=1 with no tp-* installed      → deny (says why)
+ *   4. subagent_type set, not general-purpose        → allow
+ *      (Plan, Explore, code-analyzer, … were picked on purpose)
+ *   5. description/prompt carries an ESCAPE phrase   → allow
+ *   6. no match, or a low-confidence one             → allow, silently
+ *      (low-confidence suggestions were wrong as often as not)
+ *   7. multi-word trigger phrase + deny/strict/force → deny
+ *   8. any other high-confidence match               → advise
+ *
+ * The subagent tool guide is not part of any decision: it is meant for
+ * the subagent, so the Claude Code mod appends it to the subagent's prompt.
  *
  * Pure decide — all context (agent index, env, mode) is pre-resolved
  * by the caller so the function stays deterministic and unit-testable.
@@ -95,21 +99,26 @@ function containsEscape(description: string): boolean {
 }
 
 /**
- * v0.33.0 (B14) — generic context appended to every advice payload
- * for non-tp-* dispatches. Subagents like `general-purpose` and
- * `code-analyzer` don't know about the token-pilot MCP tools and
- * loop on raw `Read` even after `hook-pre-read` denies them. This
- * paragraph lands in their context window before they take their
- * first action and tells them what to use instead.
+ * v0.33.0 (B14) — subagents like `general-purpose` and `code-analyzer`
+ * don't know about the token-pilot MCP tools and loop on raw `Read`. The
+ * Claude Code mod appends this to their prompt, where they read it before
+ * their first action. Built per call: the mod marks a plugin install only
+ * after this module is imported, so an import-time string named the npm tools.
  */
-// Built per call: the Claude Code mod marks a plugin install only after
-// this module is imported, so an import-time string named the npm tools.
-const subagentToolGuide = (): string =>
+export const subagentToolGuide = (): string =>
   `When working in this task: prefer \`${toolPrefix()}smart_read\` ` +
   "(file structure), `read_symbol` (one function/class), and " +
-  "`find_usages` (semantic search) over raw Read/Grep. The token-pilot " +
-  "PreToolUse hooks block large-file Read and unbounded Grep — use " +
-  "the MCP tools or pass `offset`/`limit` to Read.";
+  "`find_usages` (semantic search) over reading whole files. token-pilot's " +
+  "hooks answer a large whole-file Read with an outline and block unbounded " +
+  "searches — use the MCP tools or pass `offset`/`limit` to Read.";
+
+/** Every dispatched subagent except our own tp-* ones, which know the tools. */
+export function subagentNeedsToolGuide(input: PreTaskInput): boolean {
+  if (!isDispatchTool(input.tool_name)) return false;
+  const type = input.tool_input?.subagent_type;
+
+  return !(typeof type === "string" && bareAgentName(type).startsWith("tp-"));
+}
 
 /**
  * Pure decision function. Caller resolves all context (env, mode,
@@ -156,6 +165,13 @@ export function decidePreTask(
     };
   }
 
+  // Only a generic dispatch is re-routed. Any other agent type was picked
+  // for what it is; second-guessing it cost real work (the built-in Plan
+  // agent was blocked on the word "plan").
+  if (subagentType && subagentType !== "general-purpose") {
+    return { kind: "allow" };
+  }
+
   // v0.50.0 — the prompt is matched too: descriptions are a few words and
   // alone almost never reach the high-confidence tier. 1.0.0 — the prompt
   // counts only through quoted trigger phrases (see scoreAgent): its generic
@@ -164,30 +180,16 @@ export function decidePreTask(
     typeof input.tool_input?.prompt === "string" ? input.tool_input.prompt : "";
   const haystack = prompt ? `${description} ${prompt}` : description;
 
-  // Nothing to match against at all. Tests the haystack, not the
-  // description: a dispatch can carry an empty description and a fully
-  // descriptive prompt, and that is precisely the case prompt-matching
-  // was added for. Guarding on description alone returned soft advice
-  // and skipped escape detection, matching and blocking entirely.
-  if (haystack.trim().length === 0) {
-    return { kind: "advise", message: subagentToolGuide() };
+  // Nothing to match, or an author-blessed escape clause ("this is broad"),
+  // checked across the prompt too.
+  if (haystack.trim().length === 0 || containsEscape(haystack)) {
+    return { kind: "allow" };
   }
 
-  // Author-blessed escape clauses — user is explicitly saying
-  // "this is broad". Inject the tool-guide but no agent suggestion.
-  // Checked across the prompt too, so an escape written there is honoured
-  // now that the prompt can trigger a block.
-  if (containsEscape(haystack)) {
-    return { kind: "advise", message: subagentToolGuide() };
-  }
-
+  // A low-confidence suggestion was wrong as often as not ("fix tests" →
+  // tp-commit-writer); it is not worth the parent's attention.
   const hit = matchTpAgent(description, ctx.agentIndex, prompt);
-  if (!hit) {
-    // No specific tp-* match. Still send the generic tool-guide so
-    // the subagent learns about smart_read / read_symbol — covers the
-    // common code-analyzer / general-purpose loop on raw Read (B14).
-    return { kind: "advise", message: subagentToolGuide() };
-  }
+  if (!hit || hit.confidence === "low") return { kind: "allow" };
 
   const suggestion =
     `Consider dispatching \`${ctx.agentNamePrefix ?? ""}${hit.agent}\` instead of \`${subagentType || "general-purpose"}\` — ` +
@@ -195,24 +197,17 @@ export function decidePreTask(
     `tp-* agents run under a tighter budget and output in terse style, typically ` +
     `~50-70 % fewer tokens than general-purpose. ` +
     `Escape: add "ad-hoc" or "open-ended" to the description to bypass, or set ` +
-    `TOKEN_PILOT_MODE=advisory for warn-only behaviour.\n\n` +
-    subagentToolGuide();
+    `TOKEN_PILOT_MODE=advisory for warn-only behaviour.`;
 
-  // v0.50.0 — deny mode now blocks a high-confidence match instead of
-  // only advising. An advisory rides along as permissionDecision=allow,
-  // which the model is free to ignore, and it did: measured over one
-  // session, ten of eleven dispatches went to general-purpose while the
-  // matcher named a specialist every time. The same question costs 57,921
-  // tokens through general-purpose and 18,677 through tp-run. Reads are
-  // disciplined because they come back denied; dispatches were not,
-  // because they came back allowed.
-  //
-  // Low-confidence matches still only advise — a weak keyword must never
-  // cost someone their dispatch — and both escape routes are unchanged.
+  // v0.50.0 — an advisory rides along as permissionDecision=allow, which the
+  // model ignored on ten of eleven dispatches (57,921 tokens through
+  // general-purpose against 18,677 through tp-run); reads are disciplined
+  // because they come back denied. 1.0.2 — only an author's multi-word
+  // trigger phrase is strong enough to block on: keyword scores and
+  // one-word triggers ("plan") blocked unrelated work.
   const hardBlock =
-    ctx.force ||
-    ctx.mode === "strict" ||
-    (ctx.mode === "deny" && hit.confidence === "high");
+    hit.phrase &&
+    (ctx.force || ctx.mode === "strict" || ctx.mode === "deny");
 
   if (hardBlock) {
     return {

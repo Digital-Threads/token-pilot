@@ -76,9 +76,9 @@ describe("pre-task routing enforcement", () => {
     expect(d.kind).toBe("advise");
   });
 
-  it("an escape phrase still gets through with advice only", () => {
+  it("an escape phrase still gets through", () => {
     const d = decidePreTask(input("ad-hoc review these changes"), ctx("deny"));
-    expect(d.kind).toBe("advise");
+    expect(d.kind).toBe("allow");
   });
 
   it("leaves tp-* dispatches alone", () => {
@@ -107,6 +107,6 @@ describe("pre-task routing enforcement", () => {
       input("Reuse check", "ad-hoc: review these changes however you like"),
       ctx("deny"),
     );
-    expect(d.kind).toBe("advise");
+    expect(d.kind).toBe("allow");
   });
 });

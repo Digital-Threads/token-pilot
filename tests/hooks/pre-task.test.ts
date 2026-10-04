@@ -10,6 +10,8 @@ import { describe, it, expect } from "vitest";
 import {
   decidePreTask,
   renderPreTaskOutput,
+  subagentNeedsToolGuide,
+  subagentToolGuide,
   type PreTaskContext,
   type PreTaskInput,
 } from "../../src/hooks/pre-task.ts";
@@ -72,49 +74,39 @@ describe("decidePreTask — allow cases", () => {
     expect(d.kind).toBe("allow");
   });
 
-  it("advises with the tool-guide when description is empty (B14)", () => {
-    const d = decidePreTask(input("general-purpose", ""), ctx());
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("smart_read");
-    }
+  // 1.0.2 — the tool guide is the subagent's, not the parent's: the mod
+  // appends it to the subagent prompt (subagentNeedsToolGuide), so these
+  // dispatches simply pass.
+  it("allows when description is empty", () => {
+    expect(decidePreTask(input("general-purpose", ""), ctx()).kind).toBe("allow");
   });
 
-  it("advises with the tool-guide when heuristic returns no match (B14)", () => {
+  it("allows when the heuristic returns no match", () => {
     const d = decidePreTask(
       input("general-purpose", "reminder to buy milk"),
       ctx(),
     );
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("smart_read");
-      // No agent name should be suggested when there is no match.
-      expect(d.message).not.toMatch(/tp-[a-z]/);
-    }
+    expect(d.kind).toBe("allow");
   });
 
-  it("advises with the tool-guide when description contains an escape phrase (B14)", () => {
-    const d = decidePreTask(
-      input("general-purpose", 'ad-hoc "review these changes" investigation'),
-      ctx(),
-    );
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("smart_read");
-      expect(d.message).not.toMatch(/tp-[a-z]/);
-    }
-  });
-
-  it("advises with the tool-guide on open-ended / across-the-codebase escape forms (B14)", () => {
+  it("allows when the description contains an escape phrase", () => {
     for (const phrase of [
+      'ad-hoc "review these changes" investigation',
       "open-ended review these changes task",
       "review these changes across the codebase",
       "multi-step review these changes",
     ]) {
-      const d = decidePreTask(input("general-purpose", phrase), ctx());
-      expect(d.kind).toBe("advise");
-      if (d.kind === "advise") expect(d.message).toContain("smart_read");
+      expect(decidePreTask(input("general-purpose", phrase), ctx()).kind).toBe("allow");
     }
+  });
+
+  it("wants the tool guide for every subagent but tp-*", () => {
+    expect(subagentNeedsToolGuide(input("general-purpose", "x"))).toBe(true);
+    expect(subagentNeedsToolGuide(input("Explore", "x", "Agent"))).toBe(true);
+    expect(subagentNeedsToolGuide(input("tp-run", "x"))).toBe(false);
+    expect(subagentNeedsToolGuide(input("token-pilot:tp-run", "x"))).toBe(false);
+    expect(subagentNeedsToolGuide(input("general-purpose", "x", "Edit"))).toBe(false);
+    expect(subagentToolGuide()).toContain("smart_read");
   });
 });
 
@@ -176,20 +168,12 @@ describe("decidePreTask — deny cases (strict / force)", () => {
     expect(d.kind).toBe("deny");
   });
 
-  it("force does NOT hard-deny when an escape phrase is present (advises with tool-guide)", () => {
-    // v0.33.0 (B14): an escape phrase still pre-empts agent suggestion,
-    // but we now always send the generic tool-guide so the subagent
-    // learns about smart_read / read_symbol. force should NOT escalate
-    // an escape into a hard deny.
+  it("force does NOT hard-deny when an escape phrase is present", () => {
     const d = decidePreTask(
       input("general-purpose", "ad-hoc review these changes"),
       ctx({ mode: "deny", force: true }),
     );
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("smart_read");
-      expect(d.message).not.toMatch(/tp-[a-z]/);
-    }
+    expect(d.kind).toBe("allow");
   });
 
   it("force does NOT block tp-* subagents", () => {
@@ -224,7 +208,7 @@ describe("decidePreTask — deny cases (strict / force)", () => {
 describe("decidePreTask — matcher selection", () => {
   it("advises the right tp-* when multiple candidates exist", () => {
     const d = decidePreTask(
-      input("general-purpose", "add test for loginUser"),
+      input("general-purpose", "add tests for the loginUser function"),
       ctx(),
     );
     expect(d.kind).toBe("advise");

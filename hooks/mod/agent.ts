@@ -12,7 +12,7 @@
 
 import type { EngineInterface, On } from 'claude-code'
 import { buildAgentIndexFromFiles, type AgentIndex } from '../../src/core/agent-matcher.js'
-import { decidePreTask } from '../../src/hooks/pre-task.js'
+import { decidePreTask, subagentNeedsToolGuide, subagentToolGuide } from '../../src/hooks/pre-task.js'
 import { parseEnforcementMode } from '../../src/server/enforcement-mode.js'
 import { join } from '../../src/core/portable-path.js'
 import { caught, withContext } from './host.js'
@@ -55,20 +55,25 @@ export function registerAgent(on: On): void {
     files ??= await readAgentFiles($, join($.plugin.root, 'agents'))
     index ??= buildAgentIndexFromFiles(files)
 
-    const decision = decidePreTask(
-      {
-        tool_name: 'Agent',
-        tool_input: { subagent_type: e.subagent_type, description: e.description, prompt: e.prompt },
-      },
-      {
-        mode: parseEnforcementMode(await $.env.get('TOKEN_PILOT_MODE')),
-        agentIndex: index,
-        force: (await $.env.get('TOKEN_PILOT_FORCE_SUBAGENTS')) === '1',
-        agentNamePrefix: 'token-pilot:',
-      },
-    )
+    const input = {
+      tool_name: 'Agent',
+      tool_input: { subagent_type: e.subagent_type, description: e.description, prompt: e.prompt },
+    }
+    const decision = decidePreTask(input, {
+      mode: parseEnforcementMode(await $.env.get('TOKEN_PILOT_MODE')),
+      agentIndex: index,
+      force: (await $.env.get('TOKEN_PILOT_FORCE_SUBAGENTS')) === '1',
+      agentNamePrefix: 'token-pilot:',
+    })
     if (decision.kind === 'deny') return { deny: decision.reason }
 
-    return withContext(await next(e), decision.kind === 'advise' ? [decision.message] : [])
+    // The tool guide is for the subagent: it goes into its prompt, not into
+    // the parent's context after the launch.
+    const call =
+      subagentNeedsToolGuide(input) && typeof e.prompt === 'string'
+        ? { ...e, prompt: `${e.prompt}\n\n${subagentToolGuide()}` }
+        : e
+
+    return withContext(await next(call), decision.kind === 'advise' ? [decision.message] : [])
   }).catch(caught)
 }
