@@ -1,0 +1,4 @@
+Dependencies of 'app' (2):
+  implementation:
+    core (core)
+    util (util)

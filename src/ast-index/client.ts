@@ -1125,8 +1125,8 @@ export class AstIndexClient {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const cmdArgs = pattern ? ["module", pattern] : ["module"];
-      const result = await this.exec(cmdArgs, 15000);
+      // The pattern is required; "" lists every module.
+      const result = await this.exec(["module", pattern ?? ""], 15000);
       return parseModuleListText(result);
     } catch (err) {
       console.error(

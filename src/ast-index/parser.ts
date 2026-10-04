@@ -405,75 +405,96 @@ export function parseCallTreeText(text: string): AstIndexCallTreeNode | null {
   return root;
 }
 
+/**
+ * Parse `ast-index module <pattern>` (text only):
+ *   Modules matching '%core%':
+ *     core: core
+ *     feature:auth: feature/auth
+ *     No modules found.
+ */
 export function parseModuleListText(text: string): AstIndexModuleEntry[] {
   const results: AstIndexModuleEntry[] = [];
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: name (path) — N files  OR  name (path)  OR  path
-    const match = line.match(/^(\S+)\s+\((.+?)\)(?:\s*—\s*(\d+)\s+files?)?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2], file_count: match[3] ? parseInt(match[3], 10) : undefined });
-    } else {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('─')) {
-        const name = trimmed.split('/').pop() ?? trimmed;
-        results.push({ name, path: trimmed });
-      }
-    }
+    const m = line.match(/^ {2}(\S.*): (\S.*)$/);
+    if (m) results.push({ name: m[1], path: m[2].trim() });
   }
   return results;
 }
 
+/**
+ * Parse `ast-index deps` / `dependents` (text only):
+ *   Dependencies of 'app' (2):          Modules depending on 'net' (2):
+ *     implementation:                     via api (1):
+ *       core (core)                         core (core)
+ * The group line gives the dependency kind.
+ */
 export function parseModuleDepText(text: string): AstIndexModuleDep[] {
   const results: AstIndexModuleDep[] = [];
+  let kind: string | undefined;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: → name (path)  OR  ← name (path)  OR  name (path)  OR  name
-    const match = line.match(/^[→←\-\s]*(\S+)(?:\s+\((.+?)\))?(?:\s+\[(direct|transitive)\])?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2] ?? match[1], type: match[3] });
+    const group = line.match(/^ {2}(?:via )?([\w-]+)(?: \(\d+\))?:$/);
+    if (group) {
+      kind = group[1];
+      continue;
     }
+    const dep = line.match(/^ {4}(\S+) \((.+)\)$/);
+    if (dep) results.push({ name: dep[1], path: dep[2], type: kind });
   }
   return results;
 }
 
+/**
+ * Parse `ast-index unused-deps` (text only): entries of the `=== Unused ===`
+ * block, `  ✗ util (implementation)`; `(none - …)` means none.
+ */
 export function parseUnusedDepsText(text: string): AstIndexUnusedDep[] {
   const results: AstIndexUnusedDep[] = [];
+  let inUnused = false;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: ⚠ name (path) — reason  OR  name (path)  OR  name — reason
-    const match = line.match(/^[⚠!\s]*(\S+)(?:\s+\((.+?)\))?(?:\s*[—\-]+\s*(.+))?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2] ?? match[1], reason: match[3]?.trim() });
+    if (/^=== .* ===$/.test(line.trim())) {
+      inUnused = line.includes('Unused');
+      continue;
+    }
+    if (!inUnused) continue;
+    const m = line.match(/^\s+[✗⚠!x]\s+(\S+)(?: \((.+)\))?$/);
+    if (m) {
+      results.push({
+        name: m[1],
+        path: m[1],
+        reason: m[2] ? `${m[2]} dependency, no symbol used` : undefined,
+      });
     }
   }
   return results;
 }
 
+/**
+ * Parse `ast-index api <module>` (text only):
+ *   Public API of 'core' (1):
+ *     core/src/main/kotlin/c/Core.kt:3
+ *       class Core { fun go() = Net().ping() }
+ * Kind and name are read from the declaration line when it has a keyword.
+ */
 export function parseModuleApiText(text: string): AstIndexModuleApi[] {
   const results: AstIndexModuleApi[] = [];
+  let pending: { file: string; line: number } | null = null;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: kind name (file:line)  OR  kind name signature (file:line)
-    const match = line.match(/^(\w+)\s+(\S+)(?:\s+(.*?))?\s+\((.+?):(\d+)\)$/);
-    if (match) {
-      results.push({ kind: match[1], name: match[2], signature: match[3]?.trim() || undefined, file: match[4], line: parseInt(match[5], 10) });
+    const loc = line.match(/^ {2}(\S.*?):(\d+)$/);
+    if (loc) {
+      pending = { file: loc[1], line: parseInt(loc[2], 10) };
+      continue;
+    }
+    if (pending && /^ {4,}\S/.test(line)) {
+      const signature = line.trim();
+      const decl = signature.match(/\b(class|interface|object|enum|struct|trait|protocol|fun|func|function|def|fn|val|var|const|let|type|typealias)\s+([\w$]+)/);
+      results.push({
+        kind: decl?.[1] ?? '',
+        name: decl?.[2] ?? '',
+        signature,
+        file: pending.file,
+        line: pending.line,
+      });
+      pending = null;
     }
   }
   return results;

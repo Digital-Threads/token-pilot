@@ -1,0 +1,5 @@
+Modules depending on 'net' (2):
+  via api (1):
+    core (core)
+  via implementation (1):
+    app (app)

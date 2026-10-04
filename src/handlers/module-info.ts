@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { ModuleInfoArgs } from '../core/validation.js';
 
@@ -23,9 +23,12 @@ export async function handleModuleInfo(
   const sections: string[] = [];
 
   // Resolve module
+  // `module` matches by substring: prefer the exact name over the first hit.
   const moduleList = await astIndex.modules(args.module);
-  const moduleName = moduleList.length > 0 ? moduleList[0].name : args.module;
-  const modulePath = moduleList.length > 0 ? moduleList[0].path : args.module;
+  const bare = args.module.replace(/^:/, '');
+  const resolved = moduleList.find(m => m.name === bare || m.path === bare) ?? moduleList[0];
+  const moduleName = resolved?.name ?? args.module;
+  const modulePath = resolved?.path ?? args.module;
 
   sections.push(`MODULE: ${moduleName} (${modulePath})`);
 
@@ -35,7 +38,7 @@ export async function handleModuleInfo(
     sections.push('');
 
     // List available modules as hint
-    const allModules = await astIndex.modules();
+    const allModules = await astIndex.modules('');
     if (allModules.length > 0) {
       sections.push(`Available modules (${allModules.length}):`);
       for (const m of allModules.slice(0, 20)) {
@@ -107,8 +110,8 @@ export async function handleModuleInfo(
           sections.push(`PUBLIC API (${data.length} symbols):`);
           for (const a of data) {
             const loc = `${rel(projectRoot, a.file)}:${a.line}`;
-            const sig = a.signature ? ` — ${a.signature}` : '';
-            sections.push(`  ${a.kind} ${a.name}${sig}  (${loc})`);
+            const what = a.name ? `${a.kind} ${a.name}${a.signature ? ` — ${a.signature}` : ''}` : (a.signature ?? '');
+            sections.push(`  ${what}  (${loc})`);
           }
         } else {
           sections.push('PUBLIC API: none detected');
@@ -155,6 +158,7 @@ export async function handleModuleInfo(
   return { content: [{ type: 'text', text: sections.join('\n') }], meta: { files: [...new Set(metaFiles)] } };
 }
 
-function rel(projectRoot: string, absPath: string): string {
-  return relative(projectRoot, absPath) || absPath;
+/** ast-index paths are relative to the project root, not to cwd. */
+function rel(projectRoot: string, path: string): string {
+  return relative(projectRoot, resolve(projectRoot, path)) || path;
 }

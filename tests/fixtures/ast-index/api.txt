@@ -1,0 +1,3 @@
+Public API of 'core' (1):
+  core/src/main/kotlin/c/Core.kt:3
+    class Core { fun go() = Net().ping() }

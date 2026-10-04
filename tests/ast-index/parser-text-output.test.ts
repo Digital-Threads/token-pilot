@@ -13,8 +13,58 @@ import {
   parseDeprecatedText,
   parseImportsText,
   parseJsImports,
+  parseModuleApiText,
+  parseModuleDepText,
+  parseModuleListText,
   parseTodoText,
+  parseUnusedDepsText,
 } from "../../src/ast-index/parser.js";
+
+describe("module parsers", () => {
+  it("parseModuleListText reads `name: path` entries, never the header or the empty notice", () => {
+    expect(parseModuleListText(fixture("module-list.txt"))).toEqual([
+      { name: "core", path: "core" },
+      { name: "net", path: "net" },
+      { name: "util", path: "util" },
+      { name: "app", path: "app" },
+    ]);
+    expect(parseModuleListText(fixture("module-list-empty.txt"))).toEqual([]);
+    expect(parseModuleListText("Modules matching '%a%':\n  feature:auth: feature/auth\n")).toEqual([
+      { name: "feature:auth", path: "feature/auth" },
+    ]);
+  });
+
+  it("parseModuleDepText reads deps grouped by kind and dependents grouped by `via kind`", () => {
+    expect(parseModuleDepText(fixture("deps.txt"))).toEqual([
+      { name: "core", path: "core", type: "implementation" },
+      { name: "util", path: "util", type: "implementation" },
+    ]);
+    expect(parseModuleDepText(fixture("deps-empty.txt"))).toEqual([]);
+    expect(parseModuleDepText(fixture("dependents.txt"))).toEqual([
+      { name: "core", path: "core", type: "api" },
+      { name: "app", path: "app", type: "implementation" },
+    ]);
+  });
+
+  it("parseModuleApiText reads path:line + declaration line", () => {
+    expect(parseModuleApiText(fixture("api.txt"))).toEqual([
+      {
+        kind: "class",
+        name: "Core",
+        signature: "class Core { fun go() = Net().ping() }",
+        file: "core/src/main/kotlin/c/Core.kt",
+        line: 3,
+      },
+    ]);
+  });
+
+  it("parseUnusedDepsText reads the `=== Unused ===` block only", () => {
+    expect(parseUnusedDepsText(fixture("unused-deps.txt"))).toEqual([
+      { name: "util", path: "util", reason: "implementation dependency, no symbol used" },
+    ]);
+    expect(parseUnusedDepsText(fixture("unused-deps-none.txt"))).toEqual([]);
+  });
+});
 
 describe("code-audit parsers (grouped blocks)", () => {
   it("parseTodoText reads `KIND (n):` groups of path:line + comment", () => {
