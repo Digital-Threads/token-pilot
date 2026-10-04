@@ -13,7 +13,7 @@ tools:
   - mcp__token-pilot__read_symbol
   - mcp__plugin_token-pilot_token-pilot__read_symbol
 model: sonnet
-token_pilot_version: "1.0.2"
+token_pilot_version: "1.0.3"
 token_pilot_body_hash: 75416eb77005c13b8811bd254cab9330ea85ec5833a15c065ba1789952356ac7
 requiredMcpServers:
   - "token-pilot"

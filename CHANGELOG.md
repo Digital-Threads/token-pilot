@@ -5,6 +5,41 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-10-04
+
+ast-index 3.56.0 changed several outputs that token-pilot reads. With 3.56
+installed, 1.0.2 lost every multi-line symbol and `explore` failed. This
+release reads both 3.56 and the older format, and installs a tested
+ast-index version instead of whatever is newest. All 25 tools were checked
+live on ast-index 3.50.0 and 3.56.0.
+
+### Fixed
+
+- `outline` lines now carry a range (`:9-60`). Only one-line symbols were
+  parsed, so `read_symbol` could not find `createServer`, and `smart_read`,
+  `outline`, `smart_diff` and `explore_area` dropped multi-line symbols.
+  Both forms are read, and the end line from ast-index is used when it gives
+  one.
+- `explore` threw `Cannot read properties of undefined` on a class hit,
+  because 3.56 sends the class outline instead of its source. That outline
+  is shown now. Each hit is capped at 8 lines with a "… N more" note, so the
+  answer is no bigger than on 3.50.
+- `symbol`, `usages` and `implementations` JSON now comes wrapped in an
+  `items` envelope. `read_symbol` on a method, `read_symbols` and
+  `find_usages` got empty answers without an error; they read the envelope
+  now.
+- `call_tree` no longer counts a mention of the name inside a string as a
+  call. 3.56 attributes such mentions to the declaration around them.
+- `search` dropped file-name hits on every ast-index version. They come back
+  now, and `find_usages` leaves them out.
+
+### Changed
+
+- token-pilot installs ast-index 3.56.0, the version it is tested against.
+  It no longer installs the latest release, and the npm dependency is
+  pinned to the same version. `doctor` and the startup notice point to the
+  tested version and say when an installed one is newer and untested.
+
 ## [1.0.2] - 2026-10-04
 
 A four-part audit of 1.0.1 checked every MCP tool and every hook against

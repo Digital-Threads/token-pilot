@@ -16,7 +16,7 @@ tools:
   - Read
   - Grep
 model: sonnet
-token_pilot_version: "1.0.2"
+token_pilot_version: "1.0.3"
 token_pilot_body_hash: 97555d5815dd5af2b7e25867ae437b91bec8af01c461a96c4a143cb2bfc18fae
 requiredMcpServers:
   - "token-pilot"
