@@ -1,17 +1,18 @@
 /**
  * Does a declaration really reference a name? ast-index names the nearest
  * symbol above a call site — or above a mention in a comment — as the
- * "caller", so call_tree and explore check the caller's own body.
+ * "caller"; from 3.56 it names the declaration around a mention in a
+ * string too. So call_tree and explore check the caller's own code.
  */
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { withoutComments } from "./enricher.js";
+import { codeOnly } from "./enricher.js";
 
-/** Lines of a project file with comments blanked, or null when it cannot be read. */
+/** Lines of a project file with comments and strings blanked, or null when it cannot be read. */
 export async function codeLines(projectRoot: string, path: string): Promise<string[] | null> {
   try {
     const raw = await readFile(resolve(projectRoot, path), "utf-8");
-    return withoutComments(raw, path).split("\n");
+    return codeOnly(raw, path).split("\n");
   } catch {
     return null;
   }

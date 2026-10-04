@@ -1,0 +1,270 @@
+{
+  "dominant_language": "ts",
+  "files": [
+    {
+      "line": 5,
+      "path": "src/core/symbol-resolver.ts",
+      "source": "    5\texport class SymbolResolver {\n    6\t  private astIndex: AstIndexClient;\n    7\t\n    8\t  constructor(astIndex: AstIndexClient) {\n    9\t    this.astIndex = astIndex;\n   10\t  }\n   11\t\n   12\t  /**\n   13\t   * Resolve a symbol (`name`, `Class.method`, `Class::method`) in one file.\n   14\t   *\n   15\t   * The file's structure is authoritative when it has symbols. Without one,\n   16\t   * ast-index's symbol index is asked, but only a hit in that same file\n   17\t   * counts, and its end line is read from the source — never guessed.\n   18\t   */\n   19\t  async resolve(\n   20\t    qualifiedName: string,\n   21\t    structure?: FileStructure,\n   22\t    filePath?: string,\n   23\t  ): Promise<ResolvedSymbol | null> {\n   24\t    if (structure && structure.symbols.length > 0) {\n   25\t      const found = this.pick(this.findAll(qualifiedName, structure));\n   26\t      return found ? toResolved(found, structure.path) : null;\n   27\t    }\n   28\t\n   29\t    const file = structure?.path ?? filePath;\n   30\t    if (!file || splitName(qualifiedName).length > 1) return null; // can't check the class without a structure\n   31\t\n   32\t    const detail = await this.astIndex.symbol(qualifiedName);\n   33\t    if (!detail || !this.pathMatches(detail.file, file)) return null;\n   34\t\n   35\t    const built = await buildFileStructure(file, [\n   36\t      { name: detail.name, kind: detail.kind, start_line: detail.start_line, end_line: 0 },\n   37\t    ]).catch(() => null);\n   38\t    const sym = built && this.pick(\n   39\t      findDeep(built.symbols, (s) => s.name === detail.name)\n   40\t        .filter((s) => s.location.startLine <= detail.start_line && detail.start_line <= s.location.endLine),\n   41\t    );\n   42\t    return sym ? toResolved(sym, file) : null;\n   43\t  }\n   44\t\n   45\t  /** Every symbol in the structure that `qualifiedName` names, in document order. */\n   46\t  findAll(qualifiedName: string, structure?: FileStructure): SymbolInfo[] {\n   47\t    if (!structure) return [];\n   48\t    const parts = splitName(qualifiedName);\n   49\t    const last = parts[parts.length - 1];\n   50\t\n   51\t    const byPath = parts.length === 1\n   52\t      ? findDeep(structure.symbols, (s) => s.name === last)\n   53\t      : findDeep(structure.symbols, (s) => s.name === parts[0])\n   54\t        .flatMap((head) => this.descend(parts.slice(1), head.children));\n   55\t    // Go methods are top-level with qualifiedName Receiver.Method\n   56\t    const byQualified = findDeep(structure.symbols, (s) => s.qualifiedName === qualifiedName.replace(/::/g, '.'));\n   57\t\n   58\t    const seen = new Set<SymbolInfo>();\n   59\t    return [...byPath, ...byQualified]\n   60\t      .filter((s) => (seen.has(s) ? false : (seen.add(s), true)))\n   61\t      .sort((a, b) => a.location.startLine - b.location.startLine);\n   62\t  }\n   63\t\n   64\t  /**\n",
+      "symbol": "SymbolResolver"
+    },
+    {
+      "line": 53,
+      "path": "src/handlers/read-for-edit.ts",
+      "source": "   53\texport async function handleReadForEdit(\n   54\t  args: ReadForEditArgs,\n   55\t  projectRoot: string,\n   56\t  symbolResolver: SymbolResolver,\n   57\t  fileCache: FileCache,\n   58\t  contextRegistry: ContextRegistry,\n   59\t  astIndex: AstIndexClient,\n   60\t  options?: { actionableHints?: boolean },\n",
+      "symbol": "handleReadForEdit"
+    },
+    {
+      "line": 21,
+      "path": "src/handlers/read-symbol.ts",
+      "source": "   21\texport async function handleReadSymbol(\n   22\t  args: ReadSymbolArgs,\n   23\t  projectRoot: string,\n   24\t  symbolResolver: SymbolResolver,\n   25\t  fileCache: FileCache,\n   26\t  contextRegistry: ContextRegistry,\n   27\t  astIndex?: AstIndexClient,\n   28\t  advisoryReminders = true,\n",
+      "symbol": "handleReadSymbol"
+    },
+    {
+      "line": 19,
+      "path": "src/handlers/read-symbols.ts",
+      "source": "   19\texport async function handleReadSymbols(\n   20\t  args: ReadSymbolsArgs,\n   21\t  projectRoot: string,\n   22\t  symbolResolver: SymbolResolver,\n   23\t  fileCache: FileCache,\n   24\t  contextRegistry: ContextRegistry,\n   25\t  astIndex?: AstIndexClient,\n   26\t  advisoryReminders = true,\n",
+      "symbol": "handleReadSymbols"
+    },
+    {
+      "line": 152,
+      "path": "src/server.ts",
+      "source": "  152\t  const shutdownFlush = (): void => {\n  153\t    void sessionRegistries.flushAll();\n  154\t    // Stop the 5-minute ast-index tick so we don't block exit on SIGINT/SIGTERM.\n  155\t    // .unref() already makes it non-keeping, but clearing is defensive and\n  156\t    // avoids a stray `update` firing during shutdown.\n  157\t    astIndex.stopPeriodicUpdate();\n  158\t  };\n",
+      "symbol": "shutdownFlush"
+    },
+    {
+      "line": 809,
+      "path": "tests/ast-index/client.test.ts",
+      "source": "  809\t    const clientAnswering = (json: string) => {\n  810\t      const client = new AstIndexClient(tempDir) as any;\n  811\t      client.binaryPath = \"/bin/ast-index\";\n  812\t      client.ensureIndex = async () => {};\n  813\t      client.exec = async () => json;\n  814\t\n  815\t      return client;\n  816\t    };\n",
+      "symbol": "clientAnswering"
+    }
+  ],
+  "neighbours": [
+    {
+      "kind": "function",
+      "line": 53,
+      "link": "caller",
+      "name": "handleReadForEdit",
+      "path": "src/handlers/read-for-edit.ts"
+    },
+    {
+      "kind": "function",
+      "line": 21,
+      "link": "caller",
+      "name": "handleReadSymbol",
+      "path": "src/handlers/read-symbol.ts"
+    },
+    {
+      "kind": "function",
+      "line": 199,
+      "link": "caller",
+      "name": "sameNameNote",
+      "path": "src/handlers/read-symbol.ts"
+    },
+    {
+      "kind": "function",
+      "line": 19,
+      "link": "caller",
+      "name": "handleReadSymbols",
+      "path": "src/handlers/read-symbols.ts"
+    },
+    {
+      "kind": "function",
+      "line": 152,
+      "link": "caller",
+      "name": "shutdownFlush",
+      "path": "src/server.ts"
+    },
+    {
+      "kind": "function",
+      "line": 809,
+      "link": "caller",
+      "name": "clientAnswering",
+      "path": "tests/ast-index/client.test.ts"
+    },
+    {
+      "kind": "function",
+      "line": 26,
+      "link": "caller",
+      "name": "makeStructure",
+      "path": "tests/core/symbol-resolver.test.ts"
+    },
+    {
+      "kind": "function",
+      "line": 40,
+      "link": "caller",
+      "name": "write",
+      "path": "tests/handlers/cached-structure.test.ts"
+    },
+    {
+      "kind": "function",
+      "line": 148,
+      "link": "caller",
+      "name": "run",
+      "path": "tests/handlers/explore.test.ts"
+    },
+    {
+      "kind": "function",
+      "line": 366,
+      "link": "caller",
+      "name": "sym",
+      "path": "tests/handlers/read-symbol.test.ts"
+    }
+  ],
+  "query": "SymbolResolver",
+  "symbols": [
+    {
+      "kind": "class",
+      "line": 5,
+      "name": "SymbolResolver",
+      "path": "src/core/symbol-resolver.ts",
+      "score": 1000.0,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 53,
+      "name": "handleReadForEdit",
+      "path": "src/handlers/read-for-edit.ts",
+      "score": 23.104814732877816,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 21,
+      "name": "handleReadSymbol",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 23.104814732877816,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 199,
+      "name": "sameNameNote",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 23.104814732877816,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 19,
+      "name": "handleReadSymbols",
+      "path": "src/handlers/read-symbols.ts",
+      "score": 23.104814732877816,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 152,
+      "name": "shutdownFlush",
+      "path": "src/server.ts",
+      "score": 23.104814732877816,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 809,
+      "name": "clientAnswering",
+      "path": "tests/ast-index/client.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 26,
+      "name": "makeStructure",
+      "path": "tests/core/symbol-resolver.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 40,
+      "name": "write",
+      "path": "tests/handlers/cached-structure.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 148,
+      "name": "run",
+      "path": "tests/handlers/explore.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 366,
+      "name": "sym",
+      "path": "tests/handlers/read-symbol.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 38,
+      "name": "makeFile",
+      "path": "tests/handlers/read-symbols.test.ts",
+      "score": 6.931444419863345,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 12,
+      "name": "./core/symbol-resolver.js",
+      "path": "src/server.ts",
+      "score": 1.1408233974926305,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 8,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/read-symbol.test.ts",
+      "score": 1.1314388641379092,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 1.1256124188593954,
+      "vendor": false
+    }
+  ],
+  "tests": [
+    {
+      "source": "src/core/symbol-resolver.ts",
+      "tests": [
+        "tests/core/symbol-resolver.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-for-edit.ts",
+      "tests": [
+        "tests/handlers/read-for-edit.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-symbol.ts",
+      "tests": [
+        "tests/handlers/read-symbol.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-symbols.ts",
+      "tests": [
+        "tests/handlers/read-symbols.test.ts"
+      ]
+    },
+    {
+      "source": "src/server.ts",
+      "tests": []
+    },
+    {
+      "source": "tests/ast-index/client.test.ts",
+      "tests": []
+    }
+  ]
+}

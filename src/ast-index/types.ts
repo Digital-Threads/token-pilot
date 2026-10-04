@@ -50,8 +50,11 @@ export interface AstIndexSearchMatch {
 /** Normalized search result (internal) */
 export interface AstIndexSearchResult {
   file: string;
+  /** 0 for a file-name hit. */
   line: number;
   text: string;
+  /** Set when the file's name matched, not a line in it. */
+  kind?: "file";
 }
 
 /** ast-index usages --format json → Array<AstIndexUsageRaw> */
@@ -255,11 +258,24 @@ export interface AstIndexExploreSymbol {
   vendor: boolean;
 }
 
-/** ast-index explore — one ranked file head (source is line-numbered) */
+/** One entry of the outline ast-index ≥3.56 sends for a class/module hit. */
+export interface AstIndexExploreOutlineEntry {
+  name: string;
+  kind: string;
+  line: number;
+  end_line: number;
+}
+
+/**
+ * ast-index explore — one ranked file: its line-numbered head (`source`),
+ * or for a class/module hit on ≥3.56 its outline, `outlineHidden` entries left out.
+ */
 export interface AstIndexExploreFile {
   path: string;
   line: number;
-  source: string;
+  source?: string;
+  outline?: AstIndexExploreOutlineEntry[];
+  outlineHidden?: number;
 }
 
 /** ast-index explore — one graph neighbour (blast radius, requires --rwr) */
@@ -302,7 +318,13 @@ export interface AstIndexExploreRaw {
     score: number;
     vendor?: boolean;
   }>;
-  files?: Array<{ path: string; line: number; source: string }>;
+  files?: Array<{
+    path: string;
+    line: number;
+    source?: string;
+    outline?: AstIndexExploreOutlineEntry[];
+    outline_hidden?: number;
+  }>;
   neighbours?: Array<{
     name: string;
     kind: string;

@@ -449,7 +449,7 @@ export async function handleReadForEdit(
   // include_callers: compact caller list via ast-index refs. refs knows bare
   // names only ("Class.method" / "Class::method" → "method"), so a method's
   // caller stays when it is in this file or its file mentions the class
-  // outside comments; a plain function's callers are matched by name only.
+  // outside comments and strings; a plain function's callers are matched by name only.
   if (args.include_callers && args.symbol && !astIndex.isDisabled()) {
     try {
       const parts = qualified.split(/::|\./);

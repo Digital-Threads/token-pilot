@@ -1,0 +1,92 @@
+{
+  "content_matches": [
+    {
+      "content": "totalOutlineTokens: number;",
+      "line": 32,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "function formatOutline(entries: Array<{ name: string; kind: string; start_line: number; end_line: nu",
+      "line": 59,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const outline = formatOutline(entries);",
+      "line": 85,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const totalOutline = results.reduce((s, r) => s + r.outlineTokens, 0);",
+      "line": 116,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const totalSavings = totalRaw > 0 ? Math.round((1 - totalOutline / totalRaw) * 100) : 0;",
+      "line": 117,
+      "path": "scripts/benchmark.ts"
+    }
+  ],
+  "files": [
+    "src/handlers/outline.ts",
+    "tests/handlers/outline.test.ts"
+  ],
+  "references": [
+    {
+      "name": "Outline",
+      "usage_count": 7
+    },
+    {
+      "name": "outline",
+      "usage_count": 25
+    },
+    {
+      "name": "OUTLINE",
+      "usage_count": 5
+    },
+    {
+      "name": "outlineDir",
+      "usage_count": 3
+    },
+    {
+      "name": "outlineAt",
+      "usage_count": 2
+    }
+  ],
+  "symbols": [
+    {
+      "kind": "interface",
+      "line": 481,
+      "name": "OutlineArgs",
+      "path": "src/core/validation.ts",
+      "signature": "export interface OutlineArgs {"
+    },
+    {
+      "kind": "function",
+      "line": 487,
+      "name": "validateOutlineArgs",
+      "path": "src/core/validation.ts",
+      "signature": "export function validateOutlineArgs(args: unknown): OutlineArgs {"
+    },
+    {
+      "kind": "import",
+      "line": 44,
+      "name": "./handlers/outline.js",
+      "path": "src/server.ts",
+      "signature": "import { handleOutline } from \"./handlers/outline.js\";"
+    },
+    {
+      "kind": "import",
+      "line": 10,
+      "name": "../handlers/outline.js",
+      "path": "src/server/token-estimates.ts",
+      "signature": "import { CODE_EXTENSIONS } from \"../handlers/outline.js\";"
+    },
+    {
+      "kind": "import",
+      "line": 8,
+      "name": "./outline.js",
+      "path": "src/handlers/explore-area.ts",
+      "signature": "import { outlineDir, CODE_EXTENSIONS } from \"./outline.js\";"
+    }
+  ]
+}

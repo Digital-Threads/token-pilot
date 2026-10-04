@@ -1,0 +1,9 @@
+[
+  {
+    "name": "SymbolResolver",
+    "kind": "class",
+    "line": 5,
+    "signature": "export class SymbolResolver {",
+    "path": "src/core/symbol-resolver.ts"
+  }
+]

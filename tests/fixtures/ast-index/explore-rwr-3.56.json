@@ -1,0 +1,305 @@
+{
+  "dominant_language": "ts",
+  "files": [
+    {
+      "line": 5,
+      "outline": [
+        {
+          "end_line": 100,
+          "kind": "class",
+          "line": 5,
+          "name": "SymbolResolver"
+        },
+        {
+          "end_line": 6,
+          "kind": "property",
+          "line": 6,
+          "name": "astIndex"
+        },
+        {
+          "end_line": 10,
+          "kind": "function",
+          "line": 8,
+          "name": "constructor"
+        },
+        {
+          "end_line": 43,
+          "kind": "function",
+          "line": 19,
+          "name": "resolve"
+        },
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 46,
+          "name": "findAll"
+        },
+        {
+          "end_line": 84,
+          "kind": "function",
+          "line": 67,
+          "name": "extractSource"
+        },
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 86,
+          "name": "descend"
+        },
+        {
+          "end_line": 94,
+          "kind": "function",
+          "line": 92,
+          "name": "pick"
+        },
+        {
+          "end_line": 99,
+          "kind": "function",
+          "line": 97,
+          "name": "pathMatches"
+        }
+      ],
+      "outline_hidden": 0,
+      "path": "src/core/symbol-resolver.ts",
+      "symbol": "SymbolResolver"
+    },
+    {
+      "line": 53,
+      "path": "src/handlers/read-for-edit.ts",
+      "source": "   53\texport async function handleReadForEdit(\n   54\t  args: ReadForEditArgs,\n   55\t  projectRoot: string,\n   56\t  symbolResolver: SymbolResolver,\n   57\t  fileCache: FileCache,\n   58\t  contextRegistry: ContextRegistry,\n   59\t  astIndex: AstIndexClient,\n   60\t  options?: { actionableHints?: boolean },\n   61\t): Promise<{ content: Array<{ type: \"text\"; text: string }> }> {\n   62\t  const absPath = resolveSafePath(projectRoot, args.path);\n   63\t  // Record intent BEFORE any downstream failure: if the agent explicitly\n   64\t  // called read_for_edit on this path, they have declared they want to\n   65\t  // edit it next. The PreToolUse:Edit hook reads this to decide whether\n   66\t  // to allow or deny the follow-up Edit. Best-effort — never throws.\n   67\t  markEditPrepared(projectRoot, absPath);\n   68\t  const ctx = args.context ?? DEFAULT_CONTEXT;\n   69\t\n   70\t  // Section mode: markdown/YAML section extraction for edit\n   71\t  if (args.section) {\n   72\t    const ext = extname(absPath).toLowerCase();\n   73\t    const supportedExts = new Set([\n   74\t      \".md\",\n   75\t      \".markdown\",\n   76\t      \".yaml\",\n   77\t      \".yml\",\n   78\t      \".json\",\n   79\t      \".csv\",\n   80\t    ]);\n   81\t    if (!supportedExts.has(ext)) {\n   82\t      return {\n   83\t        content: [\n   84\t          {\n   85\t            type: \"text\",\n   86\t            text: `\"section\" parameter only works with Markdown, YAML, or JSON files. Got: ${ext}. Use \"symbol\" for code files.`,\n   87\t          },\n   88\t        ],\n   89\t      };\n   90\t    }\n   91\t\n   92\t    const fileContent = await readFile(absPath, \"utf-8\");\n   93\t    const fileLines = fileContent.split(\"\\n\");\n   94\t\n   95\t    // Cache file in fileCache for read_diff baseline\n   96\t    if (!fileCache.get(absPath)) {\n   97\t      const fileStat = await stat(absPath);\n   98\t      const hash = createHash(\"sha256\").update(fileContent).digest(\"hex\");\n   99\t      const language =\n  100\t        ext === \".csv\"\n  101\t          ? \"csv\"\n  102\t          : ext === \".json\"\n  103\t            ? \"json\"\n  104\t            : ext === \".md\" || ext === \".markdown\"\n  105\t              ? \"markdown\"\n  106\t              : \"yaml\";\n  107\t      fileCache.set(absPath, {\n  108\t        structure: {\n  109\t          path: absPath,\n  110\t          language,\n  111\t          meta: {\n  112\t            lines: fileLines.length,\n",
+      "symbol": "handleReadForEdit"
+    },
+    {
+      "line": 21,
+      "path": "src/handlers/read-symbol.ts",
+      "source": "   21\texport async function handleReadSymbol(\n   22\t  args: ReadSymbolArgs,\n   23\t  projectRoot: string,\n   24\t  symbolResolver: SymbolResolver,\n   25\t  fileCache: FileCache,\n   26\t  contextRegistry: ContextRegistry,\n   27\t  astIndex?: AstIndexClient,\n   28\t  advisoryReminders = true,\n   29\t): Promise<{ content: Array<{ type: 'text'; text: string }> }> {\n   30\t  const absPath = resolveSafePath(projectRoot, args.path);\n   31\t\n   32\t  // Get file content\n   33\t  const cached = fileCache.get(absPath);\n   34\t  let lines: string[];\n   35\t\n   36\t  if (cached) {\n   37\t    lines = cached.lines;\n   38\t  } else {\n   39\t    const content = await readFile(absPath, 'utf-8');\n   40\t    lines = content.split('\\n');\n   41\t  }\n   42\t\n   43\t  // Dedup: check if content already in context and unchanged\n   44\t  if (advisoryReminders) {\n   45\t    const hash = cached?.hash;\n   46\t    if (hash && !contextRegistry.isStale(absPath, hash)) {\n   47\t      if (contextRegistry.isFullyLoaded(absPath) || contextRegistry.isSymbolLoaded(absPath, args.symbol)) {\n   48\t        const reminder = contextRegistry.symbolReminder(absPath, args.symbol);\n   49\t        if (reminder) {\n   50\t          return { content: [{ type: 'text', text: reminder }] };\n   51\t        }\n   52\t      }\n   53\t    }\n   54\t  }\n   55\t\n   56\t  // Resolve symbol — auto-fetch structure if not cached\n   57\t  const structure = await structureFor(cached, absPath, astIndex);\n   58\t  const resolved = await symbolResolver.resolve(args.symbol, structure, absPath);\n   59\t\n   60\t  if (!resolved) {\n   61\t    return {\n   62\t      content: [{\n   63\t        type: 'text',\n   64\t        text: `Symbol \"${args.symbol}\" not found in ${args.path}.\\nHINT: Use smart_read(\"${args.path}\") to see available symbols.`,\n   65\t      }],\n   66\t    };\n   67\t  }\n   68\t\n   69\t  // Extract source\n   70\t  const source = symbolResolver.extractSource(resolved, lines, {\n   71\t    contextBefore: args.context_before ?? 2,\n   72\t    contextAfter: args.context_after ?? 0,\n   73\t  });\n   74\t\n   75\t  const loc = `[L${resolved.startLine}-${resolved.endLine}]`;\n   76\t  const lineCount = resolved.endLine - resolved.startLine + 1;\n   77\t\n   78\t  // Show mode: control how large symbols are displayed\n   79\t  // Display constants from shared module (imported at top level)\n   80\t  const HEAD = SYMBOL_HEAD_LINES;\n",
+      "symbol": "handleReadSymbol"
+    },
+    {
+      "line": 19,
+      "path": "src/handlers/read-symbols.ts",
+      "source": "   19\texport async function handleReadSymbols(\n   20\t  args: ReadSymbolsArgs,\n   21\t  projectRoot: string,\n   22\t  symbolResolver: SymbolResolver,\n   23\t  fileCache: FileCache,\n   24\t  contextRegistry: ContextRegistry,\n   25\t  astIndex?: AstIndexClient,\n   26\t  advisoryReminders = true,\n   27\t): Promise<{ content: Array<{ type: \"text\"; text: string }> }> {\n   28\t  const absPath = resolveSafePath(projectRoot, args.path);\n   29\t\n   30\t  // Get file content ONCE\n   31\t  const cached = fileCache.get(absPath);\n   32\t  let lines: string[];\n   33\t\n   34\t  if (cached) {\n   35\t    lines = cached.lines;\n   36\t  } else {\n   37\t    const content = await readFile(absPath, \"utf-8\");\n   38\t    lines = content.split(\"\\n\");\n   39\t  }\n   40\t\n   41\t  // Get AST structure ONCE\n   42\t  const structure = await structureFor(cached, absPath, astIndex);\n   43\t\n   44\t  const N = args.symbols.length;\n   45\t  const sections: string[] = [];\n   46\t\n   47\t  // v0.24.1 — anti-pattern guard. When the caller requests most of the\n   48\t  // symbols in the file, a batch read costs more than one smart_read.\n   49\t  // Earlier versions used sum(lineCount), but ast-index parser bugs\n   50\t  // (arrow functions / export function / Vue SFC / TS types) return\n   51\t  // overlapping ranges that inflate the sum and let the guard miss. The\n   52\t  // count-based check (requested symbols / total top-level symbols) is\n   53\t  // immune to those parser issues.\n   54\t  if (structure && structure.symbols && structure.symbols.length >= 3) {\n   55\t    const uniqueRequested = new Set(args.symbols.map((s) => s.split(\".\")[0]));\n   56\t    const matchedTopLevel = structure.symbols.filter((s) =>\n   57\t      uniqueRequested.has(s.name),\n   58\t    );\n   59\t    const total = structure.symbols.length;\n   60\t    if (matchedTopLevel.length >= 3 && matchedTopLevel.length / total >= 0.7) {\n   61\t      const text =\n   62\t        `FILE: ${args.path} | SYMBOLS: ${N} requested\\n\\n` +\n   63\t        `ADVISORY: You requested ${matchedTopLevel.length}/${total} symbols ` +\n   64\t        `(≥70% of the file's top-level symbols). A batch read here costs ` +\n   65\t        `more than reading the whole file once.\\n\\n` +\n   66\t        `Cheaper alternatives:\\n` +\n   67\t        `  - smart_read(\"${args.path}\") for a structural overview\\n` +\n   68\t        `  - read_for_edit(\"${args.path}\", \"<symbol>\") when you need exact edit context\\n` +\n   69\t        `  - Raw Read with offset/limit for a specific range\\n\\n` +\n   70\t        `If you truly need every body, call read_symbols with a narrower list ` +\n   71\t        `or use raw Read (bounded).`;\n   72\t      return { content: [{ type: \"text\", text }] };\n   73\t    }\n   74\t\n   75\t    // v0.24.1 — sanity-check for parser-produced overlapping ranges. When\n   76\t    // the sum of symbol lineCounts exceeds the actual file line count by\n   77\t    // >1.5× we're almost certainly seeing ast-index getting confused by\n   78\t    // arrow functions / Vue SFCs / type-vs-function. Log once so users\n",
+      "symbol": "handleReadSymbols"
+    },
+    {
+      "line": 121,
+      "path": "src/server.ts",
+      "source": "  121\texport async function createServer(\n  122\t  projectRoot: string,\n  123\t  options?: { skipAstIndex?: boolean; enforcementMode?: EnforcementMode },\n  124\t) {\n  125\t  const mode: EnforcementMode = options?.enforcementMode ?? \"deny\";\n  126\t  // v0.43.0 — the real Claude Code session id. CC exports it to every\n  127\t  // child process (MCP server, hooks, Bash) via CLAUDE_CODE_SESSION_ID —\n  128\t  // verified against the 2.1.167 bundle, and it is the exact same value\n  129\t  // the PreToolUse hooks receive and the statusline payload carries.\n  130\t  // Stamping it on each tool-call row lets the statusline badge attribute\n  131\t  // MCP-tool savings to the current session; before this the rows carried\n  132\t  // an empty session_id and the badge ignored them, undercounting savings.\n  133\t  const ccSessionId = process.env.CLAUDE_CODE_SESSION_ID ?? \"\";\n  134\t  const config = await loadConfig(projectRoot);\n  135\t  const astIndex = new AstIndexClient(projectRoot, config.astIndex.timeout, {\n  136\t    binaryPath: config.astIndex.binaryPath,\n  137\t    autoInstall: true,\n  138\t  });\n  139\t  const fileCache = new FileCache(\n  140\t    config.cache.maxSizeMB,\n  141\t    config.smartRead.smallFileThreshold,\n  142\t  );\n  143\t  const contextRegistry = new ContextRegistry();\n  144\t  const sessionRegistries = new SessionRegistryManager(projectRoot);\n  145\t  // Flush persisted session registries on shutdown (best-effort; every hot\n  146\t  // tool-call path also flushes immediately, so this is only for registries\n  147\t  // whose last access never got a post-call flush). `beforeExit` doesn't\n  148\t  // fire on signal-based termination (SIGINT / SIGTERM), so we hook those\n  149\t  // too — Node runs every signal listener before the default action, giving\n  150\t  // flushAll a fair chance to complete. `process.exit()` bypasses listeners\n  151\t  // entirely; callers that care about durability should not use it.\n  152\t  const shutdownFlush = (): void => {\n  153\t    void sessionRegistries.flushAll();\n  154\t    // Stop the 5-minute ast-index tick so we don't block exit on SIGINT/SIGTERM.\n  155\t    // .unref() already makes it non-keeping, but clearing is defensive and\n  156\t    // avoids a stray `update` firing during shutdown.\n  157\t    astIndex.stopPeriodicUpdate();\n  158\t  };\n  159\t  process.once(\"beforeExit\", shutdownFlush);\n  160\t  process.once(\"SIGINT\", shutdownFlush);\n  161\t  process.once(\"SIGTERM\", shutdownFlush);\n  162\t  const symbolResolver = new SymbolResolver(astIndex);\n  163\t\n  164\t  /**\n  165\t   * TP-69m — pick the right ContextRegistry for this tool call.\n  166\t   *   - force:true  → empty registry (agent wants to bypass dedup)\n  167\t   *   - session_id present → per-session, disk-backed registry\n  168\t   *   - neither    → process-default (legacy behaviour for callers that\n  169\t   *     don't yet know their session_id)\n  170\t   */\n  171\t  function pickRegistry(rawArgs: unknown): {\n  172\t    reg: ContextRegistry;\n  173\t    sessionId: string;\n  174\t    force: boolean;\n  175\t  } {\n  176\t    const a = (rawArgs ?? {}) as Record<string, unknown>;\n  177\t    const force = a.force === true;\n  178\t    const sessionId = typeof a.session_id === \"string\" ? a.session_id : \"\";\n  179\t    if (force) return { reg: new ContextRegistry(), sessionId, force: true };\n  180\t    if (sessionId)\n",
+      "symbol": "createServer"
+    },
+    {
+      "line": 5,
+      "outline": [
+        {
+          "end_line": 24,
+          "kind": "function",
+          "line": 9,
+          "name": "makeSymbol"
+        },
+        {
+          "end_line": 35,
+          "kind": "function",
+          "line": 26,
+          "name": "makeStructure"
+        }
+      ],
+      "outline_hidden": 0,
+      "path": "tests/core/symbol-resolver.test.ts",
+      "symbol": "../../src/core/symbol-resolver.js"
+    }
+  ],
+  "neighbours": [
+    {
+      "kind": "function",
+      "line": 53,
+      "link": "caller",
+      "name": "handleReadForEdit",
+      "path": "src/handlers/read-for-edit.ts"
+    },
+    {
+      "kind": "function",
+      "line": 21,
+      "link": "caller",
+      "name": "handleReadSymbol",
+      "path": "src/handlers/read-symbol.ts"
+    },
+    {
+      "kind": "function",
+      "line": 199,
+      "link": "caller",
+      "name": "sameNameNote",
+      "path": "src/handlers/read-symbol.ts"
+    },
+    {
+      "kind": "function",
+      "line": 19,
+      "link": "caller",
+      "name": "handleReadSymbols",
+      "path": "src/handlers/read-symbols.ts"
+    },
+    {
+      "kind": "function",
+      "line": 121,
+      "link": "caller",
+      "name": "createServer",
+      "path": "src/server.ts"
+    }
+  ],
+  "query": "SymbolResolver",
+  "symbols": [
+    {
+      "kind": "class",
+      "line": 5,
+      "name": "SymbolResolver",
+      "path": "src/core/symbol-resolver.ts",
+      "score": 1000.0,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 53,
+      "name": "handleReadForEdit",
+      "path": "src/handlers/read-for-edit.ts",
+      "score": 60.076565623558785,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 21,
+      "name": "handleReadSymbol",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 60.076565623558785,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 199,
+      "name": "sameNameNote",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 60.076565623558785,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 19,
+      "name": "handleReadSymbols",
+      "path": "src/handlers/read-symbols.ts",
+      "score": 60.076565623558785,
+      "vendor": false
+    },
+    {
+      "kind": "function",
+      "line": 121,
+      "name": "createServer",
+      "path": "src/server.ts",
+      "score": 60.076565623558785,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 12,
+      "name": "./core/symbol-resolver.js",
+      "path": "src/server.ts",
+      "score": 0.4103319129163616,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 0.4048608207441435,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbols.ts",
+      "score": 0.4048608207441435,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 28,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-for-edit.ts",
+      "score": 0.4048608207441435,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 5,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/core/symbol-resolver.test.ts",
+      "score": 0.032990685798475465,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 19,
+      "name": "../../src/core/symbol-resolver.ts",
+      "path": "tests/handlers/read-symbols.test.ts",
+      "score": 0.032990685798475465,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 8,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/read-symbol.test.ts",
+      "score": 0.032990685798475465,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 14,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/honest-counts.test.ts",
+      "score": 0.032990685798475465,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 16,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/cached-structure.test.ts",
+      "score": 0.032990685798475465,
+      "vendor": false
+    }
+  ],
+  "tests": [
+    {
+      "source": "src/core/symbol-resolver.ts",
+      "tests": [
+        "tests/core/symbol-resolver.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-for-edit.ts",
+      "tests": [
+        "tests/handlers/read-for-edit.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-symbol.ts",
+      "tests": [
+        "tests/handlers/read-symbol.test.ts"
+      ]
+    },
+    {
+      "source": "src/handlers/read-symbols.ts",
+      "tests": [
+        "tests/handlers/read-symbols.test.ts"
+      ]
+    },
+    {
+      "source": "src/server.ts",
+      "tests": []
+    },
+    {
+      "source": "tests/core/symbol-resolver.test.ts",
+      "tests": []
+    }
+  ]
+}

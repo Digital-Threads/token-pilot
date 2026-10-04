@@ -1,0 +1,50 @@
+[
+  {
+    "name": "handleExplore",
+    "line": 1406,
+    "context": "const exResult = await handleExplore(exArgs, projectRoot, astIndex);",
+    "path": "src/server.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 53,
+    "context": "const result = await handleExplore(",
+    "path": "tests/handlers/explore-accuracy.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 79,
+    "context": "const result = await handleExplore(",
+    "path": "tests/handlers/explore-accuracy.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 101,
+    "context": "const result = await handleExplore(",
+    "path": "tests/handlers/explore-accuracy.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 130,
+    "context": "const result = await handleExplore(",
+    "path": "tests/handlers/explore-accuracy.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 60,
+    "context": "const out = await handleExplore(",
+    "path": "tests/handlers/explore.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 116,
+    "context": "const vendorOut = await handleExplore(",
+    "path": "tests/handlers/explore.test.ts"
+  },
+  {
+    "name": "handleExplore",
+    "line": 131,
+    "context": "const emptyOut = await handleExplore(",
+    "path": "tests/handlers/explore.test.ts"
+  }
+]

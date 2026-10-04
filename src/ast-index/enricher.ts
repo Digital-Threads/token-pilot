@@ -456,11 +456,13 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
   return out;
 }
 
-/** `raw` with its comments blanked (line breaks kept), the language taken from `filePath`. */
-export function withoutComments(raw: string, filePath: string): string {
+/**
+ * `raw` with its comments and string literals blanked (line breaks and the
+ * code inside `${…}` kept), the language taken from `filePath`.
+ */
+export function codeOnly(raw: string, filePath: string): string {
   const chars = raw.split('');
-  for (const [s, e, isString] of maskSource(raw, detectLanguage(filePath), /\.[jt]sx$/i.test(filePath))) {
-    if (isString) continue;
+  for (const [s, e] of maskSource(raw, detectLanguage(filePath), /\.[jt]sx$/i.test(filePath))) {
     for (let k = s; k < e; k++) if (chars[k] !== '\n') chars[k] = ' ';
   }
 

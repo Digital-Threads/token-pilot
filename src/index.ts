@@ -1494,11 +1494,14 @@ export async function handleInstallAstIndex() {
     const update = await checkBinaryUpdate(status.path);
     if (update.updateAvailable) {
       console.log(
-        `ast-index ${update.current} installed, updating to ${update.latest}...`,
+        `ast-index ${update.current} installed, updating to ${update.tested} (the version token-pilot is tested with)...`,
       );
     } else {
+      const note = update.untested
+        ? ` — newer than ${update.tested}, the version token-pilot is tested with`
+        : "";
       console.log(
-        `ast-index ${status.version} already up to date at ${status.path} (${status.source})`,
+        `ast-index ${status.version} already up to date at ${status.path} (${status.source})${note}`,
       );
       process.exit(0);
     }
@@ -1584,10 +1587,14 @@ export async function handleDoctor() {
     );
     const astUpdate = await checkBinaryUpdate(astStatus.path);
     if (astUpdate.updateAvailable) {
-      console.log(`  latest:       ${astUpdate.latest} (update available!)`);
+      console.log(`  tested:       ${astUpdate.tested} (update available!)`);
       console.log(`  run:          npx token-pilot install-ast-index`);
-    } else if (astUpdate.latest) {
-      console.log(`  latest:       ${astUpdate.latest} ✓ (up to date)`);
+    } else if (astUpdate.untested) {
+      console.log(
+        `  tested:       ${astUpdate.tested} (the installed version is newer and untested with this token-pilot)`,
+      );
+    } else if (astUpdate.current) {
+      console.log(`  tested:       ${astUpdate.tested} ✓ (up to date)`);
     }
 
     const config = await loadConfig(cwd);
@@ -2046,17 +2053,17 @@ export async function checkAllUpdates(
 
   // ast-index
   if (astUpdate.status === "fulfilled" && astUpdate.value?.updateAvailable) {
-    const { current, latest } = astUpdate.value;
+    const { current, tested } = astUpdate.value;
     if (config.updates.autoUpdate) {
       console.error(
-        `[token-pilot] Auto-updating ast-index: ${current} → ${latest}...`,
+        `[token-pilot] Auto-updating ast-index: ${current} → ${tested}...`,
       );
       installBinary((msg) => console.error(`[token-pilot] ${msg}`)).catch(
         () => {},
       );
     } else {
       console.error(
-        `[token-pilot] ast-index update: ${current} → ${latest}. Run: token-pilot install-ast-index`,
+        `[token-pilot] ast-index update: ${current} → ${tested}. Run: token-pilot install-ast-index`,
       );
     }
   }

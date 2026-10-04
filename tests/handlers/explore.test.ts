@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { handleExplore } from "../../src/handlers/explore.js";
+import { AstIndexClient } from "../../src/ast-index/client.js";
 import type { AstIndexExploreResult } from "../../src/ast-index/types.js";
 
 function fakeAstIndex(result: AstIndexExploreResult) {
@@ -135,5 +137,66 @@ describe("handleExplore", () => {
     );
     expect(emptyOut.content[0].text).toContain("No results");
     expect(emptyOut.meta.symbolCount).toBe(0);
+  });
+
+  // Real `explore SymbolResolver -f 1 --format json` output: for a class,
+  // ast-index 3.56 sends the file's outline instead of its source.
+  describe("ranked files from both ast-index versions", () => {
+    const repoRoot = join(__dirname, "..", "..");
+    const fixture = (name: string) =>
+      readFileSync(join(repoRoot, "tests", "fixtures", "ast-index", name), "utf-8");
+    const run = async (json: string) => {
+      const client = new AstIndexClient(repoRoot) as any;
+      client.binaryPath = "/bin/ast-index";
+      client.ensureIndex = async () => {};
+      client.exec = async () => json;
+
+      return (await handleExplore({ query: "SymbolResolver" }, repoRoot, client)).content[0].text;
+    };
+
+    it("ast-index 3.50: shows the file's source", async () => {
+      const text = await run(fixture("explore-class-3.50.json"));
+
+      expect(text).toContain("src/core/symbol-resolver.ts:5");
+      expect(text).toContain("    5\texport class SymbolResolver {");
+    });
+
+    it("ast-index 3.56: shows the file's outline when there is no source", async () => {
+      const text = await run(fixture("explore-class-3.56.json"));
+
+      expect(text).toContain("src/core/symbol-resolver.ts:5");
+      expect(text).toContain("→ :5-100 SymbolResolver [class]");
+      expect(text).toContain("  :19-43 resolve [function]");
+      expect(text).toContain("  :6 astIndex [property]");
+    });
+
+    it("ast-index 3.56: shows 8 outline entries and counts the rest with those the binary left out", async () => {
+      const json = JSON.parse(fixture("explore-class-3.56.json"));
+      json.files[0].outline_hidden = 3;
+      const text = await run(JSON.stringify(json));
+
+      expect(text).toContain("  :92-94 pick [function]");
+      expect(text).not.toContain("pathMatches [function]");
+      expect(text).toContain("  … 4 more");
+    });
+
+    // Real `explore SymbolResolver --format json --rwr` (6 files): 3.56 sends
+    // whole function bodies (up to 60 lines), 3.50 mostly a short head.
+    it("the 3.56 answer renders no bigger than the 3.50 one", async () => {
+      const v350 = await run(fixture("explore-rwr-3.50.json"));
+      const v356 = await run(fixture("explore-rwr-3.56.json"));
+
+      expect(v356.length).toBeLessThanOrEqual(v350.length);
+    });
+
+    it("cuts a long source and says how many lines were left out", async () => {
+      const text = await run(fixture("explore-rwr-3.56.json"));
+      const handleReadSymbol = text.split("src/handlers/read-symbol.ts:21\n```\n")[1].split("```")[0];
+
+      expect(handleReadSymbol.split("\n")[0]).toBe("   21\texport async function handleReadSymbol(");
+      expect(handleReadSymbol).toContain("   28\t  advisoryReminders = true,\n");
+      expect(handleReadSymbol).not.toContain("   29\t");
+      expect(handleReadSymbol).toContain("  … 52 more lines\n");
+    });
   });
 });

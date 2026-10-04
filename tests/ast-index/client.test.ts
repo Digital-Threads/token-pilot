@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -797,6 +798,53 @@ describe("AstIndexClient", () => {
       files: [],
       neighbours: [],
       tests: [],
+    });
+  });
+
+  // Real output: ast-index 3.50 prints a bare array, 3.56 wraps the same
+  // entries in { schema_version, items, pagination }.
+  describe.each(["3.50", "3.56"])("list JSON of ast-index %s", (version) => {
+    const fixture = (name: string) =>
+      readFileSync(join(__dirname, "../fixtures/ast-index", `${name}-${version}.json`), "utf-8");
+    const clientAnswering = (json: string) => {
+      const client = new AstIndexClient(tempDir) as any;
+      client.binaryPath = "/bin/ast-index";
+      client.ensureIndex = async () => {};
+      client.exec = async () => json;
+
+      return client;
+    };
+
+    it("symbol() finds the definition", async () => {
+      expect(await clientAnswering(fixture("symbol")).symbol("SymbolResolver")).toEqual({
+        name: "SymbolResolver",
+        kind: "class",
+        file: "src/core/symbol-resolver.ts",
+        start_line: 5,
+        signature: "export class SymbolResolver {",
+      });
+    });
+
+    it("usages() lists every call site", async () => {
+      const usages = await clientAnswering(fixture("usages")).usages("handleExplore");
+
+      expect(usages).toHaveLength(8);
+      expect(usages[0]).toEqual({
+        file: "src/server.ts",
+        line: 1406,
+        text: "const exResult = await handleExplore(exArgs, projectRoot, astIndex);",
+        kind: "reference",
+      });
+    });
+
+    // `search Outline --limit 5`: `files` is a list of path strings.
+    it("search() keeps file-name hits, marked as such", async () => {
+      const hits = await clientAnswering(fixture("search-files")).search("Outline", { maxResults: 5 });
+
+      expect(hits.filter((h: any) => h.kind === "file")).toEqual([
+        { file: "src/handlers/outline.ts", line: 0, text: "src/handlers/outline.ts", kind: "file" },
+        { file: "tests/handlers/outline.test.ts", line: 0, text: "tests/handlers/outline.test.ts", kind: "file" },
+      ]);
     });
   });
 });

@@ -9,6 +9,15 @@ import type { ExploreArgs } from "../core/validation.js";
 
 const MAX_RANKED_SYMBOLS = 12;
 
+/**
+ * Source lines (or outline entries) shown per ranked file. ast-index 3.50
+ * cut a hit's source at the next symbol it had indexed (often a parameter) —
+ * a median of 8 lines over 59 functions of this repo; 3.56 sends the whole
+ * body up to 60 lines, or a class's full outline, twice the output.
+ * read_symbol and smart_read show the rest.
+ */
+const MAX_SOURCE_LINES = 8;
+
 export interface ExploreMeta {
   query: string;
   symbolCount: number;
@@ -70,14 +79,26 @@ export async function handleExplore(
     }
   }
 
-  // Source — file heads (source is already line-numbered)
+  // Source — file heads (source is already line-numbered); for a class or
+  // module hit ast-index ≥3.56 sends the file's outline instead.
   if (result.files.length > 0) {
     lines.push("");
     lines.push("## Source");
     for (const f of result.files) {
       lines.push(`${f.path}:${f.line}`);
       lines.push("```");
-      lines.push(f.source.replace(/\n+$/, ""));
+      const source = f.source?.replace(/\n+$/, "").split("\n") ?? [];
+      lines.push(...source.slice(0, MAX_SOURCE_LINES));
+      if (source.length > MAX_SOURCE_LINES) {
+        lines.push(`  … ${source.length - MAX_SOURCE_LINES} more lines`);
+      }
+      const outline = f.outline ?? [];
+      for (const o of outline.slice(0, MAX_SOURCE_LINES)) {
+        const span = o.end_line > o.line ? `${o.line}-${o.end_line}` : `${o.line}`;
+        lines.push(`${o.line === f.line ? "→" : " "} :${span} ${o.name} [${o.kind}]`);
+      }
+      const hidden = (f.outlineHidden ?? 0) + Math.max(0, outline.length - MAX_SOURCE_LINES);
+      if (hidden > 0) lines.push(`  … ${hidden} more`);
       lines.push("```");
     }
   }
@@ -163,7 +184,7 @@ export async function handleExplore(
  * Ranked symbols worth showing. Next to the query's own hits ast-index ranks
  * graph callers, named after the nearest symbol above a call site — often a
  * nested helper that never calls the hit. A symbol whose name does not match
- * the query stays only when its own body (comments aside) references one
+ * the query stays only when its own code (comments and strings aside) references one
  * that does. Without any name match there is nothing to check against.
  */
 async function relevantSymbols(

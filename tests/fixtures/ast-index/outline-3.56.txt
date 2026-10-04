@@ -1,0 +1,10 @@
+Outline of tests/fixtures/symbols/component.tsx:
+  :3 Props [interface]
+  :5-12 List [class]
+  :14-34 Page [class]
+  :17 warn [function]
+  :21-23 handleSave [function]
+  :36 ratio [function]
+  :38-40 Other [class]
+  :42-46 Third [class]
+  :43-45 run [function]

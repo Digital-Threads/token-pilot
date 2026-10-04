@@ -69,7 +69,7 @@
   "mcpName": "io.github.Digital-Threads/token-pilot",
   "license": "MIT",
   "dependencies": {
-    "@ast-index/cli": "^3.48.1",
+    "@ast-index/cli": "3.56.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chokidar": "^4.0.3"
   },
