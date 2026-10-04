@@ -252,6 +252,9 @@ describe("index stdin hooks", () => {
     // v0.30.4 — default deny mode yields an additionalContext hint, not a
     // hard permissionDecision=deny. Hard block is reserved for strict mode.
     const fixtureRoot = await mkdtemp(join(tmpdir(), "token-pilot-edit-hook-"));
+    // The file must lie inside the project: outside it the gate stands aside.
+    const originalRoot = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = fixtureRoot;
     try {
       const filePath = join(fixtureRoot, "app.ts");
       await writeFile(filePath, "export const x = 1;\n");
@@ -269,6 +272,8 @@ describe("index stdin hooks", () => {
       expect(payload).toContain("additionalContext");
       expect(payload).toContain("read_for_edit");
     } finally {
+      if (originalRoot === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = originalRoot;
       await rm(fixtureRoot, { recursive: true, force: true });
     }
   });
@@ -278,6 +283,8 @@ describe("index stdin hooks", () => {
       join(tmpdir(), "token-pilot-edit-hook-strict-"),
     );
     const originalMode = process.env.TOKEN_PILOT_MODE;
+    const originalRoot = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = fixtureRoot;
     try {
       process.env.TOKEN_PILOT_MODE = "strict";
       const filePath = join(fixtureRoot, "app.ts");
@@ -297,6 +304,8 @@ describe("index stdin hooks", () => {
     } finally {
       if (originalMode === undefined) delete process.env.TOKEN_PILOT_MODE;
       else process.env.TOKEN_PILOT_MODE = originalMode;
+      if (originalRoot === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = originalRoot;
       await rm(fixtureRoot, { recursive: true, force: true });
     }
   });

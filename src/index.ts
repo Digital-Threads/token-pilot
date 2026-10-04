@@ -1131,6 +1131,7 @@ async function runHookReadDispatchImpl(
     filePath,
     summary: pipelineResult.summary,
     tier: pipelineResult.tier,
+    threshold: effectiveThreshold,
   });
   await writeEvent("denied", Math.ceil(message.length / 4));
 
@@ -1156,7 +1157,7 @@ async function runHookReadDispatchImpl(
         },
         additionalContext:
           `[token-pilot] Read on ${filePath} was rewritten to lines 1-200 ` +
-          `(file has ${lineCount} lines). For full structure use mcp__token-pilot__smart_read(${filePath}).\n\n` +
+          `(file has ${lineCount} lines). For full structure use ${toolPrefix()}smart_read(${filePath}).\n\n` +
           message,
       },
     });
@@ -1228,6 +1229,7 @@ export function handleHookEdit() {
     fileExists,
     isPrepared,
     bypassed,
+    outsideProject: fileExists && !isPathWithinProject(filePath, projectRoot),
   });
 
   const rendered = renderPreEditOutput(decision);

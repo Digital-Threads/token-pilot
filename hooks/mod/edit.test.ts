@@ -68,3 +68,28 @@ test('a subagent in a worktree can Edit the file it prepared with a relative rea
 
   expect(res.deny).toBe(undefined)
 })
+
+test('a file the agent just wrote needs no read_for_edit before its Edit', async ($, on) => {
+  base(on)
+
+  await $.tool.call({ tool: 'Write', file_path: '/repo/src/new.ts', content: 'export const a = 1\n' } as any)
+  const res: any = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/new.ts', old_string: 'a', new_string: 'b' } as any)
+
+  expect(res.context ?? []).toEqual([])
+})
+
+test('strict mode does not gate a file outside the project (read_for_edit refuses it)', async ($, on) => {
+  base(on, 'strict')
+
+  const res: any = await $.tool.call({ tool: 'Edit', file_path: '/elsewhere/a.ts', old_string: 'a', new_string: 'b' } as any)
+
+  expect(res.deny).toBe(undefined)
+})
+
+test('names no environment variable the agent would have to set', async ($, on) => {
+  base(on, 'strict')
+
+  const res: any = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' } as any)
+
+  expect(res.deny).not.toContain('in the environment')
+})
