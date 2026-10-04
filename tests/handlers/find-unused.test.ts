@@ -5,6 +5,7 @@
  * word search across the project; anything referenced anywhere is dropped.
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,5 +126,64 @@ describe('handleFindUnused', () => {
 
     expect(text).toMatch(/more may exist/);
     expect(ast.unusedSymbols.mock.calls[0][0].limit).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it.skipIf(process.platform === 'win32')('finds the same references as a git word search, without running git grep', async () => {
+    // one-letter names make `git grep -w -F` slow: every letter matches, then -w rejects it
+    await project(root, {
+      '.gitignore': 'ignored/\n',
+      'src/a.ts': [
+        'export function x() {}',
+        'export function longName() {}',
+        'export function reallyDead() {}',
+        'export function ignoredOnly() {}',
+        'export function binOnly() {}',
+        'export function dollarName() {}',
+        '',
+      ].join('\n'),
+      'src/use.ts': 'const v = x() + xx + x1;\n',
+      'src/lib.rs': 'struct Foo;\nimpl Foo {\n}\n',
+      'src/other.rs': '// see impl Foo\n',
+      'src/p.php': '<?php echo $dollarName;\n',
+      'ignored/x.ts': 'ignoredOnly();\n',
+    });
+    await writeFile(join(root, 'src', 'blob.bin'), Buffer.from('\u0000binOnly\n'));
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: root, encoding: 'utf-8' });
+    git('init', '-q');
+    git('add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init');
+    await writeFile(join(root, 'src', 'new.ts'), 'longName();\n'); // untracked, not ignored
+
+    const cands: Cand[] = [
+      ...['x', 'longName', 'reallyDead', 'ignoredOnly', 'binOnly', 'dollarName'].map((name, i) => (
+        { name, kind: 'function', path: 'src/a.ts', line: i + 1, signature: `export function ${name}() {}` })),
+      { name: 'impl Foo', kind: 'class', path: 'src/lib.rs', line: 2, signature: 'impl Foo {' },
+    ];
+
+    // reference answer: the word search the handler used to run
+    const grep = git('grep', '--untracked', '-I', '-n', '-o', '-w', '-F', ...cands.flatMap((c) => ['-e', c.name]));
+    const defs = new Set(cands.map((c) => `${c.path}:${c.line}:${c.name}`));
+    const used = new Set(grep.split('\n').filter((r) => r && !defs.has(r)).map((r) => r.split(':').slice(2).join(':')));
+    const expected = cands.map((c) => c.name).filter((n) => !used.has(n)).sort();
+    expect(expected).toEqual(['binOnly', 'ignoredOnly', 'reallyDead']);
+
+    // a git that logs its subcommands
+    const bin = join(root, '.fakebin');
+    await mkdir(bin);
+    const log = join(bin, 'log');
+    const real = execFileSync('which', ['git'], { encoding: 'utf-8' }).trim();
+    await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$1" >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    let text: string;
+    try {
+      text = (await handleFindUnused({}, stub(root, cands))).content[0].text;
+    } finally {
+      process.env.PATH = path;
+    }
+
+    const reported = cands.map((c) => c.name).filter((n) => new RegExp(`(function|class) ${n} \\(L`).test(text)).sort();
+    expect(reported).toEqual(expected);
+    expect(readFileSync(log, 'utf-8')).not.toMatch(/^grep$/m);
   });
 });

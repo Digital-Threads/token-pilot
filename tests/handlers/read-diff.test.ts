@@ -121,4 +121,36 @@ describe('handleReadDiff', () => {
     expect(text).toContain('TWO');
     expect(watcher.takeBaseline(filePath)).toBeUndefined(); // consumed
   });
+
+  it('diffs against the version read last, not the first one, after read → edit → re-read → edit', async () => {
+    const cache = new FileCache();
+    const watcher = new FileWatcher(tempDir, cache, new ContextRegistry(), []);
+    const read = (content: string) => cache.set(filePath, {
+      structure: { path: filePath, language: 'ts', meta: { lines: 3, bytes: content.length, lastModified: Date.now(), contentHash: 'h' }, imports: [], exports: [], symbols: [] },
+      content,
+      lines: content.split('\n'),
+      mtime: Date.now(),
+      hash: createHash('sha256').update(content).digest('hex'),
+      lastAccess: Date.now(),
+    });
+
+    read('one\ntwo\nthree\n');
+    await writeFile(filePath, 'one\nTWO\nthree\n');
+    watcher.handleChange(filePath);
+    read('one\nTWO\nthree\n');
+    await writeFile(filePath, 'one\nTWO\nTHREE\n');
+    watcher.handleChange(filePath);
+
+    const result = await handleReadDiff(
+      { path: 'file.ts' },
+      tempDir,
+      cache,
+      new ContextRegistry(),
+      (p) => watcher.takeBaseline(p),
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('THREE');
+    expect(text).not.toMatch(/\btwo\b/);
+  });
 });

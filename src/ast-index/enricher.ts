@@ -30,11 +30,15 @@ const SINGLE_LINE_QUOTES = new Set([
 ]);
 const TRIPLE_DOUBLE_QUOTES = new Set(['Python', 'Kotlin', 'Java', 'Swift', 'Scala', 'C#', 'Dart', 'Elixir']);
 const TRIPLE_SINGLE_QUOTES = new Set(['Python', 'Dart']);
+/** Languages whose strings hold `${…}` code (Scala only in `s"…"`-style interpolators). */
+const DOLLAR_TEMPLATES = new Set(['Kotlin', 'Dart', 'Scala']);
 const REGEX_PREFIX_WORDS = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
 ]);
 /** After a `{…}` block these mean the declaration goes on (return type, `=>`, union, `= value`). */
 const CONTINUES_AFTER_BLOCK = new Set(['{', '=', '>', '|', '&', ':', '.']);
+/** A JS line starting with one of these continues the expression above (no ASI). */
+const JS_CONTINUATION = new Set(['.', '?', ':', '(', '[', '+', '-', '*', '/', '%', '&', '|', '^', '<', '>', '=', ',', '`']);
 /** A Go line ending in one of these continues on the next line. */
 const GO_CONTINUATION = new Set([',', '(', '[', '=', '+', '-', '*', '/', '&', '|', '.', ':', '<', '>', '!', '^', '%']);
 const TEST_FILE_RE = /(^|[\\/])(__tests__|tests?)[\\/]|\.(test|spec)\.[cm]?[jt]sx?$/;
@@ -54,7 +58,7 @@ export async function buildFileStructure(
   const content = await readFile(filePath, 'utf-8');
   const fileStat = await stat(filePath);
   const lang = detectLanguage(filePath);
-  const src = new Source(content, lang);
+  const src = new Source(content, lang, /\.[jt]sx$/i.test(filePath));
   const symbols = buildSymbols(entries, src, lang, filePath);
 
   return {
@@ -87,12 +91,12 @@ class Source {
   /** Per line (0-based): `{` nesting depth at the start of the line. */
   readonly braceDepth: Int32Array;
 
-  constructor(readonly raw: string, readonly lang: string) {
+  constructor(readonly raw: string, readonly lang: string, jsx = false) {
     this.rawLines = raw.split('\n');
     this.lineStarts = [0];
     for (let k = 0; k < raw.length; k++) if (raw.charCodeAt(k) === 10) this.lineStarts.push(k + 1);
 
-    const masked = maskSource(raw, lang);
+    const masked = maskSource(raw, lang, jsx);
     const chars = raw.split('');
     const commentLine = new Uint8Array(this.lineStarts.length);
     const stringLine = new Uint8Array(this.lineStarts.length);
@@ -193,10 +197,11 @@ function isWordChar(ch: string): boolean {
 
 /**
  * Ranges of comments (false) and string/regex literals (true) to blank out.
- * Code inside JS template interpolations `${…}` stays visible; the `${` and
- * its closing `}` are blanked so they never count as a block.
+ * Code inside template interpolations `${…}` (JS, Kotlin, Dart, Scala) stays
+ * visible; the `${` and its closing `}` are blanked so they never count as a block. In JSX/TSX
+ * `</tag>` and `/>` are tags, never the start of a regex literal.
  */
-function maskSource(raw: string, lang: string): Array<[number, number, boolean]> {
+function maskSource(raw: string, lang: string, jsx = false): Array<[number, number, boolean]> {
   const js = JS_LANGUAGES.has(lang);
   const go = lang === 'Go';
   const hashComments = HASH_COMMENT_LANGUAGES.has(lang);
@@ -206,7 +211,8 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
   const tripleSq = TRIPLE_SINGLE_QUOTES.has(lang);
   const n = raw.length;
   const out: Array<[number, number, boolean]> = [];
-  const interpolation: number[] = [];
+  /** Open `${…}`: brace depth inside it, and the string it returns to (`, ", """…). */
+  const interpolation: Array<{ depth: number; close: string }> = [];
   let prevSig = '';
   let prevWord = '';
 
@@ -222,37 +228,112 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
       if (ch === '\\') { j++; continue; }
       if (ch === '`') return j + 1;
       if (ch === '$' && raw[j + 1] === '{') {
-        interpolation.push(0);
+        interpolation.push({ depth: 0, close: '`' });
         return j + 2;
       }
     }
     return n;
   };
 
-  /** End of a quoted literal, or -1 when it is not one (unterminated in JS). */
+  // Failed scans remember where they stopped, so a hostile file (thousands of
+  // openers that never close) costs one pass, not one pass per opener.
+  const quoteFail = new Map<string, number>();
+  let regexFail = -1;
+
+  /**
+   * End of a quoted literal, or -1 when it is not one (unterminated in JS, or
+   * never closed). A later opener of the same kind before the point where a
+   * failed scan stopped was skipped as escaped by that scan, so from the next
+   * character on both read the same text: it fails too, answered at once.
+   */
   const scanQuoted = (i: number, q: string): number => {
-    if ((q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q) {
-      for (let j = i + 3; j < n; j++) {
-        if (raw[j] === '\\') { j++; continue; }
-        if (raw[j] === q && raw[j + 1] === q && raw[j + 2] === q) return j + 3;
-      }
-      return n;
-    }
-    for (let j = i + 1; j < n; j++) {
-      const ch = raw[j];
-      if (ch === '\\') { j++; continue; }
-      if (ch === q) return j + 1;
-      if (ch === '\n' && singleLine) return js ? -1 : j;
-    }
-    return js ? -1 : n;
+    const triple = (q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q;
+    const close = triple ? q + q + q : q;
+    const dollar = DOLLAR_TEMPLATES.has(lang) && (q === '"' || lang === 'Dart')
+      && (lang !== 'Scala' || isWordChar(raw[i - 1] ?? ''));
+    // a failed ${}-string never went past a `${`, so the same reasoning holds
+    const kind = dollar ? close + '$' : close;
+    if (i < (quoteFail.get(kind) ?? -1)) return -1;
+    const e = scanString(i + close.length, close, dollar);
+    if (e < 0) quoteFail.set(kind, failedAt);
+
+    return e;
   };
 
+  let failedAt = 0;
+
+  /**
+   * The rest of a string closed by `close`, from `from`: after its closing
+   * quote, after a `${` that opens code (`dollar`), at the newline of a
+   * single-line string, or -1 with `failedAt` set to where it stopped.
+   */
+  const scanString = (from: number, close: string, dollar: boolean): number => {
+    const q = close[0];
+    const triple = close.length === 3;
+    for (let j = from; j < n; j++) {
+      const ch = raw[j];
+      if (ch === '\\') { j++; continue; }
+      if (ch === q && (!triple || (raw[j + 1] === q && raw[j + 2] === q))) return j + close.length;
+      if (dollar && ch === '$' && raw[j + 1] === '{') {
+        interpolation.push({ depth: 0, close });
+        return j + 2;
+      }
+      if (ch === '\n' && singleLine && !triple) {
+        if (!js) return j;
+        failedAt = j;
+        return -1;
+      }
+    }
+    failedAt = n;
+    return -1;
+  };
+
+  /** Per word at a line start (after spaces/tabs): [line start, word end] pairs, in order. */
+  let lineWords: Map<string, number[]> | null = null;
+
+  /** PHP heredoc / nowdoc at `i` (`<<<ID`, `<<<"ID"`, `<<<'ID'`): end of its closing marker, or -1. */
+  const scanHeredoc = (i: number): number => {
+    const m = /^<<<[ \t]*(["']?)([A-Za-z_]\w*)\1\r?\n/.exec(raw.slice(i, i + 200));
+    if (!m) return -1;
+    if (!lineWords) {
+      lineWords = new Map();
+      for (const w of raw.matchAll(/^[ \t]*(\w+)/gm)) {
+        const list = lineWords.get(w[1]) ?? [];
+        list.push(w.index, w.index + w[0].length);
+        lineWords.set(w[1], list);
+      }
+    }
+
+    // the closing marker: the first line after the opener that starts with the identifier
+    const list = lineWords.get(m[2]) ?? [];
+    const body = i + m[0].length;
+    let lo = 0;
+    let hi = list.length / 2;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid * 2] < body) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < list.length / 2 ? list[lo * 2 + 1] : -1;
+  };
+
+  /**
+   * A regex literal from `/` at `i` to after its flags, or -1. A later `/`
+   * before the point where a failed scan stopped was escaped or inside a
+   * class for that scan; this scan can differ from it only until either one
+   * meets `[` or `]` — from there both read alike and fail alike.
+   */
   const scanRegex = (i: number): number => {
+    const quick = i < regexFail;
     let inClass = false;
     for (let j = i + 1; j < n; j++) {
       const ch = raw[j];
-      if (ch === '\n') return -1;
+      if (ch === '\n') {
+        regexFail = j;
+        return -1;
+      }
       if (ch === '\\') { j++; continue; }
+      if (quick && (ch === '[' || ch === ']')) return -1;
       if (inClass) {
         if (ch === ']') inClass = false;
       } else if (ch === '[') {
@@ -263,6 +344,7 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
         return k;
       }
     }
+    regexFail = n;
     return -1;
   };
 
@@ -292,6 +374,17 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
       continue;
     }
 
+    if (lang === 'PHP' && c === '<' && d === '<' && raw[i + 2] === '<') {
+      const e = scanHeredoc(i);
+      if (e > 0) {
+        out.push([i, e, true]);
+        prevSig = 'a';
+        prevWord = '';
+        i = e;
+        continue;
+      }
+    }
+
     if (c === '"' || c === "'" || (c === '`' && (js || go))) {
       // Rust lifetimes ('a) are not char literals
       if (c === "'" && lang === 'Rust' && d !== '\\' && raw[i + 2] !== "'") {
@@ -316,8 +409,9 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
     }
 
     if (js && c === '/') {
-      const allowed = prevSig === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prevSig)
-        || (prevSig === 'a' && REGEX_PREFIX_WORDS.has(prevWord));
+      const tag = jsx && (prevSig === '<' || d === '>');
+      const allowed = !tag && (prevSig === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prevSig)
+        || (prevSig === 'a' && REGEX_PREFIX_WORDS.has(prevWord)));
       const e = allowed ? scanRegex(i) : -1;
       if (e > 0) {
         out.push([i, e, true]);
@@ -328,19 +422,21 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
       }
     }
 
-    if (js && interpolation.length > 0) {
-      const top = interpolation.length - 1;
-      if (c === '{') interpolation[top]++;
+    if (interpolation.length > 0) {
+      const top = interpolation[interpolation.length - 1];
+      if (c === '{') top.depth++;
       else if (c === '}') {
-        if (interpolation[top] === 0) {
+        if (top.depth === 0) {
           interpolation.pop();
-          const e = scanTemplate(i + 1);
+          // back in the string; one that never closes runs to the end of the file
+          const back = top.close === '`' ? scanTemplate(i + 1) : scanString(i + 1, top.close, true);
+          const e = back < 0 ? n : back;
           out.push([i, e, true]);
           prevSig = 'a';
           i = e;
           continue;
         }
-        interpolation[top]--;
+        top.depth--;
       }
     }
 
@@ -358,6 +454,17 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
     i++;
   }
   return out;
+}
+
+/** `raw` with its comments blanked (line breaks kept), the language taken from `filePath`. */
+export function withoutComments(raw: string, filePath: string): string {
+  const chars = raw.split('');
+  for (const [s, e, isString] of maskSource(raw, detectLanguage(filePath), /\.[jt]sx$/i.test(filePath))) {
+    if (isString) continue;
+    for (let k = s; k < e; k++) if (chars[k] !== '\n') chars[k] = ' ';
+  }
+
+  return chars.join('');
 }
 
 // ─── Symbols ────────────────────────────────────────────────────────────
@@ -427,7 +534,7 @@ function buildSymbols(
     const next = syms[k];
     const limit = next ? src.lineStarts[next.start - 1] : src.code.length;
     let end = -1;
-    if (brace) end = braceEnd(src, sym, limit, lang === 'Go');
+    if (brace) end = braceEnd(src, sym, limit, lang === 'Go', JS_LANGUAGES.has(lang) && isVarDecl(src.codeLine(sym.decl)));
     else if (lang === 'Python') end = indentEnd(src, sym.decl);
     if (end < 0) end = src.lastCodeLine(limit, sym.decl);
     sym.end = Math.max(end, sym.decl);
@@ -605,9 +712,10 @@ function docText(lines: string[]): string | undefined {
 /**
  * End of a declaration in a brace language: the block it opens, the `;` that
  * ends it, or the last code line before the enclosing block closes / the next
- * symbol starts. -1 when the braces do not balance.
+ * symbol starts. -1 when the braces do not balance. `asi`: a JS const/let/var
+ * without `;` ends where its expression closes, unless the next line goes on.
  */
-function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
+function braceEnd(src: Source, sym: Sym, limit: number, go: boolean, asi = false): number {
   const code = src.code;
   const n = code.length;
   let paren = 0;
@@ -644,6 +752,10 @@ function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
     else if (ch === ')') { if (paren > 0) paren--; }
     else if (ch === '[') bracket++;
     else if (ch === ']') { if (bracket > 0) bracket--; }
+    if (asi && paren === 0 && bracket === 0 && (ch === ')' || ch === ']')) {
+      const k = src.nextCodeIndex(j + 1);
+      if (k >= n || (src.lineOf(k) > src.lineOf(j) && !JS_CONTINUATION.has(code[k]))) return src.lineOf(j);
+    }
     else if (ch === '{') {
       // a block inside (...) or [...] — skip it whole
       const close = src.match[j];
@@ -652,6 +764,10 @@ function braceEnd(src: Source, sym: Sym, limit: number, go: boolean): number {
     j++;
   }
   return src.lastCodeLine(n, sym.decl);
+}
+
+function isVarDecl(line: string): boolean {
+  return /^\s*(?:export\s+)?(?:declare\s+)?(?:const|let|var)\s/.test(line);
 }
 
 /** Python: the block is every following line indented deeper than the header. */

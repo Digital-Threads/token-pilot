@@ -5,6 +5,9 @@
  * node_modules, dist, coverage and .git out of every result it returns.
  */
 import { describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   AstIndexClient,
   isExcludedPath,
@@ -30,6 +33,27 @@ describe("isExcludedPath", () => {
     expect(isExcludedPath("/repo/node_modules/a.d.ts", "/repo")).toBe(true);
     // A project that itself lives under a "dist" directory is not excluded.
     expect(isExcludedPath("/home/u/dist/proj/src/a.ts", "/home/u/dist/proj")).toBe(false);
+  });
+
+  it("dist and coverage are build output only at the project root; a source dir of that name stays", () => {
+    expect(isExcludedPath("internal/coverage/cover.go")).toBe(false);
+    expect(isExcludedPath("pkg/dist/plan.ts")).toBe(false);
+    expect(isExcludedPath("/repo/internal/coverage/cover.go", "/repo")).toBe(false);
+    expect(isExcludedPath("./dist/index.js")).toBe(true);
+    expect(isExcludedPath("/repo/coverage/lcov.info", "/repo")).toBe(true);
+    expect(isExcludedPath("packages/a/node_modules/x.d.ts")).toBe(true);
+    expect(isExcludedPath("vendor/x/.git/HEAD")).toBe(true);
+  });
+
+  it("listFiles keeps a nested coverage/ or dist/ directory in the index query", async () => {
+    const client = clientWith(() => JSON.stringify({ rows: [{ path: "internal/coverage/cover.go" }] }));
+
+    expect(await client.listFiles()).toEqual(["internal/coverage/cover.go"]);
+    const sql: string = client.exec.mock.calls[0][0][1];
+    expect(sql).toContain("'%/node_modules/%'");
+    expect(sql).not.toContain("'%/coverage/%'");
+    expect(sql).not.toContain("'%/dist/%'");
+    expect(sql).toContain("'coverage/%'");
   });
 });
 
@@ -153,6 +177,64 @@ describe("AstIndexClient drops excluded directories from results", () => {
     expect(tree?.callers?.map((c: any) => c.name)).toEqual(["getProfile", "route"]);
     expect(tree?.callers?.[0].callers?.map((c: any) => c.name)).toEqual(["route"]);
     expect(tree?.dropped).toBe(1);
+  });
+
+  it("callTree keeps a caller only when its body references the callee outside comments", async () => {
+    const root = mkdtempSync(join(tmpdir(), "tp-calltree-"));
+    try {
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src", "parser.ts"), [
+        "export function parseFileCount(text: string): number {",
+        "  return Number(text);",
+        "}",
+        "",
+        "/**",
+        " * buildFileStructure() rebuilds nesting from these entries.",
+        " */",
+        "export function parseOutlineText(text: string): string[] {",
+        "  return text.split(\"\\n\");",
+        "}",
+        "",
+        "export function onlyComment(): number {",
+        "  // buildFileStructure runs later",
+        "  return 1;",
+        "}",
+        "",
+        "export function realCaller(): unknown {",
+        "  return buildFileStructure(\"x\");",
+        "}",
+        "",
+      ].join("\n"));
+      const client = new AstIndexClient(root) as any;
+      client.binaryPath = "/bin/ast-index";
+      client.ensureIndex = async () => {};
+      client.exec = vi.fn(async (args: string[]) =>
+        args[0] === "query"
+          ? JSON.stringify({
+              rows: [
+                { path: "src/parser.ts", line: 1, name: "parseFileCount" },
+                { path: "src/parser.ts", line: 12, name: "onlyComment" },
+                { path: "src/parser.ts", line: 17, name: "realCaller" },
+                { path: "src/client.ts", line: 5, name: "buildIndex" },
+              ],
+            })
+          : [
+              "Call tree for 'buildFileStructure':",
+              "  buildFileStructure",
+              "    ← parseFileCount (src/parser.ts:1)",
+              "      ← buildIndex (src/client.ts:5)",
+              "    ← onlyComment (src/parser.ts:12)",
+              "    ← realCaller (src/parser.ts:17)",
+            ].join("\n"),
+      );
+
+      const tree = await client.callTree("buildFileStructure", 2);
+
+      expect(tree?.callers?.map((c: any) => c.name)).toEqual(["realCaller"]);
+      expect(tree?.dropped).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("callTree marks a level that hit the per-level cap before vendored callers are dropped", async () => {

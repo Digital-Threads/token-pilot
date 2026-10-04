@@ -24,6 +24,7 @@ import {
   parseCsvSectionSpec,
 } from "./csv-sections.js";
 import type { AstIndexClient } from "../ast-index/client.js";
+import { codeLines, mentions } from "../ast-index/references.js";
 import type { SymbolResolver } from "../core/symbol-resolver.js";
 import type { FileCache } from "../core/file-cache.js";
 import type { ContextRegistry } from "../core/context-registry.js";
@@ -364,6 +365,8 @@ export async function handleReadForEdit(
   let startLine: number;
   let endLine: number;
   let targetLabel: string;
+  // "Class.method" when the resolver knows the owner, for include_callers
+  let qualified = args.symbol ?? "";
 
   if (args.symbol) {
     // Resolve symbol via AST
@@ -384,6 +387,7 @@ export async function handleReadForEdit(
     const symbolLines = resolved.endLine - resolved.startLine + 1;
     const MAX_EDIT_LINES = 60;
 
+    qualified = resolved.symbol?.qualifiedName ?? args.symbol;
     startLine = resolved.startLine;
 
     if (symbolLines <= MAX_EDIT_LINES) {
@@ -442,18 +446,34 @@ export async function handleReadForEdit(
 
   // --- Optional enrichment sections ---
 
-  // include_callers: compact caller list via ast-index refs
+  // include_callers: compact caller list via ast-index refs. refs knows bare
+  // names only ("Class.method" / "Class::method" → "method"), so a method's
+  // caller stays when it is in this file or its file mentions the class
+  // outside comments; a plain function's callers are matched by name only.
   if (args.include_callers && args.symbol && !astIndex.isDisabled()) {
     try {
-      // refs knows bare names: "Class.method" / "Class::method" → "method"
-      const bareName = args.symbol.split(/::|\./).pop()!;
-      const refs = await astIndex.refs(bareName, 10);
-      const callers = refs.usages.slice(0, 5);
+      const parts = qualified.split(/::|\./);
+      const bareName = parts.pop()!;
+      const owner = parts.pop();
+      const refs = await astIndex.refs(bareName, 50);
+      const byName = refs.usages.filter((u) => !u.name || u.name === bareName);
+      let usages = byName;
+      if (owner) {
+        usages = [];
+        for (const u of byName) {
+          const own = resolve(projectRoot, u.path) === absPath;
+          const code = own ? null : await codeLines(projectRoot, u.path);
+          // unreadable: nothing to check against
+          if (own || !code || mentions(code.join("\n"), owner, true)) usages.push(u);
+        }
+      }
+      const callers = usages.slice(0, 5);
+      const others = byName.length - usages.length;
       if (callers.length > 0) {
         outputLines.push("");
         outputLines.push(
-          refs.usages.length > callers.length
-            ? `CALLERS (first ${callers.length} of ${refs.usages.length}${refs.usages.length >= 10 ? "+" : ""}):`
+          usages.length > callers.length
+            ? `CALLERS (first ${callers.length} of ${usages.length}${refs.usages.length >= 50 ? "+" : ""}):`
             : `CALLERS (${callers.length}):`,
         );
         for (const c of callers) {
@@ -465,6 +485,15 @@ export async function handleReadForEdit(
       } else {
         outputLines.push("");
         outputLines.push("CALLERS: none found");
+      }
+      if (owner && others > 0) {
+        outputLines.push(
+          others === 1
+            ? `  (1 caller of another \`${bareName}\` left out: its file never mentions ${owner})`
+            : `  (${others} callers of another \`${bareName}\` left out: their files never mention ${owner})`,
+        );
+      } else if (!owner && callers.length > 0) {
+        outputLines.push(`  (matched by name only — a same-named \`${bareName}\` elsewhere can appear)`);
       }
     } catch {
       // ast-index unavailable — skip silently

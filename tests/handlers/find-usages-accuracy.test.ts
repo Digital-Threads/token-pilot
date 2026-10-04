@@ -148,6 +148,24 @@ describe('find_usages classification', () => {
     expect(text).toMatch(/3 mentions in comments not listed/);
   });
 
+  it('counts comment mentions after the scope, lang and kind filters', async () => {
+    const ast = () => stub({
+      usages: [use('src/a.ts', 3)],
+      search: [
+        { file: 'src/a.ts', line: 1, text: '// call user() before render' },
+        { file: 'src/b.py', line: 2, text: '# user is cached' },
+        { file: 'lib/c.ts', line: 4, text: ' * @see user' },
+      ],
+    });
+
+    expect((await handleFindUsages({ symbol: 'user', scope: 'src/' }, ast())).content[0].text)
+      .toMatch(/2 mentions in comments not listed/);
+    expect((await handleFindUsages({ symbol: 'user', lang: 'python' }, ast())).content[0].text)
+      .toMatch(/1 mention in comments not listed/);
+    expect((await handleFindUsages({ symbol: 'user', kind: 'definitions' }, ast())).content[0].text)
+      .not.toMatch(/in comments/);
+  });
+
   it('keeps CONFIDENCE when kind filters out the definitions section', async () => {
     const result = await handleFindUsages(
       { symbol: 'user', kind: 'usages' },

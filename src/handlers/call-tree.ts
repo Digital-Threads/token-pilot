@@ -67,13 +67,18 @@ function renderNode(
 async function noCallers(
   symbol: string,
   astIndex: AstIndexClient,
+  dropped = 0,
 ): Promise<string> {
   const refs = await astIndex.refs(symbol, 50);
   const defs = refs.definitions.filter((d) => !d.name || d.name === symbol);
   const uses = refs.usages.length;
   const lines: string[] = [];
 
-  if (defs.length === 0 && uses === 0) {
+  if (dropped > 0) {
+    lines.push(
+      `No verified callers for \`${symbol}\`: ast-index named ${dropped}, but none of them references it in its own body (a mention in a comment, call-like text, or a same-named symbol elsewhere). Run find_usages("${symbol}") for every call site.`,
+    );
+  } else if (defs.length === 0 && uses === 0) {
     lines.push(
       `\`${symbol}\` was not found in the index — check the spelling; files under dot-directories (e.g. .github/) are not indexed.`,
     );
@@ -144,7 +149,7 @@ export async function handleCallTree(
 
   if (!tree.callers?.length) {
     return {
-      content: [{ type: "text", text: await noCallers(symbol, astIndex) }],
+      content: [{ type: "text", text: await noCallers(symbol, astIndex, tree.dropped) }],
       meta: { files: [] },
     };
   }
@@ -161,7 +166,7 @@ export async function handleCallTree(
   );
   if (tree.dropped) {
     lines.push(
-      `${tree.dropped} call sites not shown: ast-index attributed them to call-like text (a constructor, a string, a comment) instead of the enclosing function. find_usages("${symbol}") lists every call site.`,
+      `${tree.dropped} call sites not shown: ast-index attributed them to call-like text (a constructor, a string, a comment) or to a function whose body does not reference the callee. find_usages("${symbol}") lists every call site.`,
     );
   }
   const stale = astIndex.isStale?.() ?? false;

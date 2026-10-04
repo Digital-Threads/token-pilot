@@ -57,6 +57,8 @@ vi.mock("../../src/ast-index/client.js", () => ({
     updateProjectRoot(): void {}
     async incrementalUpdate(): Promise<void> {}
     startPeriodicUpdate(): void {}
+    onIndexChange(): void {}
+    async refresh(): Promise<void> {}
     stopPeriodicUpdate(): void {}
     async outline(filePath: string): Promise<any> {
       if (!filePath.endsWith("app.ts")) return null;

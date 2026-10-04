@@ -83,6 +83,24 @@ describe("handleCallTree", () => {
     expect(text).toMatch(/CONFIDENCE: low/);
   });
 
+  it("says no caller was verified when every caller ast-index named was dropped", async () => {
+    const out = await handleCallTree(
+      { symbol: "buildFileStructure" },
+      makeStub({
+        tree: { name: "buildFileStructure", callers: [], dropped: 2 },
+        refs: {
+          definitions: [{ path: "src/ast-index/enricher.ts", line: 50 }],
+          imports: [],
+          usages: [{ path: "src/ast-index/client.ts", line: 367 }],
+        },
+      }),
+    );
+    const text = out.content[0].text;
+    expect(text).toMatch(/No verified callers/);
+    expect(text).toMatch(/named 2\b/);
+    expect(text).toMatch(/find_usages\("buildFileStructure"\)/);
+  });
+
   it("says the symbol is not in the index when the bare root has no definition either", async () => {
     const out = await handleCallTree(
       { symbol: "noSuchFn" },

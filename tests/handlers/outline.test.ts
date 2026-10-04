@@ -37,6 +37,16 @@ describe('handleOutline', () => {
     expect(text).toMatch(/OUTLINE: \.\/ \(1 subdirs\)/);
   });
 
+  it('keeps a source directory named coverage or dist below the project root', async () => {
+    await mkdir(join(tempDir, 'internal', 'coverage'), { recursive: true });
+    await writeFile(join(tempDir, 'internal', 'coverage', 'cover.go'), 'package coverage\n');
+    const astIndex = { outline: async () => null } as any;
+
+    const text = (await handleOutline({ path: '.' }, tempDir, astIndex)).content[0].text;
+
+    expect(text).toContain('internal/ (1 code files)');
+  });
+
   it('returns a guidance message when path is not a directory', async () => {
     const result = await handleOutline({ path: 'src/a.ts' }, tempDir, {} as any);
     expect(result.content[0].text).toContain('is not a directory');

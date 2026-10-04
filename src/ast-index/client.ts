@@ -49,6 +49,7 @@ import {
   parseModuleApiText,
 } from "./parser.js";
 import { buildFileStructure } from "./enricher.js";
+import { blockAt, codeLines, mentions } from "./references.js";
 import { parseTypeScriptRegex } from "./regex-parser.js";
 import { parsePythonRegex } from "./regex-parser-python.js";
 
@@ -69,29 +70,35 @@ const execFileAsync = promisify(execFile);
  * indexes `node_modules/**\/*.d.ts` on every `rebuild` and `update` of a
  * project with a package.json — regardless of .gitignore and of
  * `.ast-index.yaml` `exclude` (verified on 3.50) — so the filter has to
- * live here, on every result the client hands out.
+ * live here, on every result the client hands out. node_modules and .git
+ * are excluded at any depth; dist and coverage only at the project root
+ * (build output) — `internal/coverage` in Go is source.
  */
-export const EXCLUDED_DIRS: readonly string[] = [
-  "node_modules",
-  "dist",
-  "coverage",
-  ".git",
-];
+const EXCLUDED_ANYWHERE: readonly string[] = ["node_modules", ".git"];
+const EXCLUDED_AT_ROOT: readonly string[] = ["dist", "coverage"];
 
-/** True when any segment of `path` (relative to `projectRoot`) is excluded. */
+/** True when `path` (relative to `projectRoot`) lies in an excluded directory. */
 export function isExcludedPath(path: string, projectRoot?: string): boolean {
   const rel =
     projectRoot && isAbsolute(path) ? relative(projectRoot, path) : path;
-  return rel.split(/[\\/]/).some((seg) => EXCLUDED_DIRS.includes(seg));
+  const segs = rel.replace(/^\.[\\/]/, "").split(/[\\/]/);
+
+  return segs.some((seg) => EXCLUDED_ANYWHERE.includes(seg)) || EXCLUDED_AT_ROOT.includes(segs[0]);
 }
 
 /** SQL condition on `files.path` that keeps excluded directories out. */
-const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
-  (d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`,
-).join(" AND ");
+const SQL_KEEP_PATH = [
+  ...EXCLUDED_ANYWHERE.map((d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`),
+  ...EXCLUDED_AT_ROOT.map((d) => `path NOT LIKE '${d}/%'`),
+].join(" AND ");
 
 /** Row cap for `ast-index query` (its default is 100). */
 const QUERY_ROW_CAP = 200_000;
+
+/** The binary's answer when another process is rebuilding or updating the index. */
+function isAlreadyRunning(err: unknown): boolean {
+  return /already running/i.test(err instanceof Error ? err.message : String(err));
+}
 
 /** Every file named in a call tree. */
 function collectFiles(node: AstIndexCallTreeNode, out = new Set<string>()): string[] {
@@ -134,6 +141,9 @@ export class AstIndexClient {
   private freshPromise: Promise<void> | null = null;
   private stale = false;
   private static readonly FRESH_MS = 15_000;
+  // The one `ast-index update` in flight in this process (see runUpdate).
+  private updatePromise: Promise<string> | null = null;
+  private changeListeners: Array<() => void> = [];
 
   constructor(
     projectRoot: string,
@@ -235,7 +245,7 @@ export class AstIndexClient {
         `[token-pilot] ast-index: updating index (${existingFileCount} files)...`,
       );
       try {
-        await this.exec(["update"], 30000);
+        await this.runUpdate(30000);
         try {
           existingFileCount = parseFileCount(
             await this.exec(["--format", "json", "stats"]),
@@ -323,18 +333,52 @@ export class AstIndexClient {
     }
     if (!this.freshPromise) {
       this.lastFresh = Date.now();
-      this.freshPromise = this.exec(["update"], 10_000)
+      this.freshPromise = this.runUpdate(10_000)
         .then(() => {
           this.stale = false;
         })
-        .catch(() => {
-          this.stale = true;
+        .catch((err) => {
+          // another process holds the index lock and is updating it already
+          if (!isAlreadyRunning(err)) this.stale = true;
         })
         .finally(() => {
           this.freshPromise = null;
         });
     }
     return this.freshPromise;
+  }
+
+  /**
+   * One `ast-index update` at a time in this process: the binary refuses a
+   * second one ("Another rebuild is already running"), so concurrent callers
+   * (query refresh, periodic update, git watcher) share the run in flight.
+   */
+  private runUpdate(timeoutMs: number): Promise<string> {
+    if (!this.updatePromise) {
+      this.updatePromise = this.exec(["update"], timeoutMs)
+        .then((out) => {
+          if (!/up to date/i.test(out)) this.changeListeners.forEach((l) => l());
+          return out;
+        })
+        .finally(() => {
+          this.updatePromise = null;
+        });
+    }
+    return this.updatePromise;
+  }
+
+  /** Called after an `update` that changed the index (new, edited or deleted files). */
+  onIndexChange(listener: () => void): void {
+    this.changeListeners.push(listener);
+  }
+
+  /**
+   * Refresh the built index when the last refresh is older than FRESH_MS —
+   * for callers that answer from their own cache before reaching a query.
+   */
+  refresh(): Promise<void> {
+    if (!this.indexed || this.indexDisabled || this.indexOversized) return Promise.resolve();
+    return this.freshen();
   }
 
   /** True when the last refresh failed: recent edits may be missing. */
@@ -890,16 +934,26 @@ export class AstIndexClient {
 
       // call-tree is grep-based: it names a "caller" after the nearest
       // call-like text above the call site, so `new Set(` or a quoted
-      // `read_symbol("…")` become callers. Keep only nodes whose location
-      // is a real symbol definition in the index.
-      const defs = await this.definitionsIn(collectFiles(tree));
+      // `read_symbol("…")` become callers, and so does the function above a
+      // comment that mentions the name. Keep only nodes whose location is a
+      // real symbol definition whose own body references the callee.
+      const files = collectFiles(tree);
+      const defs = await this.definitionsIn(files);
+      const lines = new Map<string, string[] | null>();
+      for (const f of files) lines.set(f, await codeLines(this.projectRoot, f));
+      const callsIt = (c: AstIndexCallTreeNode, callee: string): boolean => {
+        const code = c.file ? lines.get(c.file) : null;
+        // unreadable: nothing to check against
+        if (!code || c.line == null) return true;
+        return mentions(blockAt(code, c.line), callee.split(/[.:]/).pop() ?? callee, true);
+      };
       let dropped = 0;
       const prune = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => {
         const raw = n.callers ?? [];
         const valid = raw.filter((c) => {
           if (c.recursive) return true;
           if (!this.keep(c.file)) return false;
-          const real = !defs || defs.has(`${c.file}:${c.line}:${c.name}`);
+          const real = (!defs || defs.has(`${c.file}:${c.line}:${c.name}`)) && callsIt(c, n.name);
           if (!real) dropped++;
           return real;
         });
@@ -1119,7 +1173,7 @@ export class AstIndexClient {
   async incrementalUpdate(): Promise<void> {
     if (!this.indexed || this.indexDisabled || this.indexOversized) return;
     try {
-      await this.exec(["update"], 15000);
+      await this.runUpdate(15000);
       this.lastFresh = Date.now();
       this.stale = false;
     } catch (err) {

@@ -186,6 +186,54 @@ describe('buildFileStructure — TypeScript', () => {
   });
 });
 
+describe('buildFileStructure — TSX', () => {
+  const outline = [
+    'Outline of tests/fixtures/symbols/component.tsx:',
+    '  :3 Props [interface]',
+    '  :5 List [class]',
+    '  :14 Page [class]',
+    '  :17 warn [function]',
+    '  :21 handleSave [function]',
+    '  :36 ratio [function]',
+    '  :38 Other [class]',
+    '  :42 Third [class]',
+    '  :43 run [function]',
+  ];
+
+  it('closing tags after `}` and self-closing `/>` are not regex literals', async () => {
+    const s = await structureOf('component.tsx', outline);
+    expect(ranges(s.symbols)).toEqual({
+      Props: [3, 3],
+      List: [5, 12],
+      Page: [14, 34],
+      ratio: [36, 36],
+      Other: [38, 40],
+      Third: [42, 46],
+    });
+    expect(ranges(find(s.symbols, 'Page').children)).toEqual({ warn: [17, 17], handleSave: [21, 23] });
+    expect(ranges(find(s.symbols, 'Third').children)).toEqual({ run: [43, 45] });
+  });
+
+  it('no-semicolon style: an expression const ends where its expression closes', async () => {
+    const s = await structureOf('nosemi.tsx', [
+      '  :3 SheetFooter [class]',
+      '  :14 handleTabClick [function]',
+      '  :16 chained [constant]',
+      '  :20 routes [constant]',
+      '  :24 withSemi [constant]',
+      '  :28 after [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({
+      SheetFooter: [3, 11],
+      handleTabClick: [14, 14],
+      chained: [16, 18],
+      routes: [20, 22],
+      withSemi: [24, 26],
+      after: [28, 30],
+    });
+  });
+});
+
 describe('buildFileStructure — other languages', () => {
   it('JavaScript', async () => {
     const s = await structureOf('sample.js', ['  :1 K [class]', '  :2 m [function]', '  :3 n [function]', '  :8 f [function]']);
@@ -240,6 +288,34 @@ describe('buildFileStructure — other languages', () => {
     const gamma = find(s.symbols, 'Gamma');
     expect(ranges(gamma.children)).toEqual({ one: [5, 7], two: [9, 11] });
     expect(find(gamma.children, 'two')).toMatchObject({ visibility: 'private', static: true });
+  });
+
+  it('PHP: heredoc and nowdoc bodies (quotes, braces, indented closing marker) are strings', async () => {
+    const s = await structureOf('heredoc.php', [
+      '  :2 Mailer [class]', '  :3 body [function]', '  :9 raw [function]', '  :16 quoted [function]', '  :22 last [function]', '  :27 helper [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({ Mailer: [2, 25], helper: [27, 29] });
+    expect(ranges(find(s.symbols, 'Mailer').children)).toEqual({ body: [3, 7], raw: [9, 14], quoted: [16, 20], last: [22, 24] });
+  });
+
+  it('Kotlin: strings nested inside ${…} templates keep their braces to themselves', async () => {
+    const s = await structureOf('Sample.kt', [
+      '  :3 Greeter [class]', '  :4 greet [function]', '  :8 raw [function]', '  :14 last [function]', '  :19 helper [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({ Greeter: [3, 17], helper: [19, 21] });
+    expect(ranges(find(s.symbols, 'Greeter').children)).toEqual({ greet: [4, 6], raw: [8, 12], last: [14, 16] });
+  });
+
+  it('a quote that never closes is not a string (PHP apostrophe in a comment-free line)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tp-ranges-'));
+    try {
+      const file = join(dir, 'odd.php');
+      await writeFile(file, "<?php\nfunction a() {\n    $x = 1 ?' : 2;\n}\n\nfunction b() {\n    return 2;\n}\n");
+      const s = await buildFileStructure(file, parseOutlineText('  :2 a [function]\n  :6 b [function]'));
+      expect(ranges(s.symbols)).toEqual({ a: [2, 4], b: [6, 8] });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
