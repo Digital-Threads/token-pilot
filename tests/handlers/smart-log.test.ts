@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseGitLog, categorizeCommit } from '../../src/handlers/smart-log.js';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseGitLog, categorizeCommit, handleSmartLog } from '../../src/handlers/smart-log.js';
 import { validateSmartLogArgs, validateTestSummaryArgs } from '../../src/core/validation.js';
 
 describe('parseGitLog', () => {
@@ -160,5 +164,37 @@ describe('validateTestSummaryArgs', () => {
 
   it('throws on null args', () => {
     expect(() => validateTestSummaryArgs(null)).toThrow('object');
+  });
+});
+
+describe('smart_log — merges and authors (audit 1.0.2)', () => {
+  it('a merge commit is categorised as merge, not by the branch name', () => {
+    expect(categorizeCommit('Merge pull request #12 from me/fix-typo')).toBe('merge');
+    expect(categorizeCommit("Merge branch 'fix/login' into main")).toBe('merge');
+    expect(categorizeCommit("Merge remote-tracking branch 'origin/main'")).toBe('merge');
+    expect(categorizeCommit('Merged the docs into one page')).not.toBe('merge');
+  });
+
+  it('AUTHORS says how many authors were left out', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tp-smart-log-'));
+    try {
+      const git = (env: Record<string, string>, ...a: string[]) =>
+        execFileSync('git', a, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+      git({}, 'init', '-q', '-b', 'main');
+      git({}, 'config', 'commit.gpgsign', 'false');
+      git({}, 'config', 'core.hooksPath', '/dev/null');
+      for (let i = 0; i < 7; i++) {
+        writeFileSync(join(dir, `f${i}.txt`), `${i}\n`);
+        git({}, 'add', '-A');
+        const who = { GIT_AUTHOR_NAME: `Author${i}`, GIT_AUTHOR_EMAIL: `a${i}@x`, GIT_COMMITTER_NAME: 'c', GIT_COMMITTER_EMAIL: 'c@x' };
+        git(who, 'commit', '-q', '-m', `chore: file ${i}`);
+      }
+
+      const out = (await handleSmartLog({ count: 10 }, dir)).content[0].text;
+      const authors = out.split('\n').find(l => l.startsWith('AUTHORS:')) ?? '';
+      expect(authors).toMatch(/\+2 more/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

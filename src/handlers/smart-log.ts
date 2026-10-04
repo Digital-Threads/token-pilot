@@ -14,7 +14,7 @@ export interface LogEntry {
   date: string;
   author: string;
   message: string;
-  category: 'feat' | 'fix' | 'refactor' | 'docs' | 'test' | 'chore' | 'style' | 'perf' | 'other';
+  category: 'feat' | 'fix' | 'refactor' | 'docs' | 'test' | 'chore' | 'style' | 'perf' | 'merge' | 'other';
   files: string[];
   insertions: number;
   deletions: number;
@@ -149,6 +149,9 @@ export function parseGitLog(raw: string): LogEntry[] {
 export function categorizeCommit(message: string): LogEntry['category'] {
   const lower = message.toLowerCase();
 
+  // Merges first: "Merge pull request #12 from me/fix-typo" is not a fix.
+  if (/^merge (pull request|branch|remote-tracking branch|tag|commit) /.test(lower)) return 'merge';
+
   // Conventional commits prefix
   if (/^feat[:(!\s]/.test(lower)) return 'feat';
   if (/^fix[:(!\s]/.test(lower)) return 'fix';
@@ -214,7 +217,8 @@ function formatSmartLog(entries: LogEntry[], pathFilter: string | undefined): st
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([name, cnt]) => authors.size > 1 ? `${name} (${cnt})` : name);
-  lines.push(`AUTHORS: ${authorParts.join(', ')}`);
+  const moreAuthors = authors.size > 5 ? ` +${authors.size - 5} more` : '';
+  lines.push(`AUTHORS: ${authorParts.join(', ')}${moreAuthors}`);
 
   lines.push('');
 
