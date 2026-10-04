@@ -243,6 +243,52 @@ describe('buildFileStructure — other languages', () => {
   });
 });
 
+describe('buildFileStructure — imports, exports, docs', () => {
+  it('TypeScript: imports, exported symbols, leading doc comments', async () => {
+    const s = await structureOf('sample.ts', ['  :5 Alpha [class]', '  :9 run [function]', '  :19 outer [function]', '  :43 I [interface]', '  :47 default [object]', '  :51 Component [class]']);
+    expect(s.imports).toEqual([{ source: 'node:fs/promises', specifiers: ['readFile'], isDefault: false, isNamespace: false, line: 1 }]);
+    const names = s.exports.map((e) => e.name);
+    expect(names).toEqual(expect.arrayContaining(['Alpha', 'outer', 'cfg', 'lower', 'default']));
+    expect(names).not.toContain('I');
+    expect(names).not.toContain('Component');
+    expect(s.exports.find((e) => e.name === 'default')!.isDefault).toBe(true);
+    expect(find(s.symbols, 'Alpha').doc).toBe('Doc for Alpha');
+    expect(find(find(s.symbols, 'Alpha').children, 'run').doc).toBe('run doc');
+  });
+
+  it('TypeScript: default, namespace and multi-line named imports', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tp-ranges-'));
+    try {
+      const file = join(dir, 'imp.ts');
+      await writeFile(file, "import a from 'a';\nimport * as b from 'b';\nimport {\n  c,\n  d as e,\n} from 'c';\nimport 'side';\n// import x from 'nope';\nexport { e };\n");
+      const s = await buildFileStructure(file, []);
+      expect(s.imports.map((i) => [i.source, i.specifiers, i.isDefault, i.isNamespace, i.line])).toEqual([
+        ['a', ['a'], true, false, 1],
+        ['b', ['b'], false, true, 2],
+        ['c', ['c', 'e'], false, false, 3],
+        ['side', [], false, false, 7],
+      ]);
+      expect(s.exports.map((x) => x.name)).toEqual(['e']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('Python: imports, public top-level names, docstrings', async () => {
+    const s = await structureOf('sample.py', ['  :4 Beta [class]', '  :8 run [function]', '  :18 top [function]']);
+    expect(s.imports.map((i) => i.source)).toEqual(['os']);
+    expect(s.exports.map((e) => e.name)).toEqual(['Beta', 'top']);
+    expect(find(s.symbols, 'Beta').doc).toBe('doc');
+  });
+
+  it('Go: capitalised names are exported, doc comments kept', async () => {
+    const s = await structureOf('sample.go', ['  :1 main [package]', '  :5 Server [class]', '  :10 Start [function]', '  :15 main [function]']);
+    expect(s.imports.map((i) => i.source)).toEqual(['fmt']);
+    expect(s.exports.map((e) => e.name)).toEqual(['Server', 'Start']);
+    expect(find(s.symbols, 'Start').doc).toBe('Start starts the server.');
+  });
+});
+
 describe('buildFileStructure — live ast-index on this repo', () => {
   const bin = (() => {
     try {

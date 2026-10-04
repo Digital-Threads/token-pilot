@@ -315,6 +315,12 @@ describe('formatOutline scope parameter', () => {
     expect(output).toContain('function inner() { [L2-4]');
   });
 
+  it('prints the doc line only when showDocs is on', () => {
+    const structure = makeStructure([makeSymbol({ name: 'run', doc: 'Runs the thing.' })]);
+    expect(formatOutline(structure, { showDocs: true })).toContain('Runs the thing.');
+    expect(formatOutline(structure, { showDocs: false })).not.toContain('Runs the thing.');
+  });
+
   it('shows struct and impl blocks by their own keyword', () => {
     const output = formatOutline(makeStructure([
       makeSymbol({ name: 'Server', kind: 'class', signature: 'type Server struct {' }),

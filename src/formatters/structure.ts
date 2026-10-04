@@ -152,6 +152,10 @@ function formatSymbolTree(
     }
   }
 
+  if (showDocs && sym.doc) {
+    lines.push(`${indent}    doc: ${sym.doc.length > 120 ? `${sym.doc.slice(0, 120)}…` : sym.doc}`);
+  }
+
   // Dependency hints (references)
   if (showDeps && sym.references.length > 0) {
     lines.push(`${indent}    calls: ${sym.references.join(', ')}`);

@@ -14,7 +14,7 @@
 
 import { stat, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import type { FileStructure, SymbolInfo } from '../types.js';
+import type { ExportDeclaration, FileStructure, ImportDeclaration, SymbolInfo } from '../types.js';
 import type { AstIndexOutlineEntry } from './types.js';
 import { detectLanguage, mapOutlineEntry } from './parser.js';
 
@@ -47,20 +47,21 @@ export async function buildFileStructure(
   const content = await readFile(filePath, 'utf-8');
   const fileStat = await stat(filePath);
   const lang = detectLanguage(filePath);
-  const lines = content.split('\n');
+  const src = new Source(content, lang);
+  const symbols = buildSymbols(entries, src, lang, filePath);
 
   return {
     path: filePath,
     language: lang,
     meta: {
-      lines: lines.length,
+      lines: src.lineCount,
       bytes: fileStat.size,
       lastModified: fileStat.mtimeMs,
       contentHash: createHash('sha256').update(content).digest('hex'),
     },
-    imports: [],
-    exports: [],
-    symbols: buildSymbols(entries, content, lang, filePath),
+    imports: parseImports(src, lang),
+    exports: collectExports(src, lang, symbols),
+    symbols,
   };
 }
 
@@ -370,11 +371,10 @@ interface Sym {
 
 function buildSymbols(
   entries: AstIndexOutlineEntry[],
-  content: string,
+  src: Source,
   lang: string,
   filePath: string,
 ): SymbolInfo[] {
-  const src = new Source(content, lang);
   const brace = BRACE_LANGUAGES.has(lang);
 
   const syms: Sym[] = [];
@@ -426,7 +426,10 @@ function buildSymbols(
     sym.end = Math.max(end, sym.decl);
   }
 
-  for (const sym of syms) applyModifiers(sym, src, lang);
+  for (const sym of syms) {
+    applyModifiers(sym, src, lang);
+    if (lang === 'Python' && !sym.doc) sym.doc = pythonDocstring(src, sym);
+  }
   const roots = nest(syms);
   if (lang === 'Python') markPythonMembers(roots);
   return roots.map((s) => toSymbolInfo(s, src, ''));
@@ -749,4 +752,139 @@ function toSymbolInfo(sym: Sym, src: Source, parent: string): SymbolInfo {
   info.qualifiedName = sym.qualified ?? (parent ? `${parent}.${sym.entry.name}` : sym.entry.name);
   info.children = sym.children.map((c) => toSymbolInfo(c, src, info.qualifiedName));
   return info;
+}
+
+/** First line of the docstring right under a Python def/class header. */
+function pythonDocstring(src: Source, sym: Sym): string | undefined {
+  const indent = src.rawLine(sym.decl).match(/^[ \t]*/)![0].length;
+  for (let line = sym.decl + 1; line <= sym.end; line++) {
+    const raw = src.rawLine(line);
+    if (raw.trim() === '' || src.commentOnly[line - 1]) continue;
+    if (raw.match(/^[ \t]*/)![0].length <= indent) return undefined;
+    const m = raw.trim().match(/^[rRuUbB]?("""|'''|"|')(.*)$/);
+    if (!m) return undefined;
+    const text = m[2].replace(/("""|'''|"|')\s*$/, '').trim();
+    return text || src.rawLine(line + 1).trim() || undefined;
+  }
+  return undefined;
+}
+
+// ─── Imports / exports ──────────────────────────────────────────────────
+
+/** Top-level imports of the file. */
+function parseImports(src: Source, lang: string): ImportDeclaration[] {
+  const out: ImportDeclaration[] = [];
+  const add = (source: string, specifiers: string[], line: number, isDefault = false, isNamespace = false): void => {
+    out.push({ source, specifiers, isDefault, isNamespace, line });
+  };
+
+  if (JS_LANGUAGES.has(lang)) {
+    const re = /^[ \t]*import\s+(?:type\s+)?(?:([^'";]*?)\s+from\s+)?(['"])([^'"\n]+)\2/gm;
+    for (const m of src.raw.matchAll(re)) {
+      const at = m.index! + m[0].indexOf('import');
+      const line = src.lineOf(at);
+      if (src.code[at] !== 'i' || src.braceDepth[line - 1] !== 0) continue; // in a comment, string or block
+      const clause = (m[1] ?? '').trim();
+      const source = m[3];
+      if (!clause) {
+        add(source, [], line);
+        continue;
+      }
+      const def = clause.match(/^([\w$]+)\s*(,|$)/);
+      const ns = clause.match(/\*\s*as\s+([\w$]+)/);
+      const named = clause.match(/\{([^}]*)\}/);
+      if (def) add(source, [def[1]], line, true);
+      if (ns) add(source, [ns[1]], line, false, true);
+      if (named) {
+        const names = named[1].split(',')
+          .map((x) => x.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()!.trim())
+          .filter(Boolean);
+        add(source, names, line);
+      }
+    }
+    return out;
+  }
+
+  const quoted = (line: number): string | undefined => src.rawLine(line).match(/["'<]([^"'>]+)["'>]/)?.[1];
+  for (let line = 1; line <= src.lineCount; line++) {
+    if (src.braceDepth[line - 1] !== 0) continue;
+    const code = src.codeLine(line);
+    let m: RegExpMatchArray | null;
+    if (lang === 'Python') {
+      if ((m = code.match(/^import\s+(.+)$/))) {
+        for (const part of m[1].split(',')) {
+          const [mod, alias] = part.trim().split(/\s+as\s+/);
+          if (mod) add(mod, [alias ?? mod], line, true);
+        }
+      } else if ((m = code.match(/^from\s+([\w.]+)\s+import\s+\(?([^)]*)\)?/))) {
+        add(m[1], m[2].split(',').map((x) => x.trim().split(/\s+as\s+/).pop()!).filter(Boolean), line);
+      }
+    } else if (lang === 'Go') {
+      if (/^import\s*\(/.test(code)) {
+        const open = src.lineStarts[line - 1] + code.indexOf('(');
+        const close = src.match[open] >= 0 ? src.lineOf(src.match[open]) : line;
+        for (let l = line + 1; l < close; l++) {
+          const q = quoted(l);
+          if (q) add(q, [], l);
+        }
+        line = close;
+      } else if (/^import\s/.test(code)) {
+        const q = quoted(line);
+        if (q) add(q, [], line);
+      }
+    } else if (lang === 'C' || lang === 'C++' || lang === 'Dart') {
+      if (/^\s*(#\s*include|import)\b/.test(code)) {
+        const q = quoted(line);
+        if (q) add(q, [], line);
+      }
+    } else if ((m = code.match(
+      lang === 'Rust' ? /^\s*(?:pub\s+)?use\s+([^;]+);/
+        : lang === 'PHP' ? /^\s*use\s+([\w\\]+)/
+          : lang === 'C#' ? /^\s*using\s+(?:static\s+)?([\w.]+)\s*;/
+            : /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/,
+    ))) {
+      add(m[1].trim(), [], line);
+    }
+  }
+  return out;
+}
+
+/** What the file exposes: `export` in JS/TS, public names elsewhere. */
+function collectExports(src: Source, lang: string, symbols: SymbolInfo[]): ExportDeclaration[] {
+  const out: ExportDeclaration[] = [];
+  const add = (name: string, kind: SymbolInfo['kind'], line: number, isDefault = false): void => {
+    if (!out.some((e) => e.name === name)) out.push({ name, kind, isDefault, line });
+  };
+  const byName = (name: string): SymbolInfo | undefined => symbols.find((s) => s.name === name);
+
+  if (JS_LANGUAGES.has(lang)) {
+    for (const s of symbols) {
+      if (/^export\b/.test(s.signature)) add(s.name, s.kind, s.location.startLine, /^export\s+default\b/.test(s.signature));
+    }
+    for (let line = 1; line <= src.lineCount; line++) {
+      if (src.braceDepth[line - 1] !== 0) continue;
+      const code = src.codeLine(line);
+      const list = code.match(/^\s*export\s+(?:type\s+)?\{([^}]*)\}/);
+      if (list) {
+        for (const part of list[1].split(',')) {
+          const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()!.trim();
+          if (name) add(name, byName(name)?.kind ?? 'variable', line, name === 'default');
+        }
+      }
+      const def = code.match(/^\s*export\s+default\s+([\w$]+)\s*;?\s*$/);
+      if (def) add(def[1], byName(def[1])?.kind ?? 'variable', line, true);
+    }
+    return out;
+  }
+
+  for (const s of symbols) {
+    if (s.kind === 'namespace') continue;
+    const name = s.name;
+    const exported = lang === 'Python' ? !name.startsWith('_')
+      : lang === 'Go' ? /^[A-Z]/.test(name)
+        : lang === 'Rust' ? s.visibility === 'public'
+          : s.visibility !== 'private' && s.visibility !== 'protected';
+    if (exported) add(name, s.kind, s.location.startLine);
+  }
+  return out;
 }
