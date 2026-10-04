@@ -10,7 +10,9 @@ import { describe, it, expect } from "vitest";
 import {
   getMcpInstructions,
   MCP_INSTRUCTIONS,
+  TOOL_DEFINITIONS,
 } from "../../src/server/tool-definitions.ts";
+import { childEnv } from "../../src/handlers/test-summary.ts";
 
 describe("getMcpInstructions", () => {
   it("minimal instructions mention only the 5 core tools", () => {
@@ -125,5 +127,19 @@ describe("getMcpInstructions", () => {
       expect(txt, `profile=${profile}`).not.toContain("MANDATORY EDIT SAFETY");
       expect(txt, `profile=${profile}`).not.toContain("read_for_edit");
     }
+  });
+});
+
+describe("test_summary description", () => {
+  const desc = () => TOOL_DEFINITIONS.find((t) => t.name === "test_summary")!.description;
+
+  it("says how a timeout kills the run on Windows, where there are no process groups", () => {
+    expect(desc()).toMatch(/taskkill/);
+  });
+
+  it("names every variable the run forces, not just 'your terminal's environment'", () => {
+    const forced = childEnv({});
+    for (const [key, value] of Object.entries(forced)) expect(desc()).toContain(`${key}=${value}`);
+    expect(desc()).not.toMatch(/with your terminal's environment minus/);
   });
 });

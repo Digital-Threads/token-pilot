@@ -65,7 +65,7 @@ import { loadSessionSavedTokens } from "./core/session-savings.js";
 import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
 import { checkForTypo } from "./cli/typo-guard.js";
 import { processPostTask } from "./hooks/post-task.js";
-import { isContextModeInstalledSync } from "./integration/context-mode-detector.js";
+import { contextModeExecuteTool } from "./integration/context-mode-detector.js";
 import { handleBlessAgents } from "./cli/bless-agents.js";
 import { unblessAgents } from "./cli/unbless-agents.js";
 import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
@@ -682,29 +682,6 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await startServer(cliArgs);
       return;
   }
-}
-
-/**
- * context-mode's execute tool as this install names it — a plugin in
- * ~/.claude/settings.json, or an MCP server in a `.mcp.json` — or undefined
- * when context-mode is not installed.
- */
-function contextModeExecuteTool(projectRoot: string): string | undefined {
-  try {
-    const settings = JSON.parse(
-      readFileSync(join(homedir(), ".claude", "settings.json"), "utf-8"),
-    );
-    const plugins: Record<string, unknown> = settings?.enabledPlugins ?? {};
-    if (Object.entries(plugins).some(([k, on]) => on && k.startsWith("context-mode@"))) {
-      return "mcp__plugin_context-mode_context-mode__ctx_execute";
-    }
-  } catch {
-    /* no user settings */
-  }
-
-  return isContextModeInstalledSync(projectRoot)
-    ? "mcp__context-mode__ctx_execute"
-    : undefined;
 }
 
 /**

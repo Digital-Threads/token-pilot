@@ -223,10 +223,17 @@ describe("renderPreTaskOutput", () => {
     expect(renderPreTaskOutput({ kind: "allow" })).toBeNull();
   });
 
-  it("renders advise with permissionDecision=allow + additionalContext", () => {
+  it("renders a budget note on allow without a permissionDecision", () => {
+    const parsed = JSON.parse(renderPreTaskOutput({ kind: "allow" }, "\n\nnote")!);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
+    expect(parsed.hookSpecificOutput.additionalContext).toBe("note");
+  });
+
+  // A permissionDecision of "allow" would skip the user's permission prompt.
+  it("renders advise as additionalContext only, no permissionDecision", () => {
     const out = renderPreTaskOutput({ kind: "advise", message: "hint" });
     const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("hint");
     expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
   });

@@ -797,7 +797,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "test_summary",
     description:
-      "Run tests and return structured summary: total/passed/failed/skipped + failure details. 200 lines of raw output → 10-15 lines. Parsers: vitest, jest, pytest, phpunit, go test, cargo test, node --test (rspec/mocha fall back to generic patterns). The command runs through the shell (env prefixes and && work) with your terminal's environment minus CLAUDE_PLUGIN_* / TOKEN_PILOT_* variables; on timeout the whole process group is killed and the result says TIMEOUT.",
+      "Run tests and return structured summary: total/passed/failed/skipped + failure details. 200 lines of raw output → 10-15 lines. Parsers: vitest, jest, pytest, phpunit, go test, cargo test, node --test (rspec/mocha fall back to generic patterns). The command runs through the shell (env prefixes and && work) in the server's environment (normally your terminal's) minus CLAUDE_PLUGIN_* / TOKEN_PILOT_* variables, with CI=1, NO_COLOR=1 and FORCE_COLOR=0 set so runners print plain output and skip watch mode (an env prefix in the command overrides them); on timeout the command and everything it started are killed (its process group; `taskkill /T` on Windows) and the result says TIMEOUT.",
     inputSchema: {
       type: "object" as const,
       properties: {

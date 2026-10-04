@@ -72,7 +72,8 @@ const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
  * The environment the command would have in the user's terminal: the MCP
  * server's own, minus what Claude Code's plugin launcher and token-pilot put
  * there (CLAUDE_PLUGIN_ROOT and friends change how this project's own tests
- * behave).
+ * behave), plus CI=1 / NO_COLOR=1 / FORCE_COLOR=0 so runners print plain
+ * output and skip watch mode. The test_summary description lists these.
  */
 export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
@@ -85,9 +86,24 @@ export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
+ * Kill the command and everything it started: its process group on Unix.
+ * Windows has no process groups, so killing the shell (cmd.exe) would
+ * orphan the test runner: `taskkill /T` walks the tree. Best-effort, never throws.
+ */
+export function killTree(pid: number, signal: NodeJS.Signals, platform: NodeJS.Platform = process.platform): void {
+  try {
+    if (platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {});
+    } else {
+      process.kill(-pid, signal);
+    }
+  } catch { /* already gone */ }
+}
+
+/**
  * Run through the shell, like a terminal would: env prefixes (`CI=1 npm
- * test`) and `&&` work. Its own process group, so a timeout kills the test
- * runner too, not just the shell.
+ * test`) and `&&` work. Its own process group (a tree kill on Windows), so a
+ * timeout kills the test runner too, not just the shell.
  */
 function runCommand(command: string, cwd: string, timeoutMs: number): Promise<RunResult> {
   return new Promise((done) => {
@@ -113,10 +129,7 @@ function runCommand(command: string, cwd: string, timeoutMs: number): Promise<Ru
     });
 
     const kill = (signal: NodeJS.Signals) => {
-      try {
-        if (ownGroup && child.pid) process.kill(-child.pid, signal);
-        else child.kill(signal);
-      } catch { /* already gone */ }
+      if (child.pid) killTree(child.pid, signal);
     };
 
     const collect = (b: Buffer) => {

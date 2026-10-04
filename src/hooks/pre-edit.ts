@@ -134,7 +134,8 @@ export function decidePreEdit(
  * Render the Claude Code hook JSON response.
  *
  * - allow   → no output (hook passes through with no side-effect)
- * - advise  → permissionDecision=allow + additionalContext hint
+ * - advise  → additionalContext hint only: a permissionDecision of "allow"
+ *             would skip the user's permission prompt for the Edit
  * - deny    → permissionDecision=deny + reason
  */
 export function renderPreEditOutput(decision: PreEditDecision): string | null {
@@ -143,7 +144,6 @@ export function renderPreEditOutput(decision: PreEditDecision): string | null {
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: decision.message,
       },
     });

@@ -123,9 +123,12 @@ function gateFromCounts(
   // Cost reflects the span the read would pull, not the whole file
   // (v0.45.0, token-pilot-xg9), so a bounded gate doesn't over-report.
   const spanRatio = lineCount > 0 ? Math.min(1, spanLines / lineCount) : 1;
-  // Lines alone let a one-line minified bundle through whole: the span's
-  // size counts too, at a generous BYTES_PER_LINE per allowed line.
-  if (spanLines <= threshold && chars * spanRatio <= threshold * BYTES_PER_LINE) {
+  // A window the agent chose (offset/limit) within the threshold passes, as
+  // the deny and session texts promise. A whole-file read is also sized:
+  // lines alone let a one-line minified bundle through whole, so it passes
+  // only at a generous BYTES_PER_LINE per allowed line.
+  const window = offset != null || (limit != null && limit > 0);
+  if (spanLines <= threshold && (window || chars * spanRatio <= threshold * BYTES_PER_LINE)) {
     return { kind: "pass" };
   }
 

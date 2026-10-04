@@ -23,6 +23,26 @@ describe("Read gate — size, not just lines", () => {
     expect(decideReadGate({ filePath: "a.ts", content, offset: null, limit: null, threshold: 300 }).kind).toBe("pass");
   });
 
+  // Review 1.0.2 — the deny and session texts promise that a Read with
+  // offset/limit within the line threshold passes; the byte check is for
+  // whole-file reads. 400 lines × 150 chars: wider than 100 chars a line.
+  const wide = ("x".repeat(149) + "\n").repeat(400);
+
+  it("passes an offset/limit window within the line threshold, however wide its lines", () => {
+    expect(decideReadGate({ filePath: "a.ts", content: wide, offset: 0, limit: 250, threshold: 300 }).kind).toBe("pass");
+    expect(decideReadGate({ filePath: "a.ts", content: wide, offset: 150, limit: 300, threshold: 300 }).kind).toBe("pass");
+    expect(decideReadGate({ filePath: "a.ts", content: wide, offset: 200, limit: null, threshold: 300 }).kind).toBe("pass");
+    expect(
+      decideReadGateFromStats({ filePath: "a.ts", lineCount: 400, bytes: wide.length, offset: 0, limit: 250, threshold: 300 }).kind,
+    ).toBe("pass");
+  });
+
+  it("still gates a whole-file read of wide lines, and a window over the threshold", () => {
+    const short = ("x".repeat(149) + "\n").repeat(250);
+    expect(decideReadGate({ filePath: "a.ts", content: short, offset: null, limit: null, threshold: 300 }).kind).toBe("gate");
+    expect(decideReadGate({ filePath: "a.ts", content: wide, offset: 0, limit: 350, threshold: 300 }).kind).toBe("gate");
+  });
+
   it("knows .cjs, .mts and .cts as code", () => {
     for (const f of ["a.cjs", "a.mts", "a.cts"]) expect(isCodeFile(f)).toBe(true);
   });

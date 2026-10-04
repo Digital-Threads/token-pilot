@@ -62,7 +62,31 @@ const ALLOW: PreBashDecision = { kind: "allow" };
 type Token =
   | { t: "word"; v: string }
   | { t: "op"; v: string }
-  | { t: "redir"; v: string; fd: string; target?: string };
+  | { t: "redir"; v: string; fd: string; target?: string }
+  | { t: "sub"; tokens: Token[] };
+
+/** Stands in a word for a `$( )` / backtick / `<( )` substitution: a value we cannot know. */
+const SUB = "$(…)";
+
+/** Where the substitution whose body starts at `from` ends: its `)` or closing backtick. */
+function closingIndex(src: string, from: number, backtick: boolean): number {
+  let depth = 1;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === "\\") i++;
+    else if (backtick) {
+      if (c === "`") return i;
+    } else if (c === "'") {
+      i = src.indexOf("'", i + 1);
+      if (i === -1) return src.length;
+    } else if (c === '"') {
+      for (i++; i < src.length && src[i] !== '"'; i++) if (src[i] === "\\") i++;
+    } else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i;
+  }
+
+  return src.length;
+}
 
 /**
  * Split a command line into words, operators and redirections the way the
@@ -106,8 +130,16 @@ function lex(src: string): Token[] {
       continue;
     }
 
-    if (c === "'" || (c === "$" && next === "'")) {
-      const from = c === "$" ? i + 2 : i + 1;
+    // ANSI-C quoting: backslash escapes, `\'` included.
+    if (c === "$" && next === "'") {
+      for (i += 2; i < src.length && src[i] !== "'"; i++) word += src[i] === "\\" ? (src[++i] ?? "") : src[i];
+      inWord = true;
+      i++;
+      continue;
+    }
+
+    if (c === "'") {
+      const from = i + 1;
       const end = src.indexOf("'", from);
       const stop = end === -1 ? src.length : end;
       word += src.slice(from, stop);
@@ -157,13 +189,17 @@ function lex(src: string): Token[] {
       continue;
     }
 
-    // Command and process substitution: output captured, not printed.
-    if ((c === "$" || c === "<" || c === ">") && next === "(") {
-      op("$(", 2);
-      continue;
-    }
-    if (c === "`") {
-      op("`", 1);
+    // Command and process substitution: a word of this command whose value
+    // we cannot know. The command inside runs on its own, output captured.
+    if (((c === "$" || c === "<" || c === ">") && next === "(") || c === "`") {
+      const from = c === "`" ? i + 1 : i + 2;
+      const close = closingIndex(src, from, c === "`");
+      const inner = src.slice(from, close);
+      // `$(( … ))` is arithmetic, not a command.
+      if (!(c === "$" && inner.startsWith("("))) out.push({ t: "sub", tokens: lex(inner) });
+      word += SUB;
+      inWord = true;
+      i = close + 1;
       continue;
     }
 
@@ -236,6 +272,8 @@ interface Segment {
   redirs: Array<{ v: string; fd: string; target: string }>;
   /** The next command of the pipeline, when stdout goes into a pipe. */
   pipedTo: Segment | null;
+  /** Stdin comes from the previous command of a pipeline. */
+  pipedFrom: boolean;
   /** Inside `$( )`, `<( )` or backticks: the output is captured, not shown. */
   consumed: boolean;
   /** Filled by strip(). */
@@ -246,16 +284,22 @@ interface Segment {
 
 function parse(tokens: Token[]): Segment[] {
   const segs: Segment[] = [];
-  const parens: boolean[] = [];
-  let backtick = false;
-  let pipeFrom: Segment | null = null;
-  let last: Segment | null = null;
+  /** Commands inside substitutions: their output is captured. */
+  const captured: Segment[] = [];
+  /** Where each open group (`( )`, `{ }`, a loop, an `if`) starts in `segs`. */
+  const groups: number[] = [];
+  /** What a `|` here would take the output of: the last command, or the whole group it closed. */
+  let piping: Segment[] = [];
+  let pipeFrom: Segment[] = [];
+  /** The group a `)` just closed: redirections right after it apply to the whole group. */
+  let closedByParen: Segment[] | null = null;
   let pendingRedir: Segment["redirs"][number] | null = null;
 
   const fresh = (): Segment => ({
     words: [],
     redirs: [],
     pipedTo: null,
+    pipedFrom: false,
     consumed: false,
     cmd: "",
     args: [],
@@ -263,17 +307,51 @@ function parse(tokens: Token[]): Segment[] {
   });
   let cur = fresh();
 
+  const closeGroup = (): void => {
+    const start = groups.pop();
+    if (start !== undefined) piping = segs.slice(start);
+  };
+
+  /** `} > out.txt`, `done > out.txt`, `) > out.txt`: every command of the group writes there. */
+  const redirectGroup = (group: Segment[], from: Segment): void => {
+    const out = from.redirs.filter((r) => !r.v.startsWith("<"));
+    for (const s of group) if (s !== from) s.redirs.push(...out);
+  };
+
   const end = (): void => {
     if (cur.words.length === 0 && cur.redirs.length === 0) return;
-    cur.consumed = backtick || parens.some(Boolean);
-    if (pipeFrom) pipeFrom.pipedTo = cur;
-    pipeFrom = null;
+    // A command already piped inside the group keeps its own pipe.
+    for (const from of pipeFrom) from.pipedTo ??= cur;
+    cur.pipedFrom = pipeFrom.length > 0;
+    pipeFrom = [];
     segs.push(cur);
-    last = cur;
+    piping = [cur];
+
+    if (CLOSERS.has(cur.words[0])) {
+      closeGroup();
+      redirectGroup(piping, cur);
+    } else if (cur.words.length === 0 && closedByParen) {
+      redirectGroup(closedByParen, cur);
+      piping = [...closedByParen, cur];
+    } else {
+      for (const w of cur.words) {
+        if (OPENERS.has(w)) groups.push(segs.length - 1);
+        else if (!KEYWORDS.has(w)) break;
+      }
+    }
+    closedByParen = null;
     cur = fresh();
   };
 
   for (const tok of tokens) {
+    if (tok.t === "sub") {
+      for (const inner of parse(tok.tokens)) {
+        inner.consumed = true;
+        captured.push(inner);
+      }
+      continue;
+    }
+
     if (tok.t === "word") {
       if (pendingRedir) {
         pendingRedir.target = tok.v;
@@ -294,19 +372,26 @@ function parse(tokens: Token[]): Segment[] {
     pendingRedir = null;
     end();
     if (tok.v === "|") {
-      pipeFrom = last;
-      continue;
+      pipeFrom = piping;
+      closedByParen = null;
+    } else if (tok.v === "(") groups.push(segs.length);
+    else if (tok.v === ")") {
+      closeGroup();
+      closedByParen = piping;
+    } else {
+      pipeFrom = [];
+      piping = [];
+      closedByParen = null;
     }
-    pipeFrom = null;
-    if (tok.v === "(") parens.push(false);
-    else if (tok.v === "$(") parens.push(true);
-    else if (tok.v === ")") parens.pop();
-    else if (tok.v === "`") backtick = !backtick;
   }
 
   end();
-  return segs;
+  return [...segs, ...captured];
 }
+
+/** Words that open and close a group of commands whose joint output a pipe can take. */
+const OPENERS = new Set(["{", "if", "for", "while", "until", "select", "case"]);
+const CLOSERS = new Set(["}", "fi", "done", "esac"]);
 
 const KEYWORDS = new Set(["!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time", "esac"]);
 const PREFIX_COMMANDS = new Set(["sudo", "env", "command", "exec", "nohup", "nice", "time", "timeout", "stdbuf"]);
@@ -356,18 +441,23 @@ function stdoutRedirected(seg: Segment): boolean {
 /** Commands that hand every line on: a dump piped through them is still a dump. */
 const PASS_THROUGH = new Set(["cat", "tee", "less", "more", "nl", "tac", "sort", "column"]);
 
-function passesEverything(seg: Segment): boolean {
+/** `code`: what flows in is a code file, so a slice over the limit is the whole file. */
+function passesEverything(seg: Segment, code: boolean): boolean {
   if (PASS_THROUGH.has(seg.cmd)) return true;
+  if (code && (seg.cmd === "head" || seg.cmd === "tail")) {
+    const { lines, bytes } = sliceSize(seg.cmd, seg.args);
+    return bytes > 0 ? bytes > SLICE_DENY_BYTES : lines > SLICE_DENY_LINES;
+  }
   // `tail -n +1` / `tail +1` starts at a line and prints the rest.
   return seg.cmd === "tail" && seg.args.some((a, i) => /^\+\d/.test(a) || (a === "-n" && /^\+/.test(seg.args[i + 1] ?? "")) || /^-n\+/.test(a));
 }
 
 /** Nothing reaches the screen whole: captured, redirected, or piped into a filter. */
-function outputBounded(seg: Segment): boolean {
+function outputBounded(seg: Segment, code = false): boolean {
   if (seg.consumed || stdoutRedirected(seg)) return true;
 
   for (let next = seg.pipedTo; next; next = next.pipedTo) {
-    if (stdoutRedirected(next) || !passesEverything(next)) return true;
+    if (stdoutRedirected(next) || !passesEverything(next, code)) return true;
   }
 
   return false;
@@ -441,8 +531,12 @@ const GREP_LONG_VALUES = new Set(["regexp", "file", "max-count", "after-context"
 const RG_LONG_VALUES = new Set(["regexp", "file", "glob", "iglob", "max-count", "after-context", "before-context", "context", "type", "type-not", "threads", "max-columns", "encoding", "replace", "max-depth", "sort", "sortr", "pre", "pre-glob", "max-filesize", "engine", "colors", "type-add"]);
 const SEARCH_BOUNDS = ["max-count", "count", "count-matches", "files-with-matches", "files-without-match", "name-only", "quiet", "silent", "files"];
 
-/** Unbounded recursive search: grep -r and friends, rg, git grep. */
-function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[]): boolean {
+/**
+ * Unbounded recursive search: grep -r and friends, rg, git grep.
+ * `readsStdin`: rg with no path searches a piped or redirected stdin, not the
+ * tree (grep -r and git grep walk the tree whatever stdin is).
+ */
+function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[], readsStdin = false): boolean {
   const opts =
     tool === "rg"
       ? parseOptions(args, "efgmABCtTjMErd", RG_LONG_VALUES)
@@ -465,9 +559,10 @@ function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[]): bool
 
   const patternGiven = opts.short.has("e") || opts.short.has("f") || opts.long.has("regexp") || opts.long.has("file");
   const paths = patternGiven ? opts.operands : opts.operands.slice(1);
+  if (paths.length === 0 && readsStdin) return false;
 
-  // Every path names a single file: nothing is walked.
-  return !(paths.length > 0 && paths.every(looksLikeFile));
+  // Every path names a single file (or is substituted, so unknown): nothing is walked.
+  return !(paths.length > 0 && paths.every((p) => looksLikeFile(p) || p.includes(SUB)));
 }
 
 function searchDenied(): PreBashDecision {
@@ -628,13 +723,16 @@ const isRevision = (word: string): boolean => REVISION.test(word) || word.includ
 const DIFF_SUMMARY = /^--(?:stat|shortstat|numstat|name-only|name-status|summary|dirstat|compact-summary|raw|check|quiet|no-patch|exit-code)/;
 
 function gitLogBounded(rest: string[]): boolean {
+  // A substituted word is unknown: it may well be the count or a range.
+  const count = (v: string): boolean => /^\d+$/.test(v) || v.includes(SUB);
+
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--") break;
-    if (/^-\d+$/.test(a) || /^-n\d+$/.test(a) || /^--max-count=\d+$/.test(a)) return true;
-    if ((a === "-n" || a === "--max-count") && /^\d+$/.test(rest[i + 1] ?? "")) return true;
+    if (/^-\d+$/.test(a) || (/^-n./.test(a) && count(a.slice(2))) || (a.startsWith("--max-count=") && count(a.slice(12)))) return true;
+    if ((a === "-n" || a === "--max-count") && count(rest[i + 1] ?? "")) return true;
     // A range (`main..HEAD`) bounds the history.
-    if (!a.startsWith("-") && a.includes("..")) return true;
+    if (!a.startsWith("-") && (a.includes("..") || a.includes(SUB))) return true;
   }
 
   return false;
@@ -694,7 +792,11 @@ function gitDecision(args: string[]): PreBashDecision {
 const FIND_BOUNDS =
   /^-(?:i?name|i?path|i?wholename|i?regex|newer\w*|[amc](?:min|time)|size|empty|user|group|perm|links|inum|samefile|prune|maxdepth|mindepth|quit|delete|exec|execdir|ok|okdir|fprint\w*|fls)$/;
 
-/** `find` over the whole disk (or outside the project) without a depth limit, or the whole repo with no filter at all. */
+/**
+ * `find` over the whole disk or home without a depth limit, elsewhere outside
+ * the project with neither a filter nor a depth limit, or the whole repo with
+ * no filter at all.
+ */
 function findDecision(args: string[], projectRoot: string | undefined): PreBashDecision {
   let i = 0;
   while (i < args.length && /^-(?:[HLP]|O\d*|D)$/.test(args[i])) i += args[i] === "-D" ? 2 : 1;
@@ -710,13 +812,15 @@ function findDecision(args: string[], projectRoot: string | undefined): PreBashD
 
   for (const raw of roots) {
     const r = raw.replace(/\/+$/, "") || "/";
-    const home = r === "~" || r === "$HOME" || r === "${HOME}";
-    const outside = r.startsWith("/") && (r === "/" || (root !== undefined && r !== root && !r.startsWith(`${root}/`)));
+    // The whole disk or the whole home directory: even a filtered walk lists too much.
+    const whole = r === "/" || r === "~" || r === "$HOME" || r === "${HOME}";
+    const home = /^(?:~|\$HOME|\$\{HOME\})(?:\/|$)/.test(r);
+    const outside = home || (r.startsWith("/") && (r === "/" || (root !== undefined && r !== root && !r.startsWith(`${root}/`))));
 
-    if ((home || outside) && !depthLimited) {
+    if (outside && !depthLimited && (whole || !filtered)) {
       return deny(
-        `\`find ${raw}\` walks far beyond the project and dumps every path it meets. ` +
-          "Add `-maxdepth N`, start from a directory inside the project, or pipe to `head`.",
+        `\`find ${raw}\` walks outside the project and lists every path it meets. ` +
+          `Add \`-maxdepth N\`${whole ? "" : " or a filter (`-name <glob>`)"}, start from a directory inside the project, or pipe to \`head\`.`,
       );
     }
 
@@ -773,7 +877,7 @@ function judge(seg: Segment, args: string[], opts: PreBashOptions, depth: number
     };
   }
 
-  if (outputBounded(seg)) return ALLOW;
+  if (outputBounded(seg, VIEWERS.has(cmd))) return ALLOW;
 
   if (SHELLS.has(cmd)) {
     const flag = args.findIndex((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
@@ -784,7 +888,10 @@ function judge(seg: Segment, args: string[], opts: PreBashOptions, depth: number
   if (cmd === "grep" || cmd === "egrep" || cmd === "fgrep") {
     return recursiveSearch("grep", args) ? searchDenied() : ALLOW;
   }
-  if (cmd === "rg") return recursiveSearch("rg", args) ? searchDenied() : ALLOW;
+  if (cmd === "rg") {
+    const readsStdin = seg.pipedFrom || seg.redirs.some((r) => r.v.startsWith("<"));
+    return recursiveSearch("rg", args, readsStdin) ? searchDenied() : ALLOW;
+  }
   if (cmd === "git") return gitDecision(args);
   if (cmd === "find") return findDecision(args, opts.projectRoot);
 
@@ -877,13 +984,13 @@ export function decidePreBash(
   return detectHeavyPattern(cmd, opts);
 }
 
+/** Advice carries no permissionDecision: "allow" would skip the user's permission prompt. */
 export function renderPreBashOutput(decision: PreBashDecision): string | null {
   if (decision.kind === "allow") return null;
   if (decision.kind === "advise") {
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: decision.reason,
       },
     });

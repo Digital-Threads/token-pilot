@@ -82,10 +82,10 @@ describe("decidePreGrep", () => {
     );
   });
 
-  it("symbol-like pattern → deny with suggestion", () => {
+  it("symbol-like pattern in content mode → deny with suggestion", () => {
     const d = decidePreGrep({
       tool_name: "Grep",
-      tool_input: { pattern: "getUserById" },
+      tool_input: { pattern: "getUserById", output_mode: "content" },
     });
     expect(d.kind).toBe("deny");
     if (d.kind === "deny") {
@@ -120,7 +120,7 @@ describe("decidePreGrep", () => {
 
   it("deny mode (default): symbol-like pattern → deny", () => {
     const d = decidePreGrep(
-      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      { tool_name: "Grep", tool_input: { pattern: "UserService", output_mode: "content" } },
       "deny",
     );
     expect(d.kind).toBe("deny");
@@ -128,7 +128,7 @@ describe("decidePreGrep", () => {
 
   it("strict mode: symbol-like pattern → deny (same as deny)", () => {
     const d = decidePreGrep(
-      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      { tool_name: "Grep", tool_input: { pattern: "UserService", output_mode: "content" } },
       "strict",
     );
     expect(d.kind).toBe("deny");
@@ -149,10 +149,11 @@ describe("renderPreGrepOutput", () => {
   });
 
   // v0.30.0 — advisory kind for TODO-like scans routed to code_audit
-  it("advise decision → permissionDecision=allow + additionalContext", () => {
+  // A permissionDecision of "allow" would skip the user's permission prompt.
+  it("advise decision → additionalContext only, no permissionDecision", () => {
     const json = renderPreGrepOutput({ kind: "advise", reason: "use Y" })!;
     const parsed = JSON.parse(json);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("use Y");
   });
 });

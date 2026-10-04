@@ -179,10 +179,11 @@ describe("renderPreEditOutput", () => {
     expect(parsed.hookSpecificOutput.hookEventName).toBe("PreToolUse");
   });
 
-  it("renders advise with permissionDecision=allow + additionalContext", () => {
+  // A permissionDecision of "allow" would skip the user's permission prompt.
+  it("renders advise as additionalContext only, no permissionDecision", () => {
     const out = renderPreEditOutput({ kind: "advise", message: "hint" });
     const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("hint");
   });
 });

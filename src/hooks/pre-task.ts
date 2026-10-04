@@ -223,10 +223,13 @@ export function decidePreTask(
  * Render the Claude Code hook JSON response.
  *
  * - allow  → no output (pass-through), UNLESS `append` carries a fleet
- *            budget note — then emit an allow + additionalContext so the
- *            note still reaches the agent.
- * - advise → permissionDecision=allow + additionalContext (+ append)
+ *            budget note — then emit it as additionalContext so the note
+ *            still reaches the agent.
+ * - advise → additionalContext (+ append)
  * - deny   → permissionDecision=deny + reason (+ append)
+ *
+ * Advice and notes carry no permissionDecision: "allow" would skip the
+ * user's permission prompt.
  *
  * v0.38.0 — `append` is an optional trailing string (the workflow
  * near-budget wind-down note). Empty / omitted leaves output unchanged.
@@ -241,7 +244,6 @@ export function renderPreTaskOutput(
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: extra.trimStart(),
       },
     });
@@ -250,7 +252,6 @@ export function renderPreTaskOutput(
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: decision.message + extra,
       },
     });

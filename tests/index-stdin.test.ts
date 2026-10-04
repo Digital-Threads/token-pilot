@@ -268,7 +268,8 @@ describe("index stdin hooks", () => {
       expect(() => mod.handleHookEdit()).toThrow("EXIT:0");
       expect(writeSpy).toHaveBeenCalledTimes(1);
       const payload = String(writeSpy.mock.calls[0][0]);
-      expect(payload).toContain('"permissionDecision":"allow"');
+      // No permissionDecision: an "allow" would skip the user's permission prompt.
+      expect(payload).not.toContain("permissionDecision");
       expect(payload).toContain("additionalContext");
       expect(payload).toContain("read_for_edit");
     } finally {

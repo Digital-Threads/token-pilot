@@ -227,6 +227,45 @@ describe('smart_diff — merge commits', () => {
     expect(text).toContain('b.ts');
     expect(text).toMatch(/ADDED: beta\(\)/);
   });
+
+  // `--diff-merges` arrived in git 2.31; older git rejects it outright.
+  it.skipIf(process.platform === 'win32')('works on git older than 2.31, which has no --diff-merges', async () => {
+    const r = makeRepo();
+    r.write('a.ts', fn('alpha', 1) + '\n');
+    r.commit('init');
+    r.git('checkout', '-q', '-b', 'feature');
+    r.write('b.ts', fn('beta', 2) + '\n');
+    r.commit('add beta');
+    r.git('checkout', '-q', 'main');
+    r.write('c.ts', 'c\n');
+    r.commit('main moves on');
+    r.git('merge', '-q', '--no-ff', '-m', 'Merge feature', 'feature');
+    const merge = r.git('rev-parse', 'HEAD').trim();
+
+    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+    const bin = mkdtempSync(join(tmpdir(), 'tp-old-git-'));
+    dirs.push(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      '#!/bin/sh\nfor a in "$@"; do case "$a" in --diff-merges*) echo "fatal: unrecognized argument: $a" >&2; exit 128;; esac; done\n' +
+        `exec "${realGit}" "$@"\n`,
+      { mode: 0o755 },
+    );
+
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}:${savedPath}`;
+    try {
+      const whole = await diff(r.dir, { scope: 'commit', ref: merge });
+      expect(whole.text).not.toMatch(/failed/);
+      expect(whole.text).toMatch(/ADDED: beta\(\)/);
+      expect(whole.text).not.toContain('c.ts');
+
+      const scoped = await diff(r.dir, { scope: 'commit', ref: merge, path: 'b.ts' });
+      expect(scoped.text).toMatch(/ADDED: beta\(\)/);
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
 });
 
 // ─── item 4: honest messages ────────────────────────────────────────────────

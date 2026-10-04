@@ -49,7 +49,9 @@ The PreToolUse:Read hook has its own mode (separate from enforcement mode). Set 
 
 ## Grep / Bash Hook Rules
 
-The Grep hook redirects symbol-like patterns to `find_usages`. The Bash hook blocks:
+The Grep hook redirects symbol-like patterns searched with `output_mode: "content"`
+to `find_usages` (Claude Code's Grep lists file names when `output_mode` is left
+out, so those pass). The Bash hook blocks:
 
 | Pattern | Blocked when | Allowed when |
 |---------|-------------|--------------|

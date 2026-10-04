@@ -266,77 +266,70 @@ export async function installHook(
       // ENOENT — file doesn't exist, start fresh
     }
 
-    // Check which Token Pilot hooks already exist
-    const existingHooks = settings.hooks?.PreToolUse;
     const isTokenPilotHook = (h: any) =>
       h.hooks?.some((hook: any) => hook.command?.includes("token-pilot"));
 
-    if (Array.isArray(existingHooks)) {
-      // Remove old broken hooks (bare "token-pilot" without absolute path)
-      // OR stale npx-cache / pinned-version paths (v0.33.0)
-      // and replace with working ones using absolute paths.
-      const oldBrokenHooks = existingHooks.filter(
-        (h: any) =>
-          isTokenPilotHook(h) &&
-          h.hooks?.some(
-            (hook: any) =>
-              hook.command?.match(/^token-pilot\s/) ||
-              isStaleTokenPilotHookCommand(hook.command),
-          ),
+    // Old broken hooks (bare "token-pilot" without absolute path) OR stale
+    // npx-cache / pinned-version paths (v0.33.0), in any event: drop that
+    // event's token-pilot entries, re-added below with working paths.
+    if (options?.scriptPath && settings.hooks) {
+      const broken = (h: any) =>
+        isTokenPilotHook(h) &&
+        h.hooks?.some(
+          (hook: any) =>
+            hook.command?.match(/^token-pilot\s/) ||
+            isStaleTokenPilotHookCommand(hook.command),
+        );
+      for (const event of Object.keys(hookConfig.hooks)) {
+        const present = settings.hooks[event];
+        if (Array.isArray(present) && present.some(broken)) {
+          settings.hooks[event] = present.filter((h: any) => !isTokenPilotHook(h));
+        }
+      }
+    }
+
+    // Installed means every entry this version ships is present, for
+    // every event — and none it no longer ships (hook-post-task) is
+    // left behind. Checking only a few matchers let older installs keep
+    // missing hooks, such as the SubagentStop budget watchdog.
+    const hasEvery = Object.entries(hookConfig.hooks).every(
+      ([event, entries]) =>
+        (entries as any[]).every((entry) => {
+          const present = settings.hooks?.[event];
+          return (
+            Array.isArray(present) &&
+            present.some(
+              (h: any) =>
+                (h.matcher ?? null) === (entry.matcher ?? null) &&
+                isTokenPilotHook(h),
+            )
+          );
+        }),
+    );
+    const hasRetired = (settings.hooks?.PostToolUse ?? []).some(
+      (h: any) =>
+        isTokenPilotHook(h) &&
+        h.hooks?.some((x: any) => String(x.command).includes("hook-post-task")),
+    );
+
+    if (hasEvery && !hasRetired) {
+      return {
+        installed: false,
+        fatal: false,
+        message: "Token Pilot hooks already installed.",
+      };
+    }
+
+    // Add missing PreToolUse hooks
+    if (!settings.hooks) settings.hooks = {};
+    if (!Array.isArray(settings.hooks.PreToolUse)) settings.hooks.PreToolUse = [];
+    for (const hookDef of hookConfig.hooks.PreToolUse) {
+      const exists = settings.hooks.PreToolUse.some(
+        (h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h),
       );
-
-      if (oldBrokenHooks.length > 0 && options?.scriptPath) {
-        // Remove old broken hooks, will re-add with absolute paths below
-        settings.hooks.PreToolUse = existingHooks.filter(
-          (h: any) => !isTokenPilotHook(h),
-        );
-      } else {
-        // Installed means every entry this version ships is present, for
-        // every event — and none it no longer ships (hook-post-task) is
-        // left behind. Checking only a few matchers let older installs keep
-        // missing hooks, such as the SubagentStop budget watchdog.
-        const hasEvery = Object.entries(hookConfig.hooks).every(
-          ([event, entries]) =>
-            (entries as any[]).every((entry) => {
-              const present = settings.hooks?.[event];
-              return (
-                Array.isArray(present) &&
-                present.some(
-                  (h: any) =>
-                    (h.matcher ?? null) === (entry.matcher ?? null) &&
-                    isTokenPilotHook(h),
-                )
-              );
-            }),
-        );
-        const hasRetired = (settings.hooks?.PostToolUse ?? []).some(
-          (h: any) =>
-            isTokenPilotHook(h) &&
-            h.hooks?.some((x: any) => String(x.command).includes("hook-post-task")),
-        );
-
-        if (hasEvery && !hasRetired) {
-          return {
-            installed: false,
-            fatal: false,
-            message: "Token Pilot hooks already installed.",
-          };
-        }
+      if (!exists) {
+        settings.hooks.PreToolUse.push(hookDef);
       }
-
-      // Add missing PreToolUse hooks
-      for (const hookDef of hookConfig.hooks.PreToolUse) {
-        const exists = settings.hooks.PreToolUse.some(
-          (h: any) => h.matcher === hookDef.matcher && isTokenPilotHook(h),
-        );
-        if (!exists) {
-          settings.hooks.PreToolUse.push(hookDef);
-        }
-      }
-    } else {
-      // Create hooks section
-      if (!settings.hooks) settings.hooks = {};
-      settings.hooks.PreToolUse = hookConfig.hooks.PreToolUse;
     }
 
     // Install SessionStart hook idempotently
@@ -433,64 +426,22 @@ export async function uninstallHook(
     const raw = await readFile(settingsPath, "utf-8");
     const settings = JSON.parse(raw);
 
-    const hasPreToolUse = !!settings.hooks?.PreToolUse;
-    const hasSessionStart = !!settings.hooks?.SessionStart;
-    const hasPostToolUse = !!settings.hooks?.PostToolUse;
-    const hasSubagentStop = !!settings.hooks?.SubagentStop;
-    if (
-      !hasPreToolUse &&
-      !hasSessionStart &&
-      !hasPostToolUse &&
-      !hasSubagentStop
-    ) {
+    // Every event token-pilot installs into — one list, so none is missed.
+    const events = Object.keys(createHookConfig().hooks);
+    if (!events.some((event) => settings.hooks?.[event])) {
       return { removed: false, fatal: false, message: "No hooks to remove." };
     }
 
     const isTokenPilotHook = (h: any) =>
       h.hooks?.some((hook: any) => hook.command?.includes("token-pilot"));
 
-    if (Array.isArray(settings.hooks?.PreToolUse)) {
-      settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(
+    for (const event of events) {
+      if (!Array.isArray(settings.hooks?.[event])) continue;
+      settings.hooks[event] = settings.hooks[event].filter(
         (h: any) => !isTokenPilotHook(h),
       );
-      if (settings.hooks.PreToolUse.length === 0) {
-        delete settings.hooks.PreToolUse;
-      }
-    }
-
-    if (Array.isArray(settings.hooks?.SessionStart)) {
-      settings.hooks.SessionStart = settings.hooks.SessionStart.filter(
-        (h: any) => !isTokenPilotHook(h),
-      );
-      if (settings.hooks.SessionStart.length === 0) {
-        delete settings.hooks.SessionStart;
-      }
-    }
-
-    if (Array.isArray(settings.hooks?.UserPromptSubmit)) {
-      settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
-        (h: any) => !isTokenPilotHook(h),
-      );
-      if (settings.hooks.UserPromptSubmit.length === 0) {
-        delete settings.hooks.UserPromptSubmit;
-      }
-    }
-
-    if (Array.isArray(settings.hooks?.PostToolUse)) {
-      settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-        (h: any) => !isTokenPilotHook(h),
-      );
-      if (settings.hooks.PostToolUse.length === 0) {
-        delete settings.hooks.PostToolUse;
-      }
-    }
-
-    if (Array.isArray(settings.hooks?.SubagentStop)) {
-      settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(
-        (h: any) => !isTokenPilotHook(h),
-      );
-      if (settings.hooks.SubagentStop.length === 0) {
-        delete settings.hooks.SubagentStop;
+      if (settings.hooks[event].length === 0) {
+        delete settings.hooks[event];
       }
     }
 

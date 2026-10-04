@@ -66,7 +66,8 @@ describe("command hooks find the project root", () => {
     const run = (command: string) =>
       hook("hook-pre-bash", { tool_name: "Bash", tool_input: { command } }, join(project, "src"));
 
-    expect(run(`find ${project}/src -name '*.ts'`)).toBe("");
-    expect(run("find /usr -name '*.h'")).toContain('"permissionDecision":"deny"');
+    // Unfiltered both times: outside the project a filter alone would pass.
+    expect(run(`find ${project}/src`)).toBe("");
+    expect(run("find /usr")).toContain('"permissionDecision":"deny"');
   });
 });

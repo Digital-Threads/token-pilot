@@ -119,8 +119,18 @@ table(
     ["find /repo/src -name '*.ts'", "allow"],
     ["find /repo/src", "allow"],
     ["find /", "deny"],
-    ["find /usr/include -name stdio.h", "deny"],
+    // Outside the project: a filter or a depth limit keeps the listing short.
+    ["find /usr/include -name stdio.h", "allow"],
     ["find /usr/include -maxdepth 2 -name stdio.h", "allow"],
+    ["find /tmp/x -name '*.mjs'", "allow"],
+    ["find /home/u/.claude/plugins -name hooks.json", "allow"],
+    ["find ~/.claude/plugins -name hooks.json", "allow"],
+    ["find ~/.claude -maxdepth 2", "allow"],
+    ["find /usr/include", "deny"],
+    ["find / -type f", "deny"],
+    ["find ~", "deny"],
+    ["find ~/.claude/plugins", "deny"],
+    ["find $HOME/projects", "deny"],
     ["find . -name '*.ts'", "allow"],
     ["find . -maxdepth 2", "allow"],
     ["find . -type f | wc -l", "allow"],
@@ -192,4 +202,81 @@ table("code extensions", [
   ["cat src/a.mts", "deny"],
   ["cat src/a.cjs", "deny"],
   ["cat notes.md", "allow"],
+]);
+
+// Review 1.0.2 — rg with no path reads its stdin when that is a pipe;
+// grep -r and git grep walk the tree whatever stdin is.
+table("search reading a pipe", [
+  ["ps aux | rg node", "allow"],
+  ["env | rg PATH", "allow"],
+  ["journalctl -u foo | rg -i error", "allow"],
+  ["git log --oneline -n 50 | rg fix", "allow"],
+  ["docker logs foo | rg error", "allow"],
+  ["rg --files | rg pre-bash", "allow"],
+  ["rg ERROR < app.log", "allow"],
+  ["echo x | rg foo src", "deny"],
+  ["ls | grep -r x", "deny"],
+  ["git log -n 5 | git grep fix", "deny"],
+]);
+
+// Review 1.0.2 — an unquoted `$( )` or backtick in argument position is a
+// word of the outer command, not the end of it; the inner command is judged
+// on its own, with its output captured.
+table(
+  "command substitution",
+  [
+    ["git diff $(git merge-base HEAD main) -- src/x.ts", "allow"],
+    ["git log $(git describe --tags --abbrev=0)..HEAD --oneline", "allow"],
+    ["git show `git rev-parse HEAD` --stat", "allow"],
+    ["git diff `git merge-base HEAD main` -- src/a.ts", "allow"],
+    ["find $(pwd)/src -name '*.ts'", "allow"],
+    ["git log -n $(echo 5)", "allow"],
+    ["diff <(git show HEAD:src/a.ts) <(cat src/a.ts)", "allow"],
+    ["x=$(npx vitest run)", "advise"],
+    ["cat `echo` src/a.ts", "deny"],
+    ["cat $(echo) src/a.ts | cat", "deny"],
+    ["echo $(( 1 << 2 ))\ncat src/a.ts", "deny"],
+  ],
+  { projectRoot: "/repo" },
+);
+
+// Review 1.0.2 — a pipe after `)`, `}`, `done` or `fi` takes the output of
+// every command in that group.
+table("group piped into a bound", [
+  ["{ git log; } | head", "allow"],
+  ["{ cat a.ts; } | head -50", "allow"],
+  ["(cat a.ts; echo) | head -50", "allow"],
+  ["(cd sub && git log --oneline) | head -20", "allow"],
+  ["for f in *.ts; do cat $f; done | head -100", "allow"],
+  ['while read f; do cat "$f"; done < files.txt | head -50', "allow"],
+  ["if true; then cat src/a.ts; fi | head", "allow"],
+  ["(cat src/a.ts | sort; echo) | head", "allow"],
+  ["{ cat src/a.ts; } | cat", "deny"],
+  ["{ cat src/a.ts; }; echo x | head", "deny"],
+  ["for f in *.ts; do cat $f; done", "deny"],
+]);
+
+// Review 1.0.2 — a redirection after `)`, `}`, `done` or `fi` sends the
+// output of every command in that group to the file.
+table("group redirected to a file", [
+  ["{ cat a.ts; } > out.txt", "allow"],
+  ["(cat a.ts) > out.txt", "allow"],
+  ["for f in *.ts; do cat $f; done > out.txt", "allow"],
+  ["if true; then cat a.ts; fi >> log.txt", "allow"],
+  ["(cat a.ts) 2>/dev/null | head", "allow"],
+  ["{ cat a.ts; } 2>/dev/null", "deny"],
+  ["(cat a.ts) 2>&1", "deny"],
+  ["(cat a.ts); echo x > out.txt", "deny"],
+]);
+
+// Review 1.0.2 — a head over the slice limit does not bound a whole-file
+// viewer; `$'…'` quoting has backslash escapes.
+table("viewer bounds and ANSI-C quotes", [
+  ["cat src/a.ts | head -n 400", "deny"],
+  ["cat src/a.ts | head -c 100000", "deny"],
+  ["cat src/a.ts | head -n 300", "allow"],
+  ["cat README.md | head -n 400", "allow"],
+  ["git log | head -n 400", "allow"],
+  ["echo $'it\\'s' && cat src/a.ts", "deny"],
+  ["echo $'a\\nb' && ls", "allow"],
 ]);
