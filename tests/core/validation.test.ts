@@ -11,6 +11,8 @@ import {
   validateProjectOverviewArgs,
   validateModuleInfoArgs,
   validateCodeAuditArgs,
+  validateSmartDiffArgs,
+  validateSmartLogArgs,
   isDangerousRoot,
 } from '../../src/core/validation.js';
 
@@ -332,5 +334,24 @@ describe('isDangerousRoot', () => {
     expect(isDangerousRoot('C:\\Users\\TAKUMA\\proj')).toBe(false);
     expect(isDangerousRoot('C:/Users/TAKUMA/proj')).toBe(false);
     expect(isDangerousRoot('D:\\work\\repo')).toBe(false);
+  });
+});
+
+describe("git ref arguments cannot be read as git options", () => {
+  // A ref like "--output=<path>" made git write a file wherever it pointed.
+  it("smart_diff rejects a ref that starts with a dash", () => {
+    expect(() => validateSmartDiffArgs({ scope: "commit", ref: "--output=/tmp/x" })).toThrow(/ref/);
+    expect(() => validateSmartDiffArgs({ scope: "branch", ref: "-p" })).toThrow(/ref/);
+  });
+
+  it("smart_log rejects a ref that starts with a dash", () => {
+    expect(() => validateSmartLogArgs({ ref: "--output=/tmp/x" })).toThrow(/ref/);
+  });
+
+  it("keeps ordinary refs", () => {
+    for (const ref of ["HEAD", "HEAD~3", "v1.0.0", "origin/master", "4983e1d", "feat/cc-mods", "HEAD^{commit}"]) {
+      expect(validateSmartDiffArgs({ scope: "commit", ref }).ref).toBe(ref);
+      expect(validateSmartLogArgs({ ref }).ref).toBe(ref);
+    }
   });
 });

@@ -721,6 +721,19 @@ export interface SmartDiffArgs {
   ref?: string;
 }
 
+/**
+ * A git revision handed to git as an argument. One that starts with "-" would
+ * be read as an option — "--output=<path>" makes git write a file anywhere.
+ */
+function optionalGitRef(value: unknown): string | undefined {
+  const ref = optionalString(value, "ref");
+  if (ref !== undefined && ref.startsWith("-")) {
+    throw new Error('"ref" must be a revision, not an option (it cannot start with "-").');
+  }
+
+  return ref;
+}
+
 export function validateSmartDiffArgs(args: unknown): SmartDiffArgs {
   if (!args || typeof args !== "object") return { scope: "unstaged" };
   const a = args as Record<string, unknown>;
@@ -734,7 +747,7 @@ export function validateSmartDiffArgs(args: unknown): SmartDiffArgs {
     scope = a.scope as SmartDiffArgs["scope"];
   }
 
-  const ref = optionalString(a.ref, "ref");
+  const ref = optionalGitRef(a.ref);
   if ((scope === "commit" || scope === "branch") && !ref) {
     throw new Error(`"ref" is required when scope="${scope}".`);
   }
@@ -843,7 +856,7 @@ export function validateSmartLogArgs(args: unknown): SmartLogArgs {
     }
   }
 
-  const ref = optionalString(a.ref, "ref");
+  const ref = optionalGitRef(a.ref);
   if (ref !== undefined && ref.length === 0) {
     throw new Error('"ref" must be a non-empty string.');
   }
