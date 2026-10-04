@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import type { AstIndexClient } from '../ast-index/client.js';
+import type { CacheEntry } from '../types.js';
 
 /**
  * Watches individual files for changes and auto-invalidates cache.
@@ -15,12 +16,14 @@ import type { AstIndexClient } from '../ast-index/client.js';
  */
 export class FileWatcher {
   private static readonly UPDATE_DEBOUNCE_MS = 2000;
+  private static readonly MAX_BASELINES = 100;
 
   private fileCache: FileCache;
   private contextRegistry: ContextRegistry;
   private astIndex: AstIndexClient | null;
   private watcher: ReturnType<typeof watch> | null = null;
   private watchedFiles = new Set<string>();
+  private baselines = new Map<string, CacheEntry>();
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private fileChangeCallback: ((absPath: string) => void) | null = null;
   private astUpdateCallback: (() => void) | null = null;
@@ -49,23 +52,47 @@ export class FileWatcher {
       console.error(`[token-pilot] file watcher error (ignored): ${msg}`);
     });
 
-    this.watcher.on('change', (filePath: string) => {
-      const absPath = resolve(filePath);
-      if (this.fileCache.get(absPath)) {
-        this.fileCache.invalidate(absPath);
-      }
-      this.fileChangeCallback?.(absPath);
-      this.scheduleIndexUpdate();
-    });
+    this.watcher.on('change', (filePath: string) => this.handleChange(filePath));
 
     this.watcher.on('unlink', (filePath: string) => {
       const absPath = resolve(filePath);
+      this.baselines.delete(absPath);
       this.fileCache.invalidate(absPath);
       this.contextRegistry.forget(absPath);
       this.watchedFiles.delete(absPath);
       this.fileChangeCallback?.(absPath);
       this.scheduleIndexUpdate();
     });
+  }
+
+  /**
+   * A watched file changed: readers must re-read it, but read_diff still
+   * needs the version the agent last read — keep that as its baseline.
+   */
+  handleChange(filePath: string): void {
+    const absPath = resolve(filePath);
+    const entry = this.fileCache.get(absPath);
+    if (entry) {
+      // keep the oldest unseen version; a second edit must not hide the first
+      if (!this.baselines.has(absPath)) {
+        this.baselines.set(absPath, entry);
+        // ponytail: FIFO cap; raise it if sessions edit more files between read_diff calls
+        if (this.baselines.size > FileWatcher.MAX_BASELINES) {
+          this.baselines.delete(this.baselines.keys().next().value!);
+        }
+      }
+      this.fileCache.invalidate(absPath);
+    }
+    this.fileChangeCallback?.(absPath);
+    this.scheduleIndexUpdate();
+  }
+
+  /** The pre-change version of a file for read_diff (removed once taken). */
+  takeBaseline(filePath: string): CacheEntry | undefined {
+    const absPath = resolve(filePath);
+    const entry = this.baselines.get(absPath);
+    this.baselines.delete(absPath);
+    return entry;
   }
 
   /** Debounced ast-index incremental update after file changes */

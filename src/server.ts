@@ -727,6 +727,7 @@ export async function createServer(
             projectRoot,
             fileCache,
             contextRegistry,
+            fileWatcher ? (p) => fileWatcher!.takeBaseline(p) : undefined,
           );
           const diffText = diffResult.content[0]?.text ?? "";
           const diffTokens = estimateTokens(diffText);

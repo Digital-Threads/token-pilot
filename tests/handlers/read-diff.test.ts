@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { handleReadDiff } from '../../src/handlers/read-diff.js';
 import { FileCache } from '../../src/core/file-cache.js';
 import { ContextRegistry } from '../../src/core/context-registry.js';
+import { FileWatcher } from '../../src/git/file-watcher.js';
 
 describe('handleReadDiff', () => {
   let tempDir: string;
@@ -87,5 +88,37 @@ describe('handleReadDiff', () => {
     expect(result.content[0].text).toContain('TOKEN SAVINGS:');
     expect(cache.get(filePath)?.content).toContain('two changed');
     expect(registry.isStale(filePath, cache.get(filePath)!.hash)).toBe(false);
+  });
+
+  it('still diffs after the file watcher evicted the cache entry on change', async () => {
+    const cache = new FileCache();
+    const watcher = new FileWatcher(tempDir, cache, new ContextRegistry(), []);
+    const v1 = 'one\ntwo\nthree\n';
+    cache.set(filePath, {
+      structure: { path: filePath, language: 'ts', meta: { lines: 3, bytes: 14, lastModified: Date.now(), contentHash: 'h' }, imports: [], exports: [], symbols: [] },
+      content: v1,
+      lines: v1.split('\n'),
+      mtime: Date.now(),
+      hash: createHash('sha256').update(v1).digest('hex'),
+      lastAccess: Date.now(),
+    });
+
+    // the edit lands, chokidar fires 'change'
+    await writeFile(filePath, 'one\nTWO\nthree\n');
+    watcher.handleChange(filePath);
+    expect(cache.get(filePath)).toBeNull(); // readers still re-read the file
+
+    const result = await handleReadDiff(
+      { path: 'file.ts' },
+      tempDir,
+      cache,
+      new ContextRegistry(),
+      (p) => watcher.takeBaseline(p),
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('DIFF: file.ts');
+    expect(text).toContain('TWO');
+    expect(watcher.takeBaseline(filePath)).toBeUndefined(); // consumed
   });
 });
