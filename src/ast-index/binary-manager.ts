@@ -11,6 +11,15 @@ import { get as httpGet, type IncomingMessage } from "node:http";
 import { tarExtract } from "./tar-extract.js";
 
 const REPO = "defendend/Claude-ast-index-search";
+
+/**
+ * The ast-index version this token-pilot is tested with. Auto-install takes
+ * it and the update notice points to it, never to the newest release: a
+ * breaking release (3.56 changed `outline` and several JSON answers) must
+ * not reach fresh installs before token-pilot supports it. Raise it after
+ * running every tool against the new version.
+ */
+export const TESTED_AST_INDEX_VERSION = "3.56.0";
 const BINARY_NAME = platform() === "win32" ? "ast-index.exe" : "ast-index";
 const INSTALL_DIR = resolve(homedir(), ".token-pilot", "bin");
 
@@ -98,12 +107,12 @@ export async function installBinary(
 async function installViaNpm(
   onProgress: (msg: string) => void,
 ): Promise<BinaryStatus> {
-  onProgress("Installing @ast-index/cli via npm...");
+  onProgress(`Installing @ast-index/cli@${TESTED_AST_INDEX_VERSION} via npm...`);
 
   await new Promise<void>((resolve, reject) => {
     execFile(
       "npm",
-      ["install", "-g", "@ast-index/cli"],
+      ["install", "-g", `@ast-index/cli@${TESTED_AST_INDEX_VERSION}`],
       { timeout: 120_000 },
       (err, _stdout, stderr) => {
         if (err) reject(new Error(stderr.trim() || err.message));
@@ -134,8 +143,8 @@ async function installViaNpmFallback(
     throw new Error(`Unsupported platform: ${platform()} ${arch()}`);
   }
 
-  onProgress("Fetching latest release info...");
-  const release = await fetchLatestRelease();
+  onProgress(`Fetching release info for v${TESTED_AST_INDEX_VERSION}...`);
+  const release = await fetchTestedRelease();
 
   const assetName = buildAssetName(release.tag, plat, ar);
   const asset = release.assets.find((a) => a.name === assetName);
@@ -181,38 +190,24 @@ async function installViaNpmFallback(
 }
 
 /**
- * Check if a newer version of ast-index is available on GitHub.
- * Non-blocking, returns null values on any error.
+ * Compare the installed ast-index with the tested version: an update is
+ * offered only up to it, and a newer install is flagged as untested.
  */
 export async function checkBinaryUpdate(currentPath: string | null): Promise<{
   current: string | null;
-  latest: string | null;
+  tested: string;
   updateAvailable: boolean;
+  untested: boolean;
 }> {
-  if (!currentPath) {
-    return { current: null, latest: null, updateAvailable: false };
-  }
+  const tested = TESTED_AST_INDEX_VERSION;
+  const current = currentPath ? await getBinaryVersion(currentPath) : null;
 
-  try {
-    const [current, release] = await Promise.all([
-      getBinaryVersion(currentPath),
-      fetchLatestRelease(),
-    ]);
-
-    const latest = release.tag.replace(/^v/, "");
-
-    if (!current) {
-      return { current: null, latest, updateAvailable: false };
-    }
-
-    return {
-      current,
-      latest,
-      updateAvailable: isNewerVersion(current, latest),
-    };
-  } catch {
-    return { current: null, latest: null, updateAvailable: false };
-  }
+  return {
+    current,
+    tested,
+    updateAvailable: !!current && isNewerVersion(current, tested),
+    untested: !!current && isNewerVersion(tested, current),
+  };
 }
 
 /**
@@ -381,9 +376,9 @@ interface ReleaseInfo {
   assets: Array<{ name: string; url: string; size: number }>;
 }
 
-async function fetchLatestRelease(): Promise<ReleaseInfo> {
+async function fetchTestedRelease(): Promise<ReleaseInfo> {
   const data = await fetchJson(
-    `https://api.github.com/repos/${REPO}/releases/latest`,
+    `https://api.github.com/repos/${REPO}/releases/tags/v${TESTED_AST_INDEX_VERSION}`,
   );
 
   return {

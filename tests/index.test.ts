@@ -177,7 +177,7 @@ describe("index CLI helpers", () => {
     mockDeps.checkBinaryUpdate.mockResolvedValue({
       updateAvailable: false,
       current: "1.0.0",
-      latest: "1.0.0",
+      tested: "1.0.0",
     });
     mockDeps.isNewerVersion.mockReturnValue(false);
     mockDeps.detectContextMode.mockResolvedValue({
@@ -313,7 +313,7 @@ describe("index CLI helpers", () => {
     mockDeps.checkBinaryUpdate.mockResolvedValueOnce({
       updateAvailable: false,
       current: "1.0.0",
-      latest: "1.0.0",
+      tested: "1.0.0",
     });
     exitSpy.mockImplementationOnce(((code?: number) => {
       throw new Error(`EXIT:${code ?? 0}`);
@@ -425,7 +425,7 @@ describe("index CLI helpers", () => {
     mockDeps.checkBinaryUpdate.mockResolvedValueOnce({
       updateAvailable: true,
       current: "1.0.0",
-      latest: "1.1.0",
+      tested: "1.1.0",
     });
     mockDeps.installBinary.mockResolvedValue({
       path: "/bin/ast-index",
@@ -577,7 +577,7 @@ describe("index CLI helpers", () => {
     mockDeps.checkBinaryUpdate.mockResolvedValueOnce({
       updateAvailable: true,
       current: "1.0.0",
-      latest: "1.1.0",
+      tested: "1.1.0",
     });
     mockDeps.loadConfig.mockResolvedValueOnce({
       updates: { autoUpdate: true },
@@ -676,7 +676,7 @@ describe("index CLI helpers", () => {
     mockDeps.checkBinaryUpdate.mockResolvedValueOnce({
       updateAvailable: true,
       current: "1.0.0",
-      latest: "1.2.0",
+      tested: "1.2.0",
     });
 
     await indexModule.checkAllUpdates(
