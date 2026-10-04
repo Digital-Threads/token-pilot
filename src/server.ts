@@ -98,6 +98,21 @@ import {
   validateReadSectionArgs,
 } from "./core/validation.js";
 
+/** Tools whose session-cache entries depend on the AST index (`dependsOnAst`). */
+const AST_CACHED_TOOLS = new Set([
+  "find_usages",
+  "project_overview",
+  "related_files",
+  "outline",
+  "call_tree",
+  "find_unused",
+  "code_audit",
+  "module_info",
+  "module_route",
+  "explore_area",
+  "explore",
+]);
+
 /** A smart_read(_many) that handed back (about) the whole file, not an outline. */
 export function countsAsFullFileRead(tool: string, tokensReturned: number, tokensWouldBe: number): boolean {
   return isFullReadTool(tool) && tokensWouldBe > 0 && tokensReturned >= tokensWouldBe * 0.8;
@@ -350,6 +365,11 @@ export async function createServer(
     }
   }
 
+  // New and edited files reach the index through `ast-index update` (query
+  // refresh, periodic update), not only through the watcher of files already
+  // read: an update that changed the index drops cached AST answers.
+  if (sessionCache) astIndex.onIndexChange(() => sessionCache.invalidateByAst());
+
   // Wire git-watcher → session cache + AST index.
   // Always registers — even without sessionCache — so branch-switch still
   // triggers the index update. Without this the index went stale on every
@@ -531,6 +551,10 @@ export async function createServer(
     }
 
     try {
+      // A cached AST answer is served before the handler would refresh the
+      // index, so refresh first (at most every 15 s); a change empties them.
+      if (sessionCache && AST_CACHED_TOOLS.has(name)) await astIndex.refresh();
+
       switch (name) {
         case "smart_read": {
           const validArgs = validateSmartReadArgs(args);

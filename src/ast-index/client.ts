@@ -141,6 +141,7 @@ export class AstIndexClient {
   private static readonly FRESH_MS = 15_000;
   // The one `ast-index update` in flight in this process (see runUpdate).
   private updatePromise: Promise<string> | null = null;
+  private changeListeners: Array<() => void> = [];
 
   constructor(
     projectRoot: string,
@@ -352,11 +353,30 @@ export class AstIndexClient {
    */
   private runUpdate(timeoutMs: number): Promise<string> {
     if (!this.updatePromise) {
-      this.updatePromise = this.exec(["update"], timeoutMs).finally(() => {
-        this.updatePromise = null;
-      });
+      this.updatePromise = this.exec(["update"], timeoutMs)
+        .then((out) => {
+          if (!/up to date/i.test(out)) this.changeListeners.forEach((l) => l());
+          return out;
+        })
+        .finally(() => {
+          this.updatePromise = null;
+        });
     }
     return this.updatePromise;
+  }
+
+  /** Called after an `update` that changed the index (new, edited or deleted files). */
+  onIndexChange(listener: () => void): void {
+    this.changeListeners.push(listener);
+  }
+
+  /**
+   * Refresh the built index when the last refresh is older than FRESH_MS —
+   * for callers that answer from their own cache before reaching a query.
+   */
+  refresh(): Promise<void> {
+    if (!this.indexed || this.indexDisabled || this.indexOversized) return Promise.resolve();
+    return this.freshen();
   }
 
   /** True when the last refresh failed: recent edits may be missing. */
