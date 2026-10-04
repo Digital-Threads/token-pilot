@@ -898,7 +898,7 @@ export class AstIndexClient {
     module?: string;
     exportOnly?: boolean;
     limit?: number;
-  }): Promise<AstIndexUnusedSymbol[]> {
+  }): Promise<AstIndexUnusedSymbol[] & { truncated?: boolean }> {
     await this.ensureIndex();
     try {
       const args = ["unused-symbols", "--format", "json"];
@@ -907,9 +907,12 @@ export class AstIndexClient {
       if (options?.limit) args.push("--limit", String(options.limit));
       const result = await this.exec(args, 15000);
       const parsed: AstIndexUnusedSymbol[] = JSON.parse(result);
-      return Array.isArray(parsed)
-        ? parsed.filter((s) => this.keep(s.path))
-        : [];
+      if (!Array.isArray(parsed)) return [];
+      const kept = parsed.filter((s) => this.keep(s.path));
+      // The binary's cap (default 50) applies before vendored entries go.
+      const truncated = parsed.length >= (options?.limit ?? 50);
+
+      return truncated ? Object.assign(kept, { truncated }) : kept;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index unused-symbols failed: ${err instanceof Error ? err.message : err}`,
@@ -1227,6 +1230,10 @@ export class AstIndexClient {
 
   isAvailable(): boolean {
     return this.binaryPath !== null;
+  }
+
+  getProjectRoot(): string {
+    return this.projectRoot;
   }
 
   isOversized(): boolean {

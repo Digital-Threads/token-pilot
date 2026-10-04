@@ -179,6 +179,9 @@ describe("AstIndexClient drops excluded directories from results", () => {
       ]),
     );
     expect((await client.unusedSymbols()).map((s: any) => s.name)).toEqual(["b"]);
+    // The binary's cap applies before vendored entries are dropped.
+    expect((await client.unusedSymbols({ limit: 2 })).truncated).toBe(true);
+    expect((await client.unusedSymbols({ limit: 3 })).truncated).toBeUndefined();
   });
 
   it("explore drops vendored symbols, files, neighbours and tests", async () => {
