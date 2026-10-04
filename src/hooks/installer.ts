@@ -188,22 +188,12 @@ function createHookConfig(options?: HookInstallOptions) {
           // execution is safe here.
           hooks: [hookEntry("hook-post-bash", options, { async: true })],
         },
-        {
-          // Claude Code dispatches through `Agent`; `Task` is the legacy name.
-          matcher: "Agent|Task",
-          // v0.39.2 — post-task MUST run synchronously. It writes the
-          // `event:"task"` record via appendEvent (mkdir + stat +
-          // appendFile). Under `async: true` Claude Code fires the hook
-          // detached and may reap the process before those writes flush.
-          // Kept as a secondary path; v0.39.3 probe showed it does not
-          // fire on current Claude Code (see SubagentStop below).
-          hooks: [hookEntry("hook-post-task", options)],
-        },
       ],
-      // v0.40.0 — SubagentStop is the canonical, reliably-firing
-      // subagent-completion event. PostToolUse:Task proved non-firing
-      // for the dispatch tool; SubagentStop is where the task adoption
-      // signal is actually captured. Synchronous (writes telemetry).
+      // v0.40.0 — SubagentStop is the one place a dispatch is counted: it
+      // sees the final answer of foreground and background agents alike.
+      // PostToolUse on Agent sees only a background agent's launch
+      // acknowledgement, so no PostToolUse dispatch hook is registered.
+      // Synchronous (writes telemetry).
       SubagentStop: [
         {
           hooks: [hookEntry("hook-subagent-stop", options)],
@@ -301,36 +291,31 @@ export async function installHook(
           (h: any) => !isTokenPilotHook(h),
         );
       } else {
-        const hasRead = existingHooks.some(
-          (h: any) => h.matcher === "Read" && isTokenPilotHook(h),
+        // Installed means every entry this version ships is present, for
+        // every event — and none it no longer ships (hook-post-task) is
+        // left behind. Checking only a few matchers let older installs keep
+        // missing hooks, such as the SubagentStop budget watchdog.
+        const hasEvery = Object.entries(hookConfig.hooks).every(
+          ([event, entries]) =>
+            (entries as any[]).every((entry) => {
+              const present = settings.hooks?.[event];
+              return (
+                Array.isArray(present) &&
+                present.some(
+                  (h: any) =>
+                    (h.matcher ?? null) === (entry.matcher ?? null) &&
+                    isTokenPilotHook(h),
+                )
+              );
+            }),
         );
-        const hasEdit = existingHooks.some(
-          (h: any) => h.matcher === "Edit" && isTokenPilotHook(h),
-        );
-
-        const hasSessionStart =
-          Array.isArray(settings.hooks?.SessionStart) &&
-          settings.hooks.SessionStart.some(isTokenPilotHook);
-
-        // v0.25.0: check each PostToolUse matcher separately. Previously
-        // "any token-pilot hook in PostToolUse" counted the whole section
-        // as installed, so v0.21 users (Bash matcher only) missed the
-        // Task matcher added in v0.23 and their budget watchdog stayed
-        // silent. The required matchers are exactly what createHookConfig
-        // ships — derive from there so this stays in sync automatically.
-        const requiredPostMatchers = hookConfig.hooks.PostToolUse.map(
-          (h) => h.matcher,
-        );
-        const postMatchers = Array.isArray(settings.hooks?.PostToolUse)
-          ? settings.hooks.PostToolUse.filter(isTokenPilotHook).map(
-              (h: any) => h.matcher,
-            )
-          : [];
-        const hasAllPostMatchers = requiredPostMatchers.every((m) =>
-          postMatchers.includes(m),
+        const hasRetired = (settings.hooks?.PostToolUse ?? []).some(
+          (h: any) =>
+            isTokenPilotHook(h) &&
+            h.hooks?.some((x: any) => String(x.command).includes("hook-post-task")),
         );
 
-        if (hasRead && hasEdit && hasSessionStart && hasAllPostMatchers) {
+        if (hasEvery && !hasRetired) {
           return {
             installed: false,
             fatal: false,
@@ -367,6 +352,15 @@ export async function installHook(
       settings.hooks.SessionStart.push(...hookConfig.hooks.SessionStart);
     }
 
+    // UserPromptSubmit reminder — the config always shipped it, the
+    // installer never wrote it.
+    if (!Array.isArray(settings.hooks.UserPromptSubmit)) {
+      settings.hooks.UserPromptSubmit = [];
+    }
+    if (!settings.hooks.UserPromptSubmit.some(isTokenPilotHook)) {
+      settings.hooks.UserPromptSubmit.push(...hookConfig.hooks.UserPromptSubmit);
+    }
+
     // Install PostToolUse hooks idempotently — per-matcher check.
     // v0.25.0: earlier code treated the whole section as one unit, which
     // meant users installed in v0.21 (only Bash matcher) never received
@@ -377,9 +371,14 @@ export async function installHook(
     if (!Array.isArray(settings.hooks.PostToolUse)) {
       settings.hooks.PostToolUse = [];
     }
-    // Our old `Task`-only entry is replaced by `Agent|Task`, not kept beside it.
+    // Older versions registered hook-post-task; SubagentStop counts each
+    // dispatch, so a second PostToolUse record would double it.
     settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-      (h: any) => !(h.matcher === "Task" && isTokenPilotHook(h)),
+      (h: any) =>
+        !(
+          isTokenPilotHook(h) &&
+          h.hooks?.some((x: any) => String(x.command).includes("hook-post-task"))
+        ),
     );
     for (const hookDef of hookConfig.hooks.PostToolUse) {
       const exists = settings.hooks.PostToolUse.some(
@@ -465,6 +464,15 @@ export async function uninstallHook(
       );
       if (settings.hooks.SessionStart.length === 0) {
         delete settings.hooks.SessionStart;
+      }
+    }
+
+    if (Array.isArray(settings.hooks?.UserPromptSubmit)) {
+      settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
+        (h: any) => !isTokenPilotHook(h),
+      );
+      if (settings.hooks.UserPromptSubmit.length === 0) {
+        delete settings.hooks.UserPromptSubmit;
       }
     }
 

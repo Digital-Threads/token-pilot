@@ -1,8 +1,10 @@
 /**
- * hook-post-task never fired: its PostToolUse matcher was `Task`, while
- * Claude Code dispatches subagents through the `Agent` tool (`Task` is the
- * legacy name). Both the plugin's hooks.json and the npm installer must
- * match either name, and the handler must accept either.
+ * SubagentStop is the one place a dispatch is counted: it sees the final
+ * answer of foreground and background agents alike, while PostToolUse on
+ * Agent only sees a background agent's launch acknowledgement. A second
+ * PostToolUse hook doubled every task event and over-budget line, so the
+ * plugin and the npm installer no longer register it, and the installer
+ * removes the one older versions wrote.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -15,12 +17,15 @@ import { loadEvents } from "../../src/core/event-log.ts";
 const matches = (matcher: string, tool: string) =>
   new RegExp(`^(?:${matcher})$`).test(tool);
 
-function postTaskMatcher(hooks: any): string {
-  const entry = hooks.PostToolUse.find((e: any) =>
+const postTaskEntries = (hooks: any): any[] =>
+  (hooks.PostToolUse ?? []).filter((e: any) =>
     e.hooks.some((h: any) => String(h.command).includes("hook-post-task")),
   );
-  return entry.matcher;
-}
+
+const subagentStop = (hooks: any): boolean =>
+  (hooks.SubagentStop ?? []).some((e: any) =>
+    e.hooks.some((h: any) => String(h.command).includes("hook-subagent-stop")),
+  );
 
 let dir: string;
 const saved = { home: process.env.HOME, root: process.env.CLAUDE_PLUGIN_ROOT };
@@ -39,26 +44,39 @@ afterEach(async () => {
   else process.env.CLAUDE_PLUGIN_ROOT = saved.root;
 });
 
-describe("hook-post-task matcher", () => {
-  it("the plugin's hooks.json fires it for Agent and for the legacy Task", async () => {
+describe("dispatches are counted once, by SubagentStop", () => {
+  it("the plugin's hooks.json registers no PostToolUse dispatch hook", async () => {
     const json = JSON.parse(
       await readFile(join(__dirname, "../../hooks/hooks.json"), "utf-8"),
     );
-    const matcher = postTaskMatcher(json.hooks);
 
-    expect(matches(matcher, "Agent")).toBe(true);
-    expect(matches(matcher, "Task")).toBe(true);
+    expect(postTaskEntries(json.hooks)).toEqual([]);
+    expect(subagentStop(json.hooks)).toBe(true);
   });
 
-  it("the npm installer writes a matcher for Agent and Task", async () => {
+  it("the npm installer writes none and removes the one older versions wrote", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(join(dir, ".claude"), { recursive: true });
+    await writeFile(
+      join(dir, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            { matcher: "Task", hooks: [{ type: "command", command: "npx token-pilot hook-post-task" }] },
+            { matcher: "Bash", hooks: [{ type: "command", command: "other-tool" }] },
+          ],
+        },
+      }),
+    );
+
     await installHook(dir);
     const settings = JSON.parse(
       await readFile(join(dir, ".claude", "settings.json"), "utf-8"),
     );
-    const matcher = postTaskMatcher(settings.hooks);
 
-    expect(matches(matcher, "Agent")).toBe(true);
-    expect(matches(matcher, "Task")).toBe(true);
+    expect(postTaskEntries(settings.hooks)).toEqual([]);
+    expect(settings.hooks.PostToolUse.some((e: any) => e.matcher === "Bash")).toBe(true);
+    expect(subagentStop(settings.hooks)).toBe(true);
   });
 
   it("handles a dispatch made through the Agent tool", async () => {

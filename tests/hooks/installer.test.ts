@@ -169,7 +169,20 @@ describe("Hook Installer", () => {
     );
     const matchers = settings.hooks.PostToolUse.map((h: any) => h.matcher);
     expect(matchers).toContain("Bash");
-    expect(matchers).toContain("Agent|Task");
+    // The budget watchdog now lives on SubagentStop, which the old install lacked.
+    expect(matchers).not.toContain("Agent|Task");
+    expect(JSON.stringify(settings.hooks.SubagentStop)).toContain("hook-subagent-stop");
+  });
+
+  it("installs and removes the UserPromptSubmit reminder like every other entry it ships", async () => {
+    await installHook(tempDir);
+    const path = join(tempDir, ".claude", "settings.json");
+    const installed = JSON.parse(await readFile(path, "utf-8"));
+    expect(JSON.stringify(installed.hooks.UserPromptSubmit)).toContain("hook-user-prompt");
+
+    await uninstallHook(tempDir);
+    const removed = JSON.parse(await readFile(path, "utf-8"));
+    expect(removed.hooks?.UserPromptSubmit).toBeUndefined();
   });
 
   it("reports invalid JSON as a fatal install error", async () => {
