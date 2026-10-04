@@ -255,3 +255,15 @@ table("group piped into a bound", [
   ["{ cat src/a.ts; }; echo x | head", "deny"],
   ["for f in *.ts; do cat $f; done", "deny"],
 ]);
+
+// Review 1.0.2 — a head over the slice limit does not bound a whole-file
+// viewer; `$'…'` quoting has backslash escapes.
+table("viewer bounds and ANSI-C quotes", [
+  ["cat src/a.ts | head -n 400", "deny"],
+  ["cat src/a.ts | head -c 100000", "deny"],
+  ["cat src/a.ts | head -n 300", "allow"],
+  ["cat README.md | head -n 400", "allow"],
+  ["git log | head -n 400", "allow"],
+  ["echo $'it\\'s' && cat src/a.ts", "deny"],
+  ["echo $'a\\nb' && ls", "allow"],
+]);

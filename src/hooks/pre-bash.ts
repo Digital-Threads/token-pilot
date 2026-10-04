@@ -130,8 +130,16 @@ function lex(src: string): Token[] {
       continue;
     }
 
-    if (c === "'" || (c === "$" && next === "'")) {
-      const from = c === "$" ? i + 2 : i + 1;
+    // ANSI-C quoting: backslash escapes, `\'` included.
+    if (c === "$" && next === "'") {
+      for (i += 2; i < src.length && src[i] !== "'"; i++) word += src[i] === "\\" ? (src[++i] ?? "") : src[i];
+      inWord = true;
+      i++;
+      continue;
+    }
+
+    if (c === "'") {
+      const from = i + 1;
       const end = src.indexOf("'", from);
       const stop = end === -1 ? src.length : end;
       word += src.slice(from, stop);
@@ -414,18 +422,23 @@ function stdoutRedirected(seg: Segment): boolean {
 /** Commands that hand every line on: a dump piped through them is still a dump. */
 const PASS_THROUGH = new Set(["cat", "tee", "less", "more", "nl", "tac", "sort", "column"]);
 
-function passesEverything(seg: Segment): boolean {
+/** `code`: what flows in is a code file, so a slice over the limit is the whole file. */
+function passesEverything(seg: Segment, code: boolean): boolean {
   if (PASS_THROUGH.has(seg.cmd)) return true;
+  if (code && (seg.cmd === "head" || seg.cmd === "tail")) {
+    const { lines, bytes } = sliceSize(seg.cmd, seg.args);
+    return bytes > 0 ? bytes > SLICE_DENY_BYTES : lines > SLICE_DENY_LINES;
+  }
   // `tail -n +1` / `tail +1` starts at a line and prints the rest.
   return seg.cmd === "tail" && seg.args.some((a, i) => /^\+\d/.test(a) || (a === "-n" && /^\+/.test(seg.args[i + 1] ?? "")) || /^-n\+/.test(a));
 }
 
 /** Nothing reaches the screen whole: captured, redirected, or piped into a filter. */
-function outputBounded(seg: Segment): boolean {
+function outputBounded(seg: Segment, code = false): boolean {
   if (seg.consumed || stdoutRedirected(seg)) return true;
 
   for (let next = seg.pipedTo; next; next = next.pipedTo) {
-    if (stdoutRedirected(next) || !passesEverything(next)) return true;
+    if (stdoutRedirected(next) || !passesEverything(next, code)) return true;
   }
 
   return false;
@@ -845,7 +858,7 @@ function judge(seg: Segment, args: string[], opts: PreBashOptions, depth: number
     };
   }
 
-  if (outputBounded(seg)) return ALLOW;
+  if (outputBounded(seg, VIEWERS.has(cmd))) return ALLOW;
 
   if (SHELLS.has(cmd)) {
     const flag = args.findIndex((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
