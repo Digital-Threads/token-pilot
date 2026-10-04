@@ -232,40 +232,88 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
     return n;
   };
 
-  /** End of a quoted literal, or -1 when it is not one (unterminated in JS, or never closed). */
+  // Failed scans remember where they stopped, so a hostile file (thousands of
+  // openers that never close) costs one pass, not one pass per opener.
+  const quoteFail = new Map<string, number>();
+  let regexFail = -1;
+
+  /**
+   * End of a quoted literal, or -1 when it is not one (unterminated in JS, or
+   * never closed). A later opener of the same kind before the point where a
+   * failed scan stopped was skipped as escaped by that scan, so from the next
+   * character on both read the same text: it fails too, answered at once.
+   */
   const scanQuoted = (i: number, q: string): number => {
-    if ((q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q) {
+    const triple = (q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q;
+    const kind = triple ? q + q + q : q;
+    if (i < (quoteFail.get(kind) ?? -1)) return -1;
+    const fail = (at: number): number => {
+      quoteFail.set(kind, at);
+      return -1;
+    };
+
+    if (triple) {
       for (let j = i + 3; j < n; j++) {
         if (raw[j] === '\\') { j++; continue; }
         if (raw[j] === q && raw[j + 1] === q && raw[j + 2] === q) return j + 3;
       }
-      return -1;
+      return fail(n);
     }
     for (let j = i + 1; j < n; j++) {
       const ch = raw[j];
       if (ch === '\\') { j++; continue; }
       if (ch === q) return j + 1;
-      if (ch === '\n' && singleLine) return js ? -1 : j;
+      if (ch === '\n' && singleLine) return js ? fail(j) : j;
     }
-    return -1;
+    return fail(n);
   };
+
+  /** Per word at a line start (after spaces/tabs): [line start, word end] pairs, in order. */
+  let lineWords: Map<string, number[]> | null = null;
 
   /** PHP heredoc / nowdoc at `i` (`<<<ID`, `<<<"ID"`, `<<<'ID'`): end of its closing marker, or -1. */
   const scanHeredoc = (i: number): number => {
     const m = /^<<<[ \t]*(["']?)([A-Za-z_]\w*)\1\r?\n/.exec(raw.slice(i, i + 200));
     if (!m) return -1;
-    const close = new RegExp(`^[ \\t]*${m[2]}(?!\\w)`, 'gm');
-    close.lastIndex = i + m[0].length;
-    const c = close.exec(raw);
-    return c ? c.index + c[0].length : -1;
+    if (!lineWords) {
+      lineWords = new Map();
+      for (const w of raw.matchAll(/^[ \t]*(\w+)/gm)) {
+        const list = lineWords.get(w[1]) ?? [];
+        list.push(w.index, w.index + w[0].length);
+        lineWords.set(w[1], list);
+      }
+    }
+
+    // the closing marker: the first line after the opener that starts with the identifier
+    const list = lineWords.get(m[2]) ?? [];
+    const body = i + m[0].length;
+    let lo = 0;
+    let hi = list.length / 2;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid * 2] < body) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < list.length / 2 ? list[lo * 2 + 1] : -1;
   };
 
+  /**
+   * A regex literal from `/` at `i` to after its flags, or -1. A later `/`
+   * before the point where a failed scan stopped was escaped or inside a
+   * class for that scan; this scan can differ from it only until either one
+   * meets `[` or `]` — from there both read alike and fail alike.
+   */
   const scanRegex = (i: number): number => {
+    const quick = i < regexFail;
     let inClass = false;
     for (let j = i + 1; j < n; j++) {
       const ch = raw[j];
-      if (ch === '\n') return -1;
+      if (ch === '\n') {
+        regexFail = j;
+        return -1;
+      }
       if (ch === '\\') { j++; continue; }
+      if (quick && (ch === '[' || ch === ']')) return -1;
       if (inClass) {
         if (ch === ']') inClass = false;
       } else if (ch === '[') {
@@ -276,6 +324,7 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
         return k;
       }
     }
+    regexFail = n;
     return -1;
   };
 
