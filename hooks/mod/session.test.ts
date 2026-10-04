@@ -54,3 +54,26 @@ test('rebuilds the section for a new session (after /clear)', async ($, on) => {
   expect(text(first)).not.toContain('TOKEN_PILOT_PROFILE=minimal')
   expect(text(second)).toContain('TOKEN_PILOT_PROFILE=minimal')
 })
+
+test("lists the plugin's own agents under their dispatch name", async ($, on) => {
+  on('env.get', async () => ({ value: undefined }))
+  on('session.id', async () => ({ value: 'session-plugin-agents' }))
+  on('session.root', async () => ({ value: '/repo' }))
+  on('fs.read', async (_$: any, e: any) =>
+    String(e.path ?? e).endsWith('/tp-debugger.md')
+      ? { value: '---\nname: tp-debugger\ndescription: bugs\n---\n' }
+      : { deny: 'no such file' },
+  )
+  on('fs.stat', async () => ({ deny: 'no such file' }))
+  // Only the plugin's agents/ holds agents; .claude/agents dirs are empty.
+  on('fs.list', async (_$: any, e: any) => ({
+    value: String(e.path ?? e).endsWith('.claude/agents') ? [] : [{ name: 'tp-debugger.md' }],
+  }))
+  on('prompt.compose', async () => ({ sections: [] }))
+
+  const out: any = await compose($, [`${P}smart_read`])
+  const text = out.sections.find((s: any) => s.id === 'token-pilot')?.text ?? ''
+
+  expect(text).toContain('token-pilot:tp-debugger')
+  expect(text).not.toContain('none installed')
+})

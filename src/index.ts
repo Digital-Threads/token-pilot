@@ -368,8 +368,12 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           const { readdirSync, existsSync } = await import("node:fs");
           const projAgents = resolve(cwd, ".claude", "agents");
           const userAgents = resolve(homedir(), ".claude", "agents");
+          // A plugin install ships its agents in its own agents/ dir.
+          const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+          const dirs = [projAgents, userAgents];
+          if (pluginRoot) dirs.push(resolve(pluginRoot, "agents"));
           let total = 0;
-          for (const dir of [projAgents, userAgents]) {
+          for (const dir of dirs) {
             if (existsSync(dir)) {
               total += readdirSync(dir).filter(
                 (f) => f.startsWith("tp-") && f.endsWith(".md"),
@@ -487,6 +491,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         const result = await handleSessionStart({
           projectRoot: hookProjectRoot(),
           homeDir: homedir(),
+          pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
           sessionStartConfig: cfg.sessionStart,
           client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
@@ -511,7 +516,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           cfg.sessionStart.enabled &&
           process.env.TOKEN_PILOT_PROMPT_REMINDER !== "0";
         const bypass = process.env.TOKEN_PILOT_BYPASS === "1";
-        const message = buildPromptReminder(enabled, bypass);
+        const message = buildPromptReminder(
+          enabled,
+          bypass,
+          cliArgs.includes("--client=codex") ? "codex" : "claude-code",
+        );
         if (message) {
           process.stdout.write(formatPromptReminderOutput(message));
         }

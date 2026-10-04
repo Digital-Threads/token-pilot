@@ -101,7 +101,7 @@ export function createCodexHookConfig(
       PreToolUse: [{ matcher: "Bash", hooks: entry("hook-pre-bash") }],
       PostToolUse: [{ matcher: "Bash", hooks: entry("hook-post-bash") }],
       SessionStart: [{ hooks: entry("hook-session-start --client=codex") }],
-      UserPromptSubmit: [{ hooks: entry("hook-user-prompt") }],
+      UserPromptSubmit: [{ hooks: entry("hook-user-prompt --client=codex") }],
     },
   };
 }

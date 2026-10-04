@@ -69,14 +69,19 @@ async function sessionText($: EngineInterface): Promise<string | null> {
   const config = configFrom(await readText($, join(root, '.token-pilot.json')), env)
   if (!config.sessionStart.enabled || (await $.env.get('TOKEN_PILOT_BYPASS')) === '1') return null
 
-  // Project agents first; home agents fill in names not already present.
+  // Project agents first, then home agents, then the plugin's own — named as
+  // Claude Code dispatches them (`token-pilot:tp-*`).
   const seen = new Set<string>()
   const agents: AgentEntry[] = []
-  for (const dir of [join(root, '.claude', 'agents'), join(await homeDir($), '.claude', 'agents')]) {
+  for (const [dir, prefix] of [
+    [join(root, '.claude', 'agents'), ''],
+    [join(await homeDir($), '.claude', 'agents'), ''],
+    [join($.plugin.root, 'agents'), 'token-pilot:'],
+  ]) {
     for (const agent of await agentEntries($, dir)) {
       if (seen.has(agent.name)) continue
       seen.add(agent.name)
-      agents.push(agent)
+      agents.push({ ...agent, name: prefix + agent.name })
     }
   }
 
