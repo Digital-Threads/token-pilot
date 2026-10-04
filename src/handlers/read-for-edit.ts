@@ -1,8 +1,8 @@
-import { readFile, stat, access } from "node:fs/promises";
+import { readFile, stat, access, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { relative, join, extname } from "node:path";
+import { relative, join, extname, resolve, basename, dirname, sep } from "node:path";
 import {
   parseMarkdownSections,
   findSection,
@@ -441,13 +441,20 @@ export async function handleReadForEdit(
   // include_callers: compact caller list via ast-index refs
   if (args.include_callers && args.symbol && !astIndex.isDisabled()) {
     try {
-      const refs = await astIndex.refs(args.symbol, 10);
+      // refs knows bare names: "Class.method" / "Class::method" → "method"
+      const bareName = args.symbol.split(/::|\./).pop()!;
+      const refs = await astIndex.refs(bareName, 10);
       const callers = refs.usages.slice(0, 5);
       if (callers.length > 0) {
         outputLines.push("");
-        outputLines.push(`CALLERS (${callers.length}):`);
+        outputLines.push(
+          refs.usages.length > callers.length
+            ? `CALLERS (first ${callers.length} of ${refs.usages.length}${refs.usages.length >= 10 ? "+" : ""}):`
+            : `CALLERS (${callers.length}):`,
+        );
         for (const c of callers) {
-          const relPath = relative(projectRoot, c.path);
+          // ast-index paths are project-relative; never resolve them against the server's cwd
+          const relPath = relative(projectRoot, resolve(projectRoot, c.path));
           const ctx = c.context ? ` — ${c.context.trim().slice(0, 80)}` : "";
           outputLines.push(`  ${relPath}:${c.line}${ctx}`);
         }
@@ -462,12 +469,7 @@ export async function handleReadForEdit(
 
   // include_tests: find related test file and list test names
   if (args.include_tests) {
-    const testSection = await findTestSection(
-      absPath,
-      args.path,
-      projectRoot,
-      astIndex,
-    );
+    const testSection = await findTestSection(absPath, projectRoot, astIndex);
     outputLines.push("");
     outputLines.push(...testSection);
   }
@@ -518,60 +520,72 @@ export async function handleReadForEdit(
   return { content: [{ type: "text", text: output }] };
 }
 
-// --- Helper: find related test file and extract test names ---
+// --- Helper: find related test files and extract test names ---
+
+const TEST_DIRS = ["tests", "test", "__tests__", "spec"];
+const MAX_TEST_WALK = 5000;
 
 async function findTestSection(
   absPath: string,
-  relPath: string,
   projectRoot: string,
   astIndex: AstIndexClient,
 ): Promise<string[]> {
-  // Derive test file path from source path using common conventions
-  // src/handlers/foo.ts → tests/handlers/foo.test.ts
-  // src/core/bar.ts → tests/core/bar.test.ts
-  const srcPrefix = "src/";
-  let testRelPath: string;
+  const rel = relative(projectRoot, absPath).split(sep).join("/");
+  const ext = extname(rel);
+  const name = basename(rel, ext);
+  const testNames = new Set([
+    `${name}.test${ext}`, `${name}.spec${ext}`, `test_${name}${ext}`, `${name}_test${ext}`,
+  ]);
 
-  if (relPath.startsWith(srcPrefix)) {
-    const rest = relPath.slice(srcPrefix.length);
-    const ext = rest.match(/\.[^.]+$/)?.[0] ?? ".ts";
-    const base = rest.replace(/\.[^.]+$/, "");
-    testRelPath = `tests/${base}.test${ext}`;
-  } else {
-    const ext = relPath.match(/\.[^.]+$/)?.[0] ?? ".ts";
-    const base = relPath.replace(/\.[^.]+$/, "");
-    testRelPath = `${base}.test${ext}`;
+  // next to the file, its __tests__/, and anywhere under the project's test dirs
+  const found = new Set<string>();
+  const dir = dirname(rel);
+  for (const d of [dir, `${dir}/__tests__`]) {
+    for (const t of testNames) {
+      const p = d === "." ? t : `${d}/${t}`;
+      if (await access(join(projectRoot, p)).then(() => true, () => false)) found.add(p);
+    }
   }
-
-  const testAbsPath = join(projectRoot, testRelPath);
-
-  try {
-    await access(testAbsPath);
-  } catch {
-    return [`TESTS: none found (expected at ${testRelPath})`];
-  }
-
-  // Test file exists — try to get outline for test names
-  const lines: string[] = [`TESTS: ${testRelPath}`];
-
-  if (!astIndex.isDisabled()) {
+  let budget = MAX_TEST_WALK;
+  const walk = async (d: string): Promise<void> => {
+    let items;
     try {
-      const outline = await astIndex.outline(testAbsPath);
-      if (outline?.symbols && outline.symbols.length > 0) {
-        for (const sym of outline.symbols) {
-          lines.push(`  ${sym.kind} ${sym.name}`);
-          if (sym.children) {
-            for (const child of sym.children) {
-              lines.push(`    ${child.kind} ${child.name}`);
-            }
-          }
+      items = await readdir(join(projectRoot, d), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const it of items) {
+      if (--budget < 0) return;
+      const p = `${d}/${it.name}`;
+      if (it.isDirectory()) {
+        if (it.name !== "node_modules" && !it.name.startsWith(".")) await walk(p);
+      } else if (testNames.has(it.name)) {
+        found.add(p);
+      }
+    }
+  };
+  for (const root of TEST_DIRS) await walk(root);
+
+  if (found.size === 0) {
+    return [`TESTS: none found (looked for ${name}.test${ext} / ${name}.spec${ext} next to the file and under ${TEST_DIRS.join("/, ")}/)`];
+  }
+
+  const lines: string[] = [];
+  for (const testRelPath of found) {
+    lines.push(`TESTS: ${testRelPath}`);
+    if (astIndex.isDisabled()) continue;
+    try {
+      const outline = await astIndex.outline(join(projectRoot, testRelPath));
+      for (const sym of outline?.symbols ?? []) {
+        lines.push(`  ${sym.kind} ${sym.name}`);
+        for (const child of sym.children ?? []) {
+          lines.push(`    ${child.kind} ${child.name}`);
         }
       }
     } catch {
       // outline failed — just show file path
     }
   }
-
   return lines;
 }
 
@@ -624,6 +638,16 @@ async function findChangesSection(
     }
 
     if (!diffOutput.trim()) {
+      // git diff is silent for a file git does not track
+      try {
+        const { stdout } = await execFileAsync("git", ["ls-files", "--", absPath], {
+          cwd: projectRoot,
+          timeout: 5000,
+        });
+        if (!stdout.trim()) return ["RECENT CHANGES: untracked (new file, not in git yet)"];
+      } catch {
+        // fall through
+      }
       return ["RECENT CHANGES: none (file unchanged)"];
     }
 
