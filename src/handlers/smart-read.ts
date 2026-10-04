@@ -13,6 +13,9 @@ import { buildFileStructure } from '../ast-index/enricher.js';
 import { formatDuration } from '../core/format-duration.js';
 
 const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
+/** A "small" file averages at most this many tokens per line (code is ~10). */
+const SMALL_FILE_TOKENS_PER_LINE = 20;
+const PREVIEW_MAX_CHARS = 4000;
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 export interface SmartReadArgs {
@@ -50,13 +53,17 @@ export async function handleSmartRead(
   const content = await readFile(absPath, 'utf-8');
   const lines = content.split('\n');
 
-  // 2. Small-file pass-through
-  if (lines.length <= config.smartRead.smallFileThreshold) {
+  // An explicit scope/depth asks for structure, never for raw content
+  const wantsStructure = (args.scope !== undefined && args.scope !== 'full') || args.depth !== undefined;
+
+  // 2. Small-file pass-through — small in tokens too (a minified bundle is one line)
+  const smallThreshold = config.smartRead.smallFileThreshold;
+  if (lines.length <= smallThreshold && !wantsStructure) {
     const hash = createHash('sha256').update(content).digest('hex');
     const tokens = estimateTokens(content);
 
     // Budget check: if full content exceeds max_tokens, skip pass-through and use outline path
-    if (!args.max_tokens || tokens <= args.max_tokens) {
+    if (tokens <= smallThreshold * SMALL_FILE_TOKENS_PER_LINE && (!args.max_tokens || tokens <= args.max_tokens)) {
       contextRegistry.trackLoad(absPath, {
         type: 'full',
         startLine: 1,
@@ -118,16 +125,21 @@ export async function handleSmartRead(
     if (!structure) {
       // Fallback: return truncated preview instead of full raw content
       const previewLines = 60;
-      const truncated = lines.length > previewLines;
-      const preview = lines.slice(0, previewLines).join('\n');
+      let preview = lines.slice(0, previewLines).join('\n');
+      const longLines = preview.length > PREVIEW_MAX_CHARS;
+      if (longLines) preview = preview.slice(0, PREVIEW_MAX_CHARS);
+      const truncated = longLines || lines.length > previewLines;
       const tokens = estimateTokens(preview);
       contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: lines.length, tokens });
 
+      const note = longLines
+        ? `\n\n... truncated at ${PREVIEW_MAX_CHARS} of ${content.length} characters (very long lines, likely minified). Use read_range() for more.`
+        : `\n\n... truncated (${lines.length - previewLines} more lines). Use read_range() for full content.`;
       return {
         content: [{
           type: 'text',
           text: `FILE: ${args.path} (${lines.length} lines — no AST support, preview)\n\n${preview}`
-            + (truncated ? `\n\n... truncated (${lines.length - previewLines} more lines). Use read_range() for full content.` : ''),
+            + (truncated ? note : ''),
         }],
       };
     }
@@ -227,7 +239,7 @@ export async function handleSmartRead(
   const structureTokens = estimateTokens(output);
   const fullTokens = estimateTokens(content);
 
-  if (structureTokens >= fullTokens * 0.7 && (!args.max_tokens || fullTokens <= args.max_tokens)) {
+  if (!wantsStructure && structureTokens >= fullTokens * 0.7 && (!args.max_tokens || fullTokens <= args.max_tokens)) {
     contextRegistry.trackLoad(absPath, {
       type: 'full',
       startLine: 1,

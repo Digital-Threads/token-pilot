@@ -6,6 +6,7 @@ import { handleSmartRead } from '../../src/handlers/smart-read.js';
 import { FileCache } from '../../src/core/file-cache.js';
 import { ContextRegistry } from '../../src/core/context-registry.js';
 import { DEFAULT_CONFIG } from '../../src/config/defaults.js';
+import { buildFileStructure } from '../../src/ast-index/enricher.js';
 
 describe('handleSmartRead', () => {
   let tempDir: string;
@@ -145,5 +146,31 @@ describe('handleSmartRead', () => {
     expect(first.content[0].text).toContain('TOKEN SAVINGS');
     expect(second.content[0].text).toContain('REMINDER:');
     expect(second.content[0].text).toContain('File unchanged since last read');
+  });
+
+  it('does not return a one-line minified bundle whole', async () => {
+    const bundle = 'var a=1;' + 'function f(){return "x"};'.repeat(4000); // ~100KB on one line
+    await writeFile(join(tempDir, 'bundle.min.js'), bundle);
+    const astIndex = { outline: async () => null } as any;
+
+    const result = await handleSmartRead({ path: 'bundle.min.js' }, tempDir, astIndex, new FileCache(), new ContextRegistry(), DEFAULT_CONFIG);
+
+    const text = result.content[0].text;
+    expect(text).not.toContain('returned in full');
+    expect(text.length).toBeLessThan(10_000);
+    expect(text).toMatch(/truncated/);
+  });
+
+  it('honours scope="nav" on a small file instead of passing it through', async () => {
+    const file = join(tempDir, 'small.ts');
+    await writeFile(file, 'export function a() {\n  return 1;\n}\n');
+    const astIndex = {
+      outline: async (p: string) => buildFileStructure(p, [{ name: 'a', kind: 'function', start_line: 1, end_line: 0 }]),
+    } as any;
+
+    const result = await handleSmartRead({ path: 'small.ts', scope: 'nav' }, tempDir, astIndex, new FileCache(), new ContextRegistry(), DEFAULT_CONFIG);
+
+    expect(result.content[0].text).not.toContain('returned in full');
+    expect(result.content[0].text).toContain('SYMBOLS:');
   });
 });
