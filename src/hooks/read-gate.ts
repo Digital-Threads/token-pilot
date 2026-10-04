@@ -92,6 +92,9 @@ export function isCodeFile(filePath: string): boolean {
   return CODE_EXTENSIONS.has(filePath.split(".").pop()?.toLowerCase() ?? "");
 }
 
+/** A line of code rarely runs past this; a span bigger than threshold × it is a bundle. */
+const BYTES_PER_LINE = 100;
+
 export type ReadGate =
   | { kind: "pass" }
   | { kind: "gate"; lineCount: number; spanLines: number; estTokens: number };
@@ -117,11 +120,15 @@ function gateFromCounts(
   threshold: number,
 ): ReadGate {
   const spanLines = effectiveReadSpanLines(lineCount, offset, limit);
-  if (spanLines <= threshold) return { kind: "pass" };
-
   // Cost reflects the span the read would pull, not the whole file
   // (v0.45.0, token-pilot-xg9), so a bounded gate doesn't over-report.
   const spanRatio = lineCount > 0 ? Math.min(1, spanLines / lineCount) : 1;
+  // Lines alone let a one-line minified bundle through whole: the span's
+  // size counts too, at a generous BYTES_PER_LINE per allowed line.
+  if (spanLines <= threshold && chars * spanRatio <= threshold * BYTES_PER_LINE) {
+    return { kind: "pass" };
+  }
+
   const charEst = Math.ceil((chars * spanRatio) / 4);
 
   return {
