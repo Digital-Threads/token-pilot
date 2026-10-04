@@ -269,7 +269,8 @@ export async function handleFindUsages(
   const additional: Array<{ file: string; line: number; text: string }> = [];
   for (const r of searchResults) {
     const key = `${r.file}:${r.line}`;
-    if (seen.has(key) || !wordBoundary.test(r.text)) continue;
+    // a file whose name matches is not a usage
+    if (r.kind === 'file' || seen.has(key) || !wordBoundary.test(r.text)) continue;
     seen.add(key);
     additional.push(r);
   }

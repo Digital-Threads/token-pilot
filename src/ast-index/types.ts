@@ -50,8 +50,11 @@ export interface AstIndexSearchMatch {
 /** Normalized search result (internal) */
 export interface AstIndexSearchResult {
   file: string;
+  /** 0 for a file-name hit. */
   line: number;
   text: string;
+  /** Set when the file's name matched, not a line in it. */
+  kind?: "file";
 }
 
 /** ast-index usages --format json → Array<AstIndexUsageRaw> */

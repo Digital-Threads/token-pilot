@@ -37,6 +37,24 @@ describe('handleFindUsages', () => {
     ]);
   });
 
+  it('does not list a file whose name matches as a usage', async () => {
+    const astIndex = {
+      isDisabled: () => false,
+      isOversized: () => false,
+      isAvailable: () => true,
+      refs: async () => ({ definitions: [], imports: [], usages: [] }),
+      search: async () => ([
+        { file: 'src/a.ts', line: 7, text: 'outline(dir)' },
+        { file: 'src/handlers/outline.ts', line: 0, text: 'src/handlers/outline.ts', kind: 'file' },
+      ]),
+    } as any;
+
+    const text = (await handleFindUsages({ symbol: 'outline' }, astIndex)).content[0].text;
+
+    expect(text).toContain('src/a.ts:7');
+    expect(text).not.toContain('src/handlers/outline.ts');
+  });
+
   it('groups multiple matches in the same file under one header', async () => {
     const astIndex = {
       isDisabled: () => false,

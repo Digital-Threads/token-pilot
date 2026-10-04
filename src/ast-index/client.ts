@@ -531,6 +531,7 @@ export class AstIndexClient {
         content?: string;
         text?: string;
         signature?: string;
+        kind?: "file";
       }> = [
         ...(Array.isArray(parsed.content_matches)
           ? parsed.content_matches
@@ -550,14 +551,12 @@ export class AstIndexClient {
               }),
             )
           : []),
+        // File-name hits: a list of path strings (3.50 and 3.56), no line.
         ...(Array.isArray(parsed.files)
-          ? parsed.files.map(
-              (f: { path?: string; file?: string; line?: number }) => ({
-                path: f.path ?? f.file,
-                line: f.line ?? 1,
-                content: f.path ?? f.file,
-              }),
-            )
+          ? parsed.files.map((f: string | { path?: string; file?: string }) => {
+              const path = typeof f === "string" ? f : f.path ?? f.file;
+              return { path, line: 0, content: path, kind: "file" as const };
+            })
           : []),
         ...(Array.isArray(parsed.references) ? parsed.references : []),
       ];
@@ -572,10 +571,12 @@ export class AstIndexClient {
             line?: number;
             path?: string;
             file?: string;
+            kind?: "file";
           }) => ({
             file: m.path ?? m.file ?? "",
             line: typeof m.line === "number" ? m.line : 0,
             text: m.content ?? m.text ?? m.signature ?? "",
+            ...(m.kind ? { kind: m.kind } : {}),
           }),
         )
         .filter((r) => r.text !== "" && this.keep(r.file));

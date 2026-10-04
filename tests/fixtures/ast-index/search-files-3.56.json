@@ -1,0 +1,119 @@
+{
+  "content_matches": [
+    {
+      "content": "totalOutlineTokens: number;",
+      "line": 32,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "function formatOutline(entries: Array<{ name: string; kind: string; start_line: number; end_line: nu",
+      "line": 59,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const outline = formatOutline(entries);",
+      "line": 85,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const totalOutline = results.reduce((s, r) => s + r.outlineTokens, 0);",
+      "line": 116,
+      "path": "scripts/benchmark.ts"
+    },
+    {
+      "content": "const totalSavings = totalRaw > 0 ? Math.round((1 - totalOutline / totalRaw) * 100) : 0;",
+      "line": 117,
+      "path": "scripts/benchmark.ts"
+    }
+  ],
+  "files": [
+    "src/handlers/outline.ts",
+    "tests/handlers/outline.test.ts"
+  ],
+  "pagination": {
+    "content_matches": {
+      "limit": 5,
+      "returned": 5,
+      "total": 183,
+      "truncated": true
+    },
+    "files": {
+      "limit": 5,
+      "returned": 2,
+      "total": 2,
+      "truncated": false
+    },
+    "references": {
+      "limit": 5,
+      "returned": 5,
+      "total": 6,
+      "truncated": true
+    },
+    "symbols": {
+      "limit": 5,
+      "returned": 5,
+      "total": 21,
+      "truncated": true
+    }
+  },
+  "references": [
+    {
+      "name": "outline",
+      "usage_count": 9
+    },
+    {
+      "name": "OUTLINES",
+      "usage_count": 3
+    },
+    {
+      "name": "outlineDir",
+      "usage_count": 3
+    },
+    {
+      "name": "OutlineArgs",
+      "usage_count": 2
+    },
+    {
+      "name": "outlineAt",
+      "usage_count": 2
+    }
+  ],
+  "schema_version": 2,
+  "symbols": [
+    {
+      "kind": "function",
+      "line": 407,
+      "name": "outline",
+      "path": "src/ast-index/client.ts",
+      "signature": "async outline(filePath: string): Promise<FileStructure | null> {"
+    },
+    {
+      "kind": "function",
+      "line": 63,
+      "name": "outline",
+      "path": "tests/integration/server-smoke.test.ts",
+      "signature": "async outline(filePath: string): Promise<any> {"
+    },
+    {
+      "kind": "function",
+      "line": 75,
+      "name": "outline",
+      "path": "tests/server/output-governor.test.ts",
+      "signature": "async outline(): Promise<null> {"
+    },
+    {
+      "kind": "function",
+      "line": 249,
+      "name": "outlineAt",
+      "path": "src/handlers/smart-diff.ts",
+      "signature": "async function outlineAt("
+    },
+    {
+      "kind": "interface",
+      "line": 481,
+      "name": "OutlineArgs",
+      "path": "src/core/validation.ts",
+      "signature": "export interface OutlineArgs {"
+    }
+  ]
+}

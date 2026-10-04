@@ -836,5 +836,15 @@ describe("AstIndexClient", () => {
         kind: "reference",
       });
     });
+
+    // `search Outline --limit 5`: `files` is a list of path strings.
+    it("search() keeps file-name hits, marked as such", async () => {
+      const hits = await clientAnswering(fixture("search-files")).search("Outline", { maxResults: 5 });
+
+      expect(hits.filter((h: any) => h.kind === "file")).toEqual([
+        { file: "src/handlers/outline.ts", line: 0, text: "src/handlers/outline.ts", kind: "file" },
+        { file: "tests/handlers/outline.test.ts", line: 0, text: "tests/handlers/outline.test.ts", kind: "file" },
+      ]);
+    });
   });
 });
