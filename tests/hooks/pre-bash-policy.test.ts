@@ -229,3 +229,19 @@ table(
   ],
   { projectRoot: "/repo" },
 );
+
+// Review 1.0.2 — a pipe after `)`, `}`, `done` or `fi` takes the output of
+// every command in that group.
+table("group piped into a bound", [
+  ["{ git log; } | head", "allow"],
+  ["{ cat a.ts; } | head -50", "allow"],
+  ["(cat a.ts; echo) | head -50", "allow"],
+  ["(cd sub && git log --oneline) | head -20", "allow"],
+  ["for f in *.ts; do cat $f; done | head -100", "allow"],
+  ['while read f; do cat "$f"; done < files.txt | head -50', "allow"],
+  ["if true; then cat src/a.ts; fi | head", "allow"],
+  ["(cat src/a.ts | sort; echo) | head", "allow"],
+  ["{ cat src/a.ts; } | cat", "deny"],
+  ["{ cat src/a.ts; }; echo x | head", "deny"],
+  ["for f in *.ts; do cat $f; done", "deny"],
+]);

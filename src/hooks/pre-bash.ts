@@ -278,8 +278,11 @@ function parse(tokens: Token[]): Segment[] {
   const segs: Segment[] = [];
   /** Commands inside substitutions: their output is captured. */
   const captured: Segment[] = [];
-  let pipeFrom: Segment | null = null;
-  let last: Segment | null = null;
+  /** Where each open group (`( )`, `{ }`, a loop, an `if`) starts in `segs`. */
+  const groups: number[] = [];
+  /** What a `|` here would take the output of: the last command, or the whole group it closed. */
+  let piping: Segment[] = [];
+  let pipeFrom: Segment[] = [];
   let pendingRedir: Segment["redirs"][number] | null = null;
 
   const fresh = (): Segment => ({
@@ -294,13 +297,27 @@ function parse(tokens: Token[]): Segment[] {
   });
   let cur = fresh();
 
+  const closeGroup = (): void => {
+    const start = groups.pop();
+    if (start !== undefined) piping = segs.slice(start);
+  };
+
   const end = (): void => {
     if (cur.words.length === 0 && cur.redirs.length === 0) return;
-    if (pipeFrom) pipeFrom.pipedTo = cur;
-    cur.pipedFrom = pipeFrom !== null;
-    pipeFrom = null;
+    // A command already piped inside the group keeps its own pipe.
+    for (const from of pipeFrom) from.pipedTo ??= cur;
+    cur.pipedFrom = pipeFrom.length > 0;
+    pipeFrom = [];
     segs.push(cur);
-    last = cur;
+    piping = [cur];
+
+    if (CLOSERS.has(cur.words[0])) closeGroup();
+    else {
+      for (const w of cur.words) {
+        if (OPENERS.has(w)) groups.push(segs.length - 1);
+        else if (!KEYWORDS.has(w)) break;
+      }
+    }
     cur = fresh();
   };
 
@@ -332,16 +349,22 @@ function parse(tokens: Token[]): Segment[] {
 
     pendingRedir = null;
     end();
-    if (tok.v === "|") {
-      pipeFrom = last;
-      continue;
+    if (tok.v === "|") pipeFrom = piping;
+    else if (tok.v === "(") groups.push(segs.length);
+    else if (tok.v === ")") closeGroup();
+    else {
+      pipeFrom = [];
+      piping = [];
     }
-    pipeFrom = null;
   }
 
   end();
   return [...segs, ...captured];
 }
+
+/** Words that open and close a group of commands whose joint output a pipe can take. */
+const OPENERS = new Set(["{", "if", "for", "while", "until", "select", "case"]);
+const CLOSERS = new Set(["}", "fi", "done", "esac"]);
 
 const KEYWORDS = new Set(["!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time", "esac"]);
 const PREFIX_COMMANDS = new Set(["sudo", "env", "command", "exec", "nohup", "nice", "time", "timeout", "stdbuf"]);
