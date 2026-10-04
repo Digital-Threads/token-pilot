@@ -35,7 +35,7 @@ function extractStdout(tool_response: unknown): string {
   if (typeof tool_response === "object") {
     const r = tool_response as Record<string, unknown>;
     const parts: string[] = [];
-    for (const key of ["stdout", "output", "content"]) {
+    for (const key of ["stdout", "stderr", "output", "content"]) {
       const v = r[key];
       if (typeof v === "string") parts.push(v);
     }
@@ -88,7 +88,7 @@ export function decidePostBashAdvice(
   const lines = countLines(stdout);
   const roughTokens = Math.ceil(chars / 4);
   const contextModeLine = opts.contextModeAvailable
-    ? ` Or run via ${opts.contextModeTool ?? "mcp__context-mode__execute"} — sandbox keeps stdout out of your window.`
+    ? ` Or run via ${opts.contextModeTool ?? "mcp__context-mode__ctx_execute"} — sandbox keeps stdout out of your window.`
     : "";
   const msg =
     `⚠ Bash output was large (~${lines} lines, ~${roughTokens} tokens). ` +

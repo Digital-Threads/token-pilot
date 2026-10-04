@@ -19,7 +19,40 @@
  * the safety net for unexpected throws.
  */
 
+import { writeSync } from "node:fs";
 import { appendError, classifyError, type ErrorLevel } from "../core/error-log.js";
+
+/**
+ * Write a hook's answer to stdout. Claude Code can hand a hook (an async
+ * one in particular) a non-blocking pipe, where a synchronous write fails
+ * with EAGAIN while the pipe is full. Retry briefly, then drop the output:
+ * a lost hint is not a hook error. Any other failure (EPIPE — nobody reads)
+ * drops it too.
+ */
+export function writeStdout(
+  text: string,
+  write: (buf: Buffer) => number = (buf) => writeSync(1, buf),
+): void {
+  let buf = Buffer.from(text);
+  let stalls = 0;
+
+  while (buf.length > 0 && stalls < 50) {
+    let written = 0;
+    try {
+      written = write(buf);
+    } catch (err) {
+      if ((err as { code?: string })?.code !== "EAGAIN") return;
+    }
+
+    if (written > 0) {
+      buf = buf.subarray(written);
+      continue;
+    }
+
+    stalls++;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+}
 
 export interface RunHookOptions {
   /** Hook name (matcher in hooks.json — e.g. "hook-pre-task"). */

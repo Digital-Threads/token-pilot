@@ -36,7 +36,7 @@ import {
   cleanStaleHookEntries,
   isTokenPilotPluginEnabled,
 } from "./hooks/installer.js";
-import { runHookEntryPoint } from "./hooks/safe-runner.js";
+import { runHookEntryPoint, writeStdout } from "./hooks/safe-runner.js";
 import { loadErrors, formatErrorList, pruneErrorArchives } from "./core/error-log.js";
 import { appendDiagnostic } from "./core/event-log.js";
 import {
@@ -169,11 +169,14 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await runHookEntryPoint({ hook: "hook-post-bash" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
+        const contextModeTool = contextModeExecuteTool(hookProjectRoot());
         const advice = decidePostBashAdvice(input, {
-          contextModeAvailable: isContextModeInstalledSync(hookProjectRoot()),
+          contextModeAvailable: contextModeTool !== undefined,
+          contextModeTool,
         });
         const rendered = renderPostBashHookOutput(advice);
-        if (rendered) process.stdout.write(rendered);
+        // An async hook: its stdout can be a non-blocking pipe (EAGAIN).
+        if (rendered) writeStdout(rendered);
       });
       return;
     }
@@ -659,6 +662,29 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await startServer(cliArgs);
       return;
   }
+}
+
+/**
+ * context-mode's execute tool as this install names it — a plugin in
+ * ~/.claude/settings.json, or an MCP server in a `.mcp.json` — or undefined
+ * when context-mode is not installed.
+ */
+function contextModeExecuteTool(projectRoot: string): string | undefined {
+  try {
+    const settings = JSON.parse(
+      readFileSync(join(homedir(), ".claude", "settings.json"), "utf-8"),
+    );
+    const plugins: Record<string, unknown> = settings?.enabledPlugins ?? {};
+    if (Object.entries(plugins).some(([k, on]) => on && k.startsWith("context-mode@"))) {
+      return "mcp__plugin_context-mode_context-mode__ctx_execute";
+    }
+  } catch {
+    /* no user settings */
+  }
+
+  return isContextModeInstalledSync(projectRoot)
+    ? "mcp__context-mode__ctx_execute"
+    : undefined;
 }
 
 /**
