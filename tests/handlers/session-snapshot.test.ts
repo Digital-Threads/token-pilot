@@ -39,4 +39,27 @@ describe("handleSessionSnapshot", () => {
     expect(text).not.toContain("**Blocked:**");
     expect(text).not.toContain("**Next:**");
   });
+
+  it("a string where a list is expected is one item, not one bullet per character", () => {
+    const text = handleSessionSnapshot({ goal: "g", decisions: "use -z" as never }).content[0].text;
+    expect(text).toContain("- use -z");
+    expect(text).not.toContain("- u\n");
+  });
+
+  it("rejects input of the wrong type instead of rendering it", () => {
+    expect(() => handleSessionSnapshot({ goal: "g", decisions: [1, 2] as never })).toThrow(/decisions/);
+    expect(() => handleSessionSnapshot({ goal: 42 as never })).toThrow(/goal/);
+    expect(() => handleSessionSnapshot({ goal: "g", next: { a: 1 } as never })).toThrow(/next/);
+    expect(() => handleSessionSnapshot({ goal: "g", files: "a.ts" as never })).not.toThrow();
+  });
+});
+
+describe("session_snapshot tool definition", () => {
+  it("says where it writes and how to opt out", async () => {
+    const { TOOL_DEFINITIONS } = await import("../../src/server/tool-definitions.ts");
+    const def = TOOL_DEFINITIONS.find((t: { name: string }) => t.name === "session_snapshot")!;
+    expect(def.description).toContain(".token-pilot/snapshots/");
+    expect(def.description).toContain("latest.md");
+    expect(def.inputSchema.properties).toHaveProperty("persist");
+  });
 });

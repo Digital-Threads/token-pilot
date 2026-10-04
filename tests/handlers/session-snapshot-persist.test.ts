@@ -64,6 +64,15 @@ describe("persistSnapshot", () => {
     expect(mdFiles.length).toBe(2);
   });
 
+  it("two snapshots in the same second do not overwrite each other", async () => {
+    await persistSnapshot({ projectRoot: tempDir, body: "a", now: new Date("2026-04-18T10:00:00.100Z") });
+    await persistSnapshot({ projectRoot: tempDir, body: "b", now: new Date("2026-04-18T10:00:00.900Z") });
+    const archive = (await readdir(join(tempDir, SNAPSHOT_SUBDIR))).filter(
+      (n) => n.endsWith(".md") && n !== LATEST_FILE,
+    );
+    expect(archive.length).toBe(2);
+  });
+
   it("keeps only the last 10 archived snapshots", async () => {
     for (let i = 0; i < 15; i++) {
       await persistSnapshot({

@@ -832,7 +832,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "session_snapshot",
     description:
-      "Capture current session state as a compact markdown block (<200 tokens). Call before compaction, when switching direction, or periodically in long sessions. Model provides the facts, tool formats them.",
+      "Capture current session state as a compact markdown block (<200 tokens). Call before compaction, when switching direction, or periodically in long sessions. Model provides the facts, tool formats them. Writes the block to .token-pilot/snapshots/<timestamp>.md (last 10 kept) and .token-pilot/snapshots/latest.md, which the next session start points to; pass persist=false to only return it.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -855,6 +855,11 @@ export const TOOL_DEFINITIONS = [
         },
         blocked: { type: "string", description: "Current blocker or obstacle" },
         next: { type: "string", description: "Next step to take" },
+        persist: {
+          type: "boolean",
+          description:
+            "Save to .token-pilot/snapshots/ (default: true). false = return the block only.",
+        },
       },
       required: ["goal"],
     },

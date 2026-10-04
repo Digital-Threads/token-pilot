@@ -31,8 +31,9 @@ export interface PersistSnapshotResult {
 }
 
 function formatIsoStamp(d: Date): string {
-  // Safe-for-filename ISO: 2026-04-18T12-00-00Z
-  return d.toISOString().replace(/:/g, "-").replace(/\..+/, "Z");
+  // Safe-for-filename ISO with milliseconds — two snapshots in one second
+  // must not overwrite each other: 2026-04-18T12-00-00-123Z
+  return d.toISOString().replace(/:/g, "-").replace(".", "-");
 }
 
 export async function persistSnapshot(
