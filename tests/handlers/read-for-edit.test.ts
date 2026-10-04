@@ -162,6 +162,60 @@ describe('handleReadForEdit', () => {
       expect(asked).toBe('run');
       expect(result.content[0].text).toContain('  src/app.ts:7');
     });
+
+    it('keeps method callers whose file mentions the class, and says what was left out', async () => {
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      mkdirSync(join(tempDir, 'src'), { recursive: true });
+      writeFileSync(join(tempDir, 'src', 'uses-alpha.ts'), "import { Alpha } from '../file';\nnew Alpha().run();\n");
+      writeFileSync(join(tempDir, 'src', 'other.ts'), '// not Alpha\nconst job = { run() {} };\njob.run();\n');
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbol: 'run', include_callers: true },
+        tempDir,
+        { resolve: async () => ({ startLine: 10, endLine: 15, symbol: { name: 'run', qualifiedName: 'Alpha.run' } }) } as any,
+        new FileCache(),
+        new ContextRegistry(),
+        {
+          outline: async () => null,
+          isDisabled: () => false,
+          refs: async () => ({
+            definitions: [],
+            imports: [],
+            usages: [
+              { name: 'run', line: 2, path: 'src/uses-alpha.ts', context: 'new Alpha().run();' },
+              { name: 'run', line: 3, path: 'src/other.ts', context: 'job.run();' },
+              { name: 'run', line: 20, path: 'file.ts', context: 'this.run();' },
+            ],
+          }),
+        } as any,
+      );
+      const text = result.content[0].text;
+
+      expect(text).toContain('src/uses-alpha.ts:2');
+      expect(text).toContain('file.ts:20');
+      expect(text).not.toContain('src/other.ts');
+      expect(text).toMatch(/1 caller .*never mentions? Alpha/);
+    });
+
+    it('says callers of a plain function are matched by name only', async () => {
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbol: 'MyFunc', include_callers: true },
+        tempDir,
+        { resolve: async () => ({ startLine: 10, endLine: 15, symbol: { name: 'MyFunc', qualifiedName: 'MyFunc' } }) } as any,
+        new FileCache(),
+        new ContextRegistry(),
+        {
+          outline: async () => null,
+          isDisabled: () => false,
+          refs: async () => ({
+            definitions: [],
+            imports: [],
+            usages: [{ name: 'MyFunc', line: 42, path: 'caller.ts', context: 'MyFunc()' }],
+          }),
+        } as any,
+      );
+
+      expect(result.content[0].text).toMatch(/matched by name only/);
+    });
   });
 
   describe('include_tests', () => {
