@@ -72,7 +72,8 @@ const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
  * The environment the command would have in the user's terminal: the MCP
  * server's own, minus what Claude Code's plugin launcher and token-pilot put
  * there (CLAUDE_PLUGIN_ROOT and friends change how this project's own tests
- * behave).
+ * behave), plus CI=1 / NO_COLOR=1 / FORCE_COLOR=0 so runners print plain
+ * output and skip watch mode. The test_summary description lists these.
  */
 export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};

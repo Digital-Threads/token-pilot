@@ -12,6 +12,7 @@ import {
   MCP_INSTRUCTIONS,
   TOOL_DEFINITIONS,
 } from "../../src/server/tool-definitions.ts";
+import { childEnv } from "../../src/handlers/test-summary.ts";
 
 describe("getMcpInstructions", () => {
   it("minimal instructions mention only the 5 core tools", () => {
@@ -134,5 +135,11 @@ describe("test_summary description", () => {
 
   it("says how a timeout kills the run on Windows, where there are no process groups", () => {
     expect(desc()).toMatch(/taskkill/);
+  });
+
+  it("names every variable the run forces, not just 'your terminal's environment'", () => {
+    const forced = childEnv({});
+    for (const [key, value] of Object.entries(forced)) expect(desc()).toContain(`${key}=${value}`);
+    expect(desc()).not.toMatch(/with your terminal's environment minus/);
   });
 });
