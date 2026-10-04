@@ -230,14 +230,14 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
     return n;
   };
 
-  /** End of a quoted literal, or -1 when it is not one (unterminated in JS). */
+  /** End of a quoted literal, or -1 when it is not one (unterminated in JS, or never closed). */
   const scanQuoted = (i: number, q: string): number => {
     if ((q === '"' ? tripleDq : tripleSq) && raw[i + 1] === q && raw[i + 2] === q) {
       for (let j = i + 3; j < n; j++) {
         if (raw[j] === '\\') { j++; continue; }
         if (raw[j] === q && raw[j + 1] === q && raw[j + 2] === q) return j + 3;
       }
-      return n;
+      return -1;
     }
     for (let j = i + 1; j < n; j++) {
       const ch = raw[j];
@@ -245,7 +245,17 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
       if (ch === q) return j + 1;
       if (ch === '\n' && singleLine) return js ? -1 : j;
     }
-    return js ? -1 : n;
+    return -1;
+  };
+
+  /** PHP heredoc / nowdoc at `i` (`<<<ID`, `<<<"ID"`, `<<<'ID'`): end of its closing marker, or -1. */
+  const scanHeredoc = (i: number): number => {
+    const m = /^<<<[ \t]*(["']?)([A-Za-z_]\w*)\1\r?\n/.exec(raw.slice(i, i + 200));
+    if (!m) return -1;
+    const close = new RegExp(`^[ \\t]*${m[2]}(?!\\w)`, 'gm');
+    close.lastIndex = i + m[0].length;
+    const c = close.exec(raw);
+    return c ? c.index + c[0].length : -1;
   };
 
   const scanRegex = (i: number): number => {
@@ -291,6 +301,17 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
       out.push([i, e, false]);
       i = e;
       continue;
+    }
+
+    if (lang === 'PHP' && c === '<' && d === '<' && raw[i + 2] === '<') {
+      const e = scanHeredoc(i);
+      if (e > 0) {
+        out.push([i, e, true]);
+        prevSig = 'a';
+        prevWord = '';
+        i = e;
+        continue;
+      }
     }
 
     if (c === '"' || c === "'" || (c === '`' && (js || go))) {

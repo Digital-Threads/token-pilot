@@ -270,6 +270,26 @@ describe('buildFileStructure — other languages', () => {
     expect(ranges(gamma.children)).toEqual({ one: [5, 7], two: [9, 11] });
     expect(find(gamma.children, 'two')).toMatchObject({ visibility: 'private', static: true });
   });
+
+  it('PHP: heredoc and nowdoc bodies (quotes, braces, indented closing marker) are strings', async () => {
+    const s = await structureOf('heredoc.php', [
+      '  :2 Mailer [class]', '  :3 body [function]', '  :9 raw [function]', '  :16 quoted [function]', '  :22 last [function]', '  :27 helper [function]',
+    ]);
+    expect(ranges(s.symbols)).toEqual({ Mailer: [2, 25], helper: [27, 29] });
+    expect(ranges(find(s.symbols, 'Mailer').children)).toEqual({ body: [3, 7], raw: [9, 14], quoted: [16, 20], last: [22, 24] });
+  });
+
+  it('a quote that never closes is not a string (PHP apostrophe in a comment-free line)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tp-ranges-'));
+    try {
+      const file = join(dir, 'odd.php');
+      await writeFile(file, "<?php\nfunction a() {\n    $x = 1 ?' : 2;\n}\n\nfunction b() {\n    return 2;\n}\n");
+      const s = await buildFileStructure(file, parseOutlineText('  :2 a [function]\n  :6 b [function]'));
+      expect(ranges(s.symbols)).toEqual({ a: [2, 4], b: [6, 8] });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('buildFileStructure — imports, exports, docs', () => {
