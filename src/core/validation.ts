@@ -116,6 +116,7 @@ export function validateSmartReadArgs(args: unknown): {
   show_docs?: boolean;
   show_references?: boolean;
   depth?: number;
+  scope?: "full" | "nav" | "exports";
   max_tokens?: number;
 } {
   if (!args || typeof args !== "object") {
@@ -125,12 +126,20 @@ export function validateSmartReadArgs(args: unknown): {
   if (typeof a.path !== "string" || a.path.length === 0) {
     throw new Error('Required parameter "path" must be a non-empty string.');
   }
+  let scope: "full" | "nav" | "exports" | undefined;
+  if (a.scope !== undefined && a.scope !== null) {
+    if (a.scope !== "full" && a.scope !== "nav" && a.scope !== "exports") {
+      throw new Error('"scope" must be one of: full, nav, exports.');
+    }
+    scope = a.scope;
+  }
   return {
     path: a.path,
     show_imports: optionalBool(a.show_imports, "show_imports"),
     show_docs: optionalBool(a.show_docs, "show_docs"),
     show_references: optionalBool(a.show_references, "show_references"),
     depth: optionalNumber(a.depth, "depth"),
+    scope,
     max_tokens: optionalNumber(a.max_tokens, "max_tokens"),
   };
 }
@@ -144,6 +153,7 @@ export function validateReadSymbolArgs(args: unknown): {
   context_before?: number;
   context_after?: number;
   show?: "full" | "head" | "tail" | "outline";
+  include_edit_context?: boolean;
 } {
   if (!args || typeof args !== "object") {
     throw new Error("Arguments must be an object.");
@@ -171,6 +181,7 @@ export function validateReadSymbolArgs(args: unknown): {
     context_before: optionalNumber(a.context_before, "context_before"),
     context_after: optionalNumber(a.context_after, "context_after"),
     show,
+    include_edit_context: optionalBool(a.include_edit_context, "include_edit_context"),
   };
 }
 

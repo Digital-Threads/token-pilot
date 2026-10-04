@@ -79,3 +79,15 @@ describe('extractYamlSectionContent', () => {
     expect(content).not.toContain('volumes:');
   });
 });
+
+describe('parseYamlSections — keys and ranges', () => {
+  it('reads quoted top-level keys', () => {
+    const sections = parseYamlSections(['"quoted key": 1', "'single': 2", 'plain: 3'].join('\n'));
+    expect(sections.map((s) => s.heading)).toEqual(['quoted key', 'single', 'plain']);
+  });
+
+  it('the last section ends at its last content line, not past the end of the file', () => {
+    const sections = parseYamlSections('a:\n  x: 1\n\nb:\n  y: 2\n\n');
+    expect(sections.map((s) => [s.heading, s.startLine, s.endLine])).toEqual([['a', 1, 3], ['b', 4, 5]]);
+  });
+});

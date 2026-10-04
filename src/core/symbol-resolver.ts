@@ -1,6 +1,6 @@
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { ResolvedSymbol, SymbolInfo, FileStructure } from '../types.js';
-import { mapKind } from '../ast-index/parser.js';
+import { buildFileStructure } from '../ast-index/enricher.js';
 
 export class SymbolResolver {
   private astIndex: AstIndexClient;
@@ -10,126 +10,55 @@ export class SymbolResolver {
   }
 
   /**
-   * Resolve a symbol by qualified name.
-   * First tries structure-based lookup, falls back to ast-index.
+   * Resolve a symbol (`name`, `Class.method`, `Class::method`) in one file.
+   *
+   * The file's structure is authoritative when it has symbols. Without one,
+   * ast-index's symbol index is asked, but only a hit in that same file
+   * counts, and its end line is read from the source — never guessed.
    */
-  async resolve(qualifiedName: string, structure?: FileStructure): Promise<ResolvedSymbol | null> {
-    const filePath = structure?.path;
-
-    // 1. Try structure-based lookup first (supports Class.method and Class::method)
-    if (structure) {
-      const found = this.findInStructure(qualifiedName, structure.symbols);
-      if (found) {
-        return {
-          symbol: found,
-          filePath: structure.path,
-          startLine: found.location.startLine,
-          endLine: found.location.endLine,
-        };
-      }
-
-      // 1b. For qualified names like Class.method — ast-index outline is flat
-      // (methods are siblings, not children of the class).
-      // Try finding just the member name in the flat symbol list.
-      const separator = qualifiedName.includes('::') ? '::' : qualifiedName.includes('.') ? '.' : null;
-      if (separator) {
-        const parts = qualifiedName.split(separator);
-        const memberName = parts[parts.length - 1];
-        const member = this.findFlat(memberName, structure.symbols);
-        if (member) {
-          return {
-            symbol: member,
-            filePath: structure.path,
-            startLine: member.location.startLine,
-            endLine: member.location.endLine,
-          };
-        }
-      }
-
-      // 1c. Unqualified name — search recursively in children (e.g. "run" inside a Python class)
-      if (!separator) {
-        const deep = this.findFlat(qualifiedName, structure.symbols);
-        if (deep) {
-          return {
-            symbol: deep,
-            filePath: structure.path,
-            startLine: deep.location.startLine,
-            endLine: deep.location.endLine,
-          };
-        }
-      }
+  async resolve(
+    qualifiedName: string,
+    structure?: FileStructure,
+    filePath?: string,
+  ): Promise<ResolvedSymbol | null> {
+    if (structure && structure.symbols.length > 0) {
+      const found = this.pick(this.findAll(qualifiedName, structure));
+      return found ? toResolved(found, structure.path) : null;
     }
 
-    // 2. Try ast-index with full qualified name
+    const file = structure?.path ?? filePath;
+    if (!file || splitName(qualifiedName).length > 1) return null; // can't check the class without a structure
+
     const detail = await this.astIndex.symbol(qualifiedName);
-    if (detail && (!filePath || this.pathMatches(detail.file, filePath))) {
-      let endLine = (detail as any).end_line ?? detail.start_line + 50;
-      if (structure) {
-        const found = this.findInStructure(qualifiedName, structure.symbols);
-        if (found) endLine = found.location.endLine;
-      }
+    if (!detail || !this.pathMatches(detail.file, file)) return null;
 
-      return {
-        symbol: {
-          name: detail.name,
-          qualifiedName: qualifiedName,
-          kind: mapKind(detail.kind),
-          signature: detail.signature ?? detail.name,
-          location: {
-            startLine: detail.start_line,
-            endLine,
-            lineCount: endLine - detail.start_line + 1,
-          },
-          visibility: 'default',
-          async: false,
-          static: false,
-          decorators: [],
-          children: [],
-          doc: null,
-          references: [],
-        },
-        filePath: detail.file,
-        startLine: detail.start_line,
-        endLine,
-      };
-    }
+    const built = await buildFileStructure(file, [
+      { name: detail.name, kind: detail.kind, start_line: detail.start_line, end_line: 0 },
+    ]).catch(() => null);
+    const sym = built && this.pick(
+      findDeep(built.symbols, (s) => s.name === detail.name)
+        .filter((s) => s.location.startLine <= detail.start_line && detail.start_line <= s.location.endLine),
+    );
+    return sym ? toResolved(sym, file) : null;
+  }
 
-    // 3. If qualified (has . or ::), try ast-index with just the leaf name
-    //    Filter to requested file to avoid returning results from wrong files.
-    const sep2 = qualifiedName.includes('::') ? '::' : qualifiedName.includes('.') ? '.' : null;
-    if (sep2) {
-      const parts = qualifiedName.split(sep2);
-      const leafName = parts[parts.length - 1];
-      const leafDetail = await this.astIndex.symbol(leafName);
-      if (leafDetail && (!filePath || this.pathMatches(leafDetail.file, filePath))) {
-        let endLine = (leafDetail as any).end_line ?? leafDetail.start_line + 50;
-        return {
-          symbol: {
-            name: leafDetail.name,
-            qualifiedName: qualifiedName,
-            kind: mapKind(leafDetail.kind),
-            signature: leafDetail.signature ?? leafDetail.name,
-            location: {
-              startLine: leafDetail.start_line,
-              endLine,
-              lineCount: endLine - leafDetail.start_line + 1,
-            },
-            visibility: 'default',
-            async: false,
-            static: false,
-            decorators: [],
-            children: [],
-            doc: null,
-            references: [],
-          },
-          filePath: leafDetail.file,
-          startLine: leafDetail.start_line,
-          endLine,
-        };
-      }
-    }
+  /** Every symbol in the structure that `qualifiedName` names, in document order. */
+  findAll(qualifiedName: string, structure?: FileStructure): SymbolInfo[] {
+    if (!structure) return [];
+    const parts = splitName(qualifiedName);
+    const last = parts[parts.length - 1];
 
-    return null;
+    const byPath = parts.length === 1
+      ? findDeep(structure.symbols, (s) => s.name === last)
+      : findDeep(structure.symbols, (s) => s.name === parts[0])
+        .flatMap((head) => this.descend(parts.slice(1), head.children));
+    // Go methods are top-level with qualifiedName Receiver.Method
+    const byQualified = findDeep(structure.symbols, (s) => s.qualifiedName === qualifiedName.replace(/::/g, '.'));
+
+    const seen = new Set<SymbolInfo>();
+    return [...byPath, ...byQualified]
+      .filter((s) => (seen.has(s) ? false : (seen.add(s), true)))
+      .sort((a, b) => a.location.startLine - b.location.startLine);
   }
 
   /**
@@ -154,57 +83,43 @@ export class SymbolResolver {
     return output.join('\n');
   }
 
-
-  /**
-   * Hierarchical search: AuthService → children → login
-   */
-  private findInStructure(qualifiedName: string, symbols: SymbolInfo[]): SymbolInfo | null {
-    const parts = qualifiedName.includes('::')
-      ? qualifiedName.split('::')
-      : qualifiedName.split('.');
-
-    return this.findByParts(parts, symbols);
+  private descend(parts: string[], symbols: SymbolInfo[]): SymbolInfo[] {
+    const hits = symbols.filter((s) => s.name === parts[0]);
+    return parts.length === 1 ? hits : hits.flatMap((h) => this.descend(parts.slice(1), h.children));
   }
 
-  private findByParts(parts: string[], symbols: SymbolInfo[]): SymbolInfo | null {
-    for (const sym of symbols) {
-      if (parts.length === 1 && sym.name === parts[0]) {
-        return sym;
-      }
-
-      if (parts.length >= 2 && sym.name === parts[0]) {
-        const found = this.findByParts(parts.slice(1), sym.children);
-        if (found) return found;
-      }
-    }
-
-    return null;
+  /** Same-name symbols: prefer a declaration over a package/namespace line. */
+  private pick(candidates: SymbolInfo[]): SymbolInfo | null {
+    return candidates.find((s) => s.kind !== 'namespace') ?? candidates[0] ?? null;
   }
 
-  /**
-   * Flat search by name only — searches top-level AND children recursively.
-   * Used for flat outlines (TS) and for unqualified method names (Python).
-   */
-  private findFlat(name: string, symbols: SymbolInfo[]): SymbolInfo | null {
-    for (const sym of symbols) {
-      if (sym.name === name) return sym;
-      if (sym.children.length > 0) {
-        const found = this.findFlat(name, sym.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Check if two file paths refer to the same file.
-   * Handles absolute vs relative paths.
-   */
+  /** Same file? Absolute vs relative paths match only on a path-separator boundary. */
   private pathMatches(a: string, b: string): boolean {
-    if (a === b) return true;
-    // One ends with the other (relative vs absolute), require path separator
-    if (a.endsWith('/' + b) || b.endsWith('/' + a)) return true;
-    if (a.endsWith(b) || b.endsWith(a)) return true;
-    return false;
+    return a === b || a.endsWith('/' + b) || b.endsWith('/' + a);
   }
+}
+
+function splitName(qualifiedName: string): string[] {
+  return qualifiedName.includes('::') ? qualifiedName.split('::') : qualifiedName.split('.');
+}
+
+function findDeep(symbols: SymbolInfo[], test: (s: SymbolInfo) => boolean): SymbolInfo[] {
+  const out: SymbolInfo[] = [];
+  const walk = (list: SymbolInfo[]): void => {
+    for (const s of list) {
+      if (test(s)) out.push(s);
+      walk(s.children);
+    }
+  };
+  walk(symbols);
+  return out;
+}
+
+function toResolved(symbol: SymbolInfo, filePath: string): ResolvedSymbol {
+  return {
+    symbol,
+    filePath,
+    startLine: symbol.location.startLine,
+    endLine: symbol.location.endLine,
+  };
 }

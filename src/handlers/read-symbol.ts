@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { SymbolResolver } from '../core/symbol-resolver.js';
 import type { FileCache } from '../core/file-cache.js';
+import type { CacheEntry, FileStructure } from '../types.js';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
@@ -53,11 +54,8 @@ export async function handleReadSymbol(
   }
 
   // Resolve symbol — auto-fetch structure if not cached
-  let structure = cached?.structure;
-  if (!structure && astIndex) {
-    structure = await astIndex.outline(absPath) ?? undefined;
-  }
-  const resolved = await symbolResolver.resolve(args.symbol, structure);
+  const structure = await structureFor(cached, absPath, astIndex);
+  const resolved = await symbolResolver.resolve(args.symbol, structure, absPath);
 
   if (!resolved) {
     return {
@@ -139,9 +137,10 @@ export async function handleReadSymbol(
   const outputLines: string[] = [
     `FILE: ${args.path}`,
     `SYMBOL: ${args.symbol} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ''})`,
-    '',
-    displaySource,
   ];
+  const sameName = sameNameNote(symbolResolver, args.symbol, structure, resolved.startLine);
+  if (sameName) outputLines.push(sameName);
+  outputLines.push('', displaySource);
 
   // References
   if (resolved.symbol.references.length > 0) {
@@ -194,4 +193,34 @@ export async function handleReadSymbol(
   });
 
   return { content: [{ type: 'text', text: output + formatConfidence(confidenceMeta) }] };
+}
+
+/** "N more symbols named X: L…" when the name is ambiguous in this file, else ''. */
+export function sameNameNote(
+  resolver: SymbolResolver,
+  name: string,
+  structure: FileStructure | undefined,
+  shownStart: number,
+): string {
+  const others = (resolver.findAll?.(name, structure) ?? []).filter((s) => s.location.startLine !== shownStart);
+  if (others.length === 0) return '';
+  const list = others.map((s) => `L${s.location.startLine}-${s.location.endLine} (${s.kind})`).join(', ');
+  return `NOTE: ${others.length} more symbol${others.length > 1 ? 's' : ''} named "${name}": ${list}. Use Parent.${name} or read_range for another one.`;
+}
+
+/**
+ * The file's structure for symbol lookups. A cached structure without symbols
+ * is a placeholder (smart_read pass-through / read_for_edit cache the content
+ * as read_diff's baseline) — outline the file instead, and keep the outline
+ * in the cache when it was built from the same content.
+ */
+export async function structureFor(
+  cached: CacheEntry | null | undefined,
+  absPath: string,
+  astIndex?: AstIndexClient,
+): Promise<FileStructure | undefined> {
+  if (cached && cached.structure.symbols.length > 0) return cached.structure;
+  const fresh = (await astIndex?.outline(absPath)) ?? undefined;
+  if (fresh && cached && fresh.meta.contentHash === cached.hash) cached.structure = fresh;
+  return fresh ?? cached?.structure;
 }

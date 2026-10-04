@@ -3,10 +3,10 @@ import { extname } from 'node:path';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
-import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
+import { parseMarkdownSections, findSection, extractSectionContent, duplicateSectionNote } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
-import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
-import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
+import { parseJsonSections, findJsonSection, extractJsonSectionContent, isMinifiedJson } from './json-sections.js';
+import { csvRecords, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
 
 export interface ReadSectionArgs {
   path: string;
@@ -25,6 +25,7 @@ export async function handleReadSection(
 
   // Dispatch to format-specific parser
   let sectionData: { heading: string; startLine: number; endLine: number; lineCount: number; content: string; label: string } | null = null;
+  let note = '';
 
   if (ext === '.md' || ext === '.markdown') {
     const sections = parseMarkdownSections(content);
@@ -39,6 +40,7 @@ export async function handleReadSection(
     }
     const hashes = '#'.repeat(section.level);
     sectionData = { ...section, content: extractSectionContent(lines, section), label: `${hashes} ${section.heading}` };
+    note = duplicateSectionNote(sections, args.heading, (s, h) => findSection([s as typeof section], h) !== undefined);
   } else if (ext === '.yaml' || ext === '.yml') {
     const sections = parseYamlSections(content);
     const section = findYamlSection(sections, args.heading);
@@ -58,19 +60,21 @@ export async function handleReadSection(
       return {
         content: [{
           type: 'text',
-          text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
+          text: isMinifiedJson(content)
+            ? `${args.path} is minified JSON (one line), so it has no per-key sections. Use read_range or smart_read instead.`
+            : `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
         }],
       };
     }
     sectionData = { ...section, content: extractJsonSectionContent(lines, section), label: section.heading };
   } else if (ext === '.csv') {
-    const outline = parseCsvOutline(content);
-    const section = parseCsvSectionSpec(args.heading, outline.rowCount);
+    const records = csvRecords(content);
+    const section = parseCsvSectionSpec(args.heading, records);
     if (!section) {
       return {
         content: [{
           type: 'text',
-          text: `Invalid section spec "${args.heading}" for CSV. Use format: rows:1-50 or row:5\nTotal rows: ${outline.rowCount}`,
+          text: `Invalid section spec "${args.heading}" for CSV. Use format: rows:1-50 or row:5\nTotal rows: ${Math.max(0, records.length - 1)}`,
         }],
       };
     }
@@ -87,6 +91,7 @@ export async function handleReadSection(
   const outputLines: string[] = [
     `FILE: ${args.path}`,
     `SECTION: ${sectionData.label} [L${sectionData.startLine}-${sectionData.endLine}] (${sectionData.lineCount} lines)`,
+    ...(note ? [note] : []),
     '',
     sectionData.content,
     '',

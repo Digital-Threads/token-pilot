@@ -28,7 +28,7 @@ import { GitWatcher } from "./git/watcher.js";
 
 const execFilePromise = promisify(execFile);
 import { FileWatcher } from "./git/file-watcher.js";
-import { handleSmartRead } from "./handlers/smart-read.js";
+import { handleSmartRead, capToBudget } from "./handlers/smart-read.js";
 import { handleReadSymbol } from "./handlers/read-symbol.js";
 import { handleReadSymbols } from "./handlers/read-symbols.js";
 import { handleReadRange } from "./handlers/read-range.js";
@@ -97,6 +97,11 @@ import {
   validateTestSummaryArgs,
   validateReadSectionArgs,
 } from "./core/validation.js";
+
+/** A smart_read(_many) that handed back (about) the whole file, not an outline. */
+export function countsAsFullFileRead(tool: string, tokensReturned: number, tokensWouldBe: number): boolean {
+  return isFullReadTool(tool) && tokensWouldBe > 0 && tokensReturned >= tokensWouldBe * 0.8;
+}
 
 export async function createServer(
   projectRoot: string,
@@ -483,7 +488,7 @@ export async function createServer(
     // Policy tracking
     totalCallCount++;
     totalTokensReturned += rest.tokensReturned;
-    if (isFullReadTool(rest.tool)) {
+    if (countsAsFullFileRead(rest.tool, rest.tokensReturned, rest.tokensWouldBe)) {
       fullFileReadsCount++;
     }
     // Policy check
@@ -552,7 +557,8 @@ export async function createServer(
               },
             );
             if (nonCodeResult) {
-              const text = nonCodeResult.content[0]?.text ?? "";
+              const capped = capToBudget(nonCodeResult, validArgs.max_tokens);
+              const text = capped.content[0]?.text ?? "";
               recordWithTrace({
                 tool: "smart_read",
                 path: validArgs.path,
@@ -567,7 +573,7 @@ export async function createServer(
                 absPath: resolve(projectRoot, validArgs.path),
                 args: validArgs,
               });
-              return nonCodeResult;
+              return capped;
             }
           }
 
@@ -727,6 +733,7 @@ export async function createServer(
             projectRoot,
             fileCache,
             contextRegistry,
+            fileWatcher ? (p) => fileWatcher!.takeBaseline(p) : undefined,
           );
           const diffText = diffResult.content[0]?.text ?? "";
           const diffTokens = estimateTokens(diffText);

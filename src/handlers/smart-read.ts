@@ -9,10 +9,13 @@ import { estimateTokens, formatSavings } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { isNonCodeStructured, handleNonCodeRead } from './non-code.js';
 import { parseTypeScriptRegex } from '../ast-index/regex-parser.js';
-import { buildFileStructure } from '../ast-index/enricher.js';
+import { buildFileStructure, countLines } from '../ast-index/enricher.js';
 import { formatDuration } from '../core/format-duration.js';
 
 const TS_JS_EXTENSIONS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs']);
+/** A "small" file averages at most this many tokens per line (code is ~10). */
+const SMALL_FILE_TOKENS_PER_LINE = 20;
+const PREVIEW_MAX_CHARS = 4000;
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
 
 export interface SmartReadArgs {
@@ -49,18 +52,23 @@ export async function handleSmartRead(
   // 1. Read file content
   const content = await readFile(absPath, 'utf-8');
   const lines = content.split('\n');
+  const lineCount = countLines(content);
 
-  // 2. Small-file pass-through
-  if (lines.length <= config.smartRead.smallFileThreshold) {
+  // An explicit scope/depth asks for structure, never for raw content
+  const wantsStructure = (args.scope !== undefined && args.scope !== 'full') || args.depth !== undefined;
+
+  // 2. Small-file pass-through — small in tokens too (a minified bundle is one line)
+  const smallThreshold = config.smartRead.smallFileThreshold;
+  if (lineCount <= smallThreshold && !wantsStructure) {
     const hash = createHash('sha256').update(content).digest('hex');
     const tokens = estimateTokens(content);
 
     // Budget check: if full content exceeds max_tokens, skip pass-through and use outline path
-    if (!args.max_tokens || tokens <= args.max_tokens) {
+    if (tokens <= smallThreshold * SMALL_FILE_TOKENS_PER_LINE && (!args.max_tokens || tokens <= args.max_tokens)) {
       contextRegistry.trackLoad(absPath, {
         type: 'full',
         startLine: 1,
-        endLine: lines.length,
+        endLine: lineCount,
         tokens,
       });
       contextRegistry.setContentHash(absPath, hash);
@@ -71,7 +79,7 @@ export async function handleSmartRead(
         fileCache.set(absPath, {
           structure: {
             path: absPath, language: 'unknown',
-            meta: { lines: lines.length, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
+            meta: { lines: lineCount, bytes: content.length, lastModified: fileStat.mtimeMs, contentHash: hash },
             imports: [], exports: [], symbols: [],
           },
           content, lines, mtime: fileStat.mtimeMs, hash, lastAccess: Date.now(),
@@ -81,7 +89,7 @@ export async function handleSmartRead(
       return {
         content: [{
           type: 'text',
-          text: `FILE: ${args.path} (${lines.length} lines — returned in full, below threshold)\n\n${content}`,
+          text: `FILE: ${args.path} (${lineCount} lines — returned in full, below threshold)\n\n${content}`,
         }],
       };
     }
@@ -92,7 +100,8 @@ export async function handleSmartRead(
   let cached = fileCache.get(absPath);
   const isStale = cached ? await fileCache.isStale(absPath) : true;
 
-  if (!cached || isStale) {
+  // a cached structure without symbols is a read_diff placeholder, not an outline
+  if (!cached || isStale || cached.structure.symbols.length === 0) {
     // 4. Get structure from ast-index
     let structure = await astIndex.outline(absPath);
 
@@ -101,7 +110,7 @@ export async function handleSmartRead(
       // Try non-code structural summary (JSON, YAML, Markdown, TOML)
       if (isNonCodeStructured(absPath)) {
         const nonCodeResult = await handleNonCodeRead(args.path, projectRoot, contextRegistry);
-        if (nonCodeResult) return nonCodeResult;
+        if (nonCodeResult) return capToBudget(nonCodeResult, args.max_tokens);
       }
 
       // Regex fallback for TS/JS when binary is unavailable
@@ -117,16 +126,21 @@ export async function handleSmartRead(
     if (!structure) {
       // Fallback: return truncated preview instead of full raw content
       const previewLines = 60;
-      const truncated = lines.length > previewLines;
-      const preview = lines.slice(0, previewLines).join('\n');
+      let preview = lines.slice(0, previewLines).join('\n');
+      const longLines = preview.length > PREVIEW_MAX_CHARS;
+      if (longLines) preview = preview.slice(0, PREVIEW_MAX_CHARS);
+      const truncated = longLines || lineCount > previewLines;
       const tokens = estimateTokens(preview);
-      contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: lines.length, tokens });
+      contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: lineCount, tokens });
 
+      const note = longLines
+        ? `\n\n... truncated at ${PREVIEW_MAX_CHARS} of ${content.length} characters (very long lines, likely minified). Use read_range() for more.`
+        : `\n\n... truncated (${lineCount - previewLines} more lines). Use read_range() for full content.`;
       return {
         content: [{
           type: 'text',
-          text: `FILE: ${args.path} (${lines.length} lines — no AST support, preview)\n\n${preview}`
-            + (truncated ? `\n\n... truncated (${lines.length - previewLines} more lines). Use read_range() for full content.` : ''),
+          text: `FILE: ${args.path} (${lineCount} lines — no AST support, preview)\n\n${preview}`
+            + (truncated ? note : ''),
         }],
       };
     }
@@ -226,11 +240,11 @@ export async function handleSmartRead(
   const structureTokens = estimateTokens(output);
   const fullTokens = estimateTokens(content);
 
-  if (structureTokens >= fullTokens * 0.7 && (!args.max_tokens || fullTokens <= args.max_tokens)) {
+  if (!wantsStructure && structureTokens >= fullTokens * 0.7 && (!args.max_tokens || fullTokens <= args.max_tokens)) {
     contextRegistry.trackLoad(absPath, {
       type: 'full',
       startLine: 1,
-      endLine: lines.length,
+      endLine: lineCount,
       tokens: fullTokens,
     });
     contextRegistry.setContentHash(absPath, cached.hash);
@@ -241,29 +255,40 @@ export async function handleSmartRead(
     return {
       content: [{
         type: 'text',
-        text: `FILE: ${args.path} (${lines.length} lines — returned in full, outline not smaller)\n\n${content}`,
+        text: `FILE: ${args.path} (${lineCount} lines — returned in full, outline not smaller)\n\n${content}`,
       }],
     };
   }
 
-  // 7. Budget enforcement: if outline exceeds max_tokens, return compact version
+  // 7. Budget enforcement: if outline exceeds max_tokens, return compact version — itself within the budget
   if (args.max_tokens && structureTokens > args.max_tokens) {
     const symbols = cached.structure.symbols;
+    const tail = `Use read_symbol("${args.path}", "<name>") to drill into any symbol.`;
     const compactLines = [
-      `FILE: ${args.path} (${lines.length} lines — compact, budget: ${args.max_tokens} tokens)`,
+      `FILE: ${args.path} (${lineCount} lines — compact, budget: ${args.max_tokens} tokens)`,
       `Imports: ${cached.structure.imports?.length ?? 0} | Exports: ${cached.structure.exports?.length ?? 0} | Symbols: ${symbols.length}`,
       '',
     ];
+    let used = estimateTokens(compactLines.join('\n') + tail) + 20; // 20: room for the "more symbols" note
+    let shown = 0;
     for (const sym of symbols) {
-      compactLines.push(`  ${sym.kind} ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`);
+      const line = `  ${sym.kind} ${sym.name} [L${sym.location.startLine}-${sym.location.endLine}]`;
+      const cost = estimateTokens(line) + 1;
+      if (used + cost > args.max_tokens) break;
+      compactLines.push(line);
+      used += cost;
+      shown++;
     }
-    compactLines.push('', `Use read_symbol("${args.path}", "<name>") to drill into any symbol.`);
+    if (shown < symbols.length) {
+      compactLines.push(`  ... ${symbols.length - shown} more symbols (max_tokens=${args.max_tokens} reached; raise it or use scope="nav")`);
+    }
+    compactLines.push('', tail);
 
     const compactText = compactLines.join('\n');
     const compactTokens = estimateTokens(compactText);
     contextRegistry.trackLoad(absPath, { type: 'structure', startLine: 1, endLine: cached.structure.meta.lines, tokens: compactTokens });
     contextRegistry.setContentHash(absPath, cached.hash);
-    contextRegistry.trackStructureSymbols(absPath, symbols.map(s => s.name));
+    contextRegistry.trackStructureSymbols(absPath, symbols.slice(0, shown).map(s => s.name));
 
     return { content: [{ type: 'text', text: compactText }] };
   }
@@ -293,4 +318,22 @@ export async function handleSmartRead(
   });
 
   return { content: [{ type: 'text', text: output + savings + formatConfidence(confidenceMeta) }] };
+}
+
+/** Cut a text result to `maxTokens`, saying so; unchanged when it fits or there is no budget. */
+export function capToBudget<T extends { content: Array<{ type: 'text'; text: string }> }>(result: T, maxTokens?: number): T {
+  const text = result.content[0]?.text ?? '';
+  const total = estimateTokens(text);
+  if (!maxTokens || total <= maxTokens) return result;
+
+  const note = `\n... cut to fit max_tokens=${maxTokens} (${total} tokens in full). Use read_section / read_range for the rest.`;
+  const kept: string[] = [];
+  let used = estimateTokens(note);
+  for (const line of text.split('\n')) {
+    const cost = estimateTokens(line) + 1;
+    if (used + cost > maxTokens) break;
+    kept.push(line);
+    used += cost;
+  }
+  return { ...result, content: [{ type: 'text', text: kept.join('\n') + note }] };
 }

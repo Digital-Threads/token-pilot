@@ -140,6 +140,28 @@ describe('handleReadForEdit', () => {
 
       expect(result.content[0].text).toContain('CALLERS: none found');
     });
+
+    it('prints project-relative caller paths and asks refs for the bare name', async () => {
+      let asked = '';
+      const result = await handleReadForEdit(
+        { path: 'file.ts', symbol: 'Service.run', include_callers: true },
+        tempDir,
+        { resolve: async () => ({ startLine: 10, endLine: 15 }) } as any,
+        new FileCache(),
+        new ContextRegistry(),
+        {
+          outline: async () => null,
+          isDisabled: () => false,
+          refs: async (name: string) => {
+            asked = name;
+            return { definitions: [], imports: [], usages: [{ name: 'run', line: 7, path: 'src/app.ts', context: 'svc.run()' }] };
+          },
+        } as any,
+      );
+
+      expect(asked).toBe('run');
+      expect(result.content[0].text).toContain('  src/app.ts:7');
+    });
   });
 
   describe('include_tests', () => {
@@ -173,6 +195,28 @@ describe('handleReadForEdit', () => {
       );
 
       expect(result.content[0].text).toContain('TESTS: none found');
+    });
+
+    it('finds co-located and nested test files, also for an absolute path', async () => {
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      mkdirSync(join(tempDir, 'lib', 'deep'), { recursive: true });
+      mkdirSync(join(tempDir, 'tests', 'deep'), { recursive: true });
+      writeFileSync(join(tempDir, 'lib', 'deep', 'thing.ts'), 'export const x = 1;');
+      writeFileSync(join(tempDir, 'lib', 'deep', 'thing.test.ts'), 'it("a", () => {})');
+      writeFileSync(join(tempDir, 'tests', 'deep', 'thing.test.ts'), 'it("b", () => {})');
+
+      const result = await handleReadForEdit(
+        { path: join(tempDir, 'lib', 'deep', 'thing.ts'), line: 1, include_tests: true },
+        tempDir,
+        {} as any,
+        new FileCache(),
+        new ContextRegistry(),
+        { outline: async () => null, isDisabled: () => true } as any,
+      );
+
+      const text = result.content[0].text;
+      expect(text).toContain('lib/deep/thing.test.ts');
+      expect(text).toContain('tests/deep/thing.test.ts');
     });
   });
 
@@ -220,6 +264,27 @@ describe('handleReadForEdit', () => {
       expect(result.content[0].text).toContain('RECENT CHANGES (unstaged):');
       expect(result.content[0].text).toContain('-line 10');
       expect(result.content[0].text).toContain('+MODIFIED line 10');
+    });
+
+    it('says an untracked file is new, not unchanged', async () => {
+      const { execSync } = await import('node:child_process');
+      execSync('git init && git add -A && git -c user.name="Test" -c user.email="test@test.com" commit -m "init"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      });
+      await writeFile(join(tempDir, 'fresh.ts'), 'export const a = 1;\n');
+
+      const result = await handleReadForEdit(
+        { path: 'fresh.ts', line: 1, include_changes: true },
+        tempDir,
+        {} as any,
+        new FileCache(),
+        new ContextRegistry(),
+        { outline: async () => null } as any,
+      );
+
+      expect(result.content[0].text).toContain('RECENT CHANGES: untracked');
+      expect(result.content[0].text).not.toContain('unchanged');
     });
   });
 
@@ -358,5 +423,24 @@ describe('handleReadForEdit', () => {
     expect(text).toContain('Second line.');
     expect(text).not.toContain('API content.');
     expect(text).toContain('AFTER EDIT');
+  });
+
+  it('CSV rows: the edit block is the exact file text (header not glued on)', async () => {
+    const csv = ['id,note', '1,a', '2,"two', 'lines"', '3,c'].join('\n');
+    await writeFile(join(tempDir, 'data.csv'), csv);
+
+    const result = await handleReadForEdit(
+      { path: 'data.csv', section: 'row:2' },
+      tempDir,
+      {} as any,
+      new FileCache(),
+      new ContextRegistry(),
+      {} as any,
+    );
+
+    const text = result.content[0].text;
+    const block = text.split('\n\n')[1];
+    expect(block).toBe('2,"two\nlines"');
+    expect(csv).toContain(block);
   });
 });

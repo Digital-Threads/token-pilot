@@ -59,6 +59,12 @@ describe('validateSmartReadArgs', () => {
   it('throws on wrong type for depth', () => {
     expect(() => validateSmartReadArgs({ path: 'f.ts', depth: 'two' })).toThrow('number');
   });
+
+  it('keeps scope', () => {
+    expect(validateSmartReadArgs({ path: 'f.ts', scope: 'nav' }).scope).toBe('nav');
+    expect(validateSmartReadArgs({ path: 'f.ts', scope: 'exports' }).scope).toBe('exports');
+    expect(() => validateSmartReadArgs({ path: 'f.ts', scope: 'everything' })).toThrow('scope');
+  });
 });
 
 describe('validateReadSymbolArgs', () => {
@@ -69,6 +75,10 @@ describe('validateReadSymbolArgs', () => {
 
   it('throws on missing symbol', () => {
     expect(() => validateReadSymbolArgs({ path: 'f.ts' })).toThrow('symbol');
+  });
+
+  it('keeps include_edit_context', () => {
+    expect(validateReadSymbolArgs({ path: 'f.ts', symbol: 'x', include_edit_context: true }).include_edit_context).toBe(true);
   });
 });
 

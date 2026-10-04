@@ -44,7 +44,6 @@ import {
 } from "../../src/ast-index/parser.js";
 import {
   buildFileStructure,
-  fixLastEndLine,
 } from "../../src/ast-index/enricher.js";
 
 describe("AstIndexClient", () => {
@@ -243,9 +242,10 @@ describe("AstIndexClient", () => {
       ].join("\n"),
     );
 
-    expect(outlineEntries[0].children?.[0].name).toBe("methodA");
-    expect(outlineEntries[0].end_line).toBe(7);
-    expect(outlineEntries[1].end_line).toBe(18);
+    // flat: nesting comes from real ranges in buildFileStructure, not indentation
+    expect(outlineEntries.map((e) => e.name)).toEqual(["MyClass", "methodA", "freeFn"]);
+    expect(outlineEntries[1].end_line).toBe(7);
+    expect(outlineEntries[2].end_line).toBe(18);
 
     const pyFile = join(tempDir, "sample.py");
     await writeFile(
@@ -263,8 +263,10 @@ describe("AstIndexClient", () => {
       { name: "MyClass", kind: "class", start_line: 1, end_line: 6 },
     ]);
     expect(pyStructure.language).toBe("Python");
-    expect(pyStructure.symbols[0].children.length).toBe(1);
+    // both methods, including the async one the old regex missed
+    expect(pyStructure.symbols[0].children.map((c) => c.name)).toEqual(["build", "run"]);
     expect(pyStructure.symbols[0].children[0].static).toBe(true);
+    expect(pyStructure.symbols[0].children[1].async).toBe(true);
 
     const phpFile = join(tempDir, "sample.php");
     await writeFile(
@@ -289,7 +291,7 @@ describe("AstIndexClient", () => {
     expect(phpStructure.symbols[0].children[1].static).toBe(true);
   });
 
-  it("backtracks python method end lines around decorators and fixes nested last-entry ranges", async () => {
+  it("backtracks python method end lines around decorators", async () => {
     const pyFile = join(tempDir, "decorated.py");
     await writeFile(
       pyFile,
@@ -315,21 +317,6 @@ describe("AstIndexClient", () => {
     expect(pyStructure.symbols[0].children[1].location.endLine).toBe(7);
     expect(pyStructure.symbols[0].children[2].visibility).toBe("protected");
     expect(pyStructure.symbols[0].children[3].visibility).toBe("private");
-
-    const nested = [
-      {
-        name: "Outer",
-        kind: "class",
-        start_line: 1,
-        end_line: 1,
-        children: [
-          { name: "inner", kind: "method", start_line: 2, end_line: 0 },
-        ],
-      },
-    ];
-    fixLastEndLine(nested, 20);
-    expect(nested[0].end_line).toBe(20);
-    expect(nested[0].children[0].end_line).toBe(19);
   });
 
   it("supports common public methods through a mocked exec layer", async () => {

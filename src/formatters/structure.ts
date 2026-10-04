@@ -121,9 +121,12 @@ function formatSymbolTree(
   parentDecorators?: string[],
 ): void {
   const indent = '  '.repeat(depth);
-  const asyncPrefix = sym.async ? 'async ' : '';
-  const staticPrefix = sym.static ? 'static ' : '';
-  const visPrefix = sym.visibility !== 'default' ? `${sym.visibility} ` : '';
+  // the signature is the source line: don't repeat modifiers it already shows
+  const prefix = (on: boolean, word: string): string =>
+    on && !new RegExp(`\\b${word}\\b`).test(sym.signature) ? `${word} ` : '';
+  const asyncPrefix = prefix(sym.async, 'async');
+  const staticPrefix = prefix(sym.static, 'static');
+  const visPrefix = sym.visibility !== 'default' ? prefix(true, sym.visibility) : '';
 
   // Framework-aware: try to show HTTP route instead of raw decorators
   const frameworkInfo = formatFrameworkInfo(sym.decorators, parentDecorators);
@@ -143,10 +146,14 @@ function formatSymbolTree(
     const lineCount = `(${sym.location.lineCount} lines)`;
 
     if (sym.kind === 'class' || sym.kind === 'interface' || sym.kind === 'enum') {
-      lines.push(`${indent}${sym.kind} ${sym.name}: ${loc} ${lineCount}`);
+      lines.push(`${indent}${kindWord(sym)} ${sym.name}: ${loc} ${lineCount}`);
     } else {
       lines.push(`${indent}- ${visPrefix}${staticPrefix}${asyncPrefix}${sym.signature} ${loc} ${lineCount}`);
     }
+  }
+
+  if (showDocs && sym.doc) {
+    lines.push(`${indent}    doc: ${sym.doc.length > 120 ? `${sym.doc.slice(0, 120)}…` : sym.doc}`);
   }
 
   // Dependency hints (references)
@@ -156,7 +163,15 @@ function formatSymbolTree(
 
   // Children (cap at 30 per group to prevent explosion on large classes)
   const MAX_CHILDREN = 30;
-  if (depth < maxDepth && sym.children.length > 0) {
+  if (depth < maxDepth && sym.children.length > 0 && !CLASS_LIKE.has(sym.kind)) {
+    // nested functions / test blocks: plain list, no class-style visibility groups
+    for (const child of sym.children.slice(0, MAX_CHILDREN)) {
+      formatSymbolTree(child, lines, depth + 1, maxDepth, showDocs, showDeps, sym.decorators);
+    }
+    if (sym.children.length > MAX_CHILDREN) {
+      lines.push(`${indent}  ... and ${sym.children.length - MAX_CHILDREN} more nested symbols`);
+    }
+  } else if (depth < maxDepth && sym.children.length > 0) {
     // Group by visibility
     const publicMethods = sym.children.filter(c => c.visibility === 'public' || c.visibility === 'default');
     const privateMethods = sym.children.filter(c => c.visibility === 'private' || c.visibility === 'protected');
@@ -185,6 +200,16 @@ function formatSymbolTree(
   } else if (sym.children.length > 0) {
     lines.push(`${indent}  (${sym.children.length} members — increase depth to see)`);
   }
+}
+
+const CLASS_LIKE = new Set(['class', 'interface', 'enum']);
+
+/** `struct` / `impl` / `trait` when the declaration says so, else the kind. */
+function kindWord(sym: SymbolInfo): string {
+  if (sym.kind !== 'class') return sym.kind;
+  if (/^\s*impl\b/.test(sym.signature)) return 'impl';
+  if (/\bstruct\b/.test(sym.signature)) return 'struct';
+  return 'class';
 }
 
 function formatSymbolNav(sym: SymbolInfo, lines: string[], depth: number, maxDepth: number): void {

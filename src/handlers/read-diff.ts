@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { FileCache } from '../core/file-cache.js';
 import type { ContextRegistry } from '../core/context-registry.js';
+import type { CacheEntry } from '../types.js';
 import { estimateTokens, formatSavings } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 
@@ -15,12 +16,14 @@ export async function handleReadDiff(
   projectRoot: string,
   fileCache: FileCache,
   contextRegistry: ContextRegistry,
+  /** The version saved when the file watcher saw the file change (FileWatcher.takeBaseline). */
+  takeBaseline?: (absPath: string) => CacheEntry | undefined,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const absPath = resolveSafePath(projectRoot, args.path);
   const contextLines = args.context_lines ?? 3;
 
-  // Get cached (previous) version
-  const cached = fileCache.get(absPath);
+  // Previous version: the one evicted by the watcher on change, else the cache
+  const cached = takeBaseline?.(absPath) ?? fileCache.get(absPath);
 
   if (!cached) {
     const cachedPaths = fileCache.cachedPaths();

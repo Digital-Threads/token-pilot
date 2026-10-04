@@ -34,39 +34,23 @@ export function parseFileCount(statsText: string): number {
  *     :10 ClassName [class]
  *     :11 propName [property]
  *     :14 methodName [function]
+ *
+ * ast-index ≥3.48 prints members at the same indent as their class, so the
+ * result is flat; buildFileStructure() rebuilds nesting from real ranges.
+ * end_line here is only the "up to the next symbol" estimate.
  */
 export function parseOutlineText(text: string): AstIndexOutlineEntry[] {
-  const lines = text.split('\n');
   const entries: AstIndexOutlineEntry[] = [];
-  const classStack: { entry: AstIndexOutlineEntry; indent: number }[] = [];
 
-  for (const line of lines) {
-    const match = line.match(/^(\s*):(\d+)\s+(\S+)\s+\[(\w+)\]/);
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*:(\d+)\s+(.+?)\s+\[(\w+)\]\s*$/);
     if (!match) continue;
-
-    const indent = match[1].length;
-    const entry: AstIndexOutlineEntry = {
-      name: match[3],
-      kind: match[4],
-      start_line: parseInt(match[2], 10),
+    entries.push({
+      name: match[2],
+      kind: match[3],
+      start_line: parseInt(match[1], 10),
       end_line: 0,
-    };
-
-    while (classStack.length > 0 && classStack[classStack.length - 1].indent >= indent) {
-      classStack.pop();
-    }
-
-    if (classStack.length > 0) {
-      const parent = classStack[classStack.length - 1].entry;
-      if (!parent.children) parent.children = [];
-      parent.children.push(entry);
-    } else {
-      entries.push(entry);
-    }
-
-    if (['class', 'interface', 'struct', 'enum', 'impl', 'trait', 'namespace', 'module'].includes(entry.kind.toLowerCase())) {
-      classStack.push({ entry, indent });
-    }
+    });
   }
 
   computeEndLines(entries);
@@ -75,20 +59,9 @@ export function parseOutlineText(text: string): AstIndexOutlineEntry[] {
 
 function computeEndLines(entries: AstIndexOutlineEntry[]): void {
   for (let i = 0; i < entries.length; i++) {
-    if (entries[i].children?.length) {
-      computeEndLines(entries[i].children!);
-    }
-
-    if (i < entries.length - 1) {
-      entries[i].end_line = entries[i + 1].start_line - 1;
-    } else {
-      const children = entries[i].children;
-      if (children?.length) {
-        entries[i].end_line = children[children.length - 1].end_line + 1;
-      } else {
-        entries[i].end_line = entries[i].start_line + 10; // estimated
-      }
-    }
+    entries[i].end_line = i < entries.length - 1
+      ? Math.max(entries[i].start_line, entries[i + 1].start_line - 1)
+      : entries[i].start_line + 10; // estimated
   }
 }
 
@@ -295,14 +268,18 @@ export function parseModuleApiText(text: string): AstIndexModuleApi[] {
   return results;
 }
 
+const KIND_MAP = new Map<string, SymbolKind>([
+  ['function', 'function'], ['class', 'class'], ['method', 'method'], ['property', 'property'],
+  ['variable', 'variable'], ['type', 'type'], ['interface', 'interface'], ['enum', 'enum'],
+  ['constant', 'constant'], ['namespace', 'namespace'], ['struct', 'class'], ['trait', 'interface'],
+  ['impl', 'class'], ['module', 'namespace'], ['package', 'namespace'],
+  ['typealias', 'type'], ['type_alias', 'type'], ['typedef', 'type'], ['object', 'variable'],
+  ['constructor', 'method'], ['field', 'property'], ['const', 'constant'], ['record', 'class'],
+  ['protocol', 'interface'], ['extension', 'class'], ['union', 'class'],
+]);
+
 export function mapKind(kind: string): SymbolKind {
-  const map: Record<string, SymbolKind> = {
-    function: 'function', class: 'class', method: 'method', property: 'property',
-    variable: 'variable', type: 'type', interface: 'interface', enum: 'enum',
-    constant: 'constant', namespace: 'namespace', struct: 'class', trait: 'interface',
-    impl: 'class', module: 'namespace',
-  };
-  return map[kind.toLowerCase()] ?? 'function';
+  return KIND_MAP.get(kind.toLowerCase()) ?? 'function';
 }
 
 export function mapVisibility(vis?: string): Visibility {
@@ -316,7 +293,8 @@ export function mapVisibility(vis?: string): Visibility {
 export function detectLanguage(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
-    ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript',
+    ts: 'TypeScript', tsx: 'TypeScript', mts: 'TypeScript', cts: 'TypeScript',
+    js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
     py: 'Python', go: 'Go', rs: 'Rust', java: 'Java', kt: 'Kotlin', kts: 'Kotlin',
     swift: 'Swift', cs: 'C#', cpp: 'C++', cc: 'C++', cxx: 'C++', hpp: 'C++', c: 'C', h: 'C',
     php: 'PHP', rb: 'Ruby', scala: 'Scala', dart: 'Dart', lua: 'Lua',

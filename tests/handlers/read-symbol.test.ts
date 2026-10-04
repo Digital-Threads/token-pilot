@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { handleReadSymbol } from '../../src/handlers/read-symbol.js';
 import { FileCache } from '../../src/core/file-cache.js';
 import { ContextRegistry } from '../../src/core/context-registry.js';
+import { SymbolResolver } from '../../src/core/symbol-resolver.js';
 
 describe('handleReadSymbol', () => {
   let tempDir: string;
@@ -338,5 +339,51 @@ describe('handleReadSymbol', () => {
     expect(result.content[0].text).toContain('alpha() [L20-25]');
     expect(result.content[0].text).toContain('🔒 beta() [L30-35]');
     expect(registry.isSymbolLoaded(filePath, 'BigClass')).toBe(true);
+  });
+
+  it('never prints lines of this file under another file\'s symbol range', async () => {
+    await writeFile(join(tempDir, 'nosyms.ts'), 'const a = 1;\nconst b = 2;\n');
+    const astIndex = {
+      outline: async () => null,
+      symbol: async () => ({ name: 'handleSmartRead', kind: 'function', file: 'src/handlers/smart-read.ts', start_line: 28 }),
+    } as any;
+
+    const result = await handleReadSymbol(
+      { path: 'nosyms.ts', symbol: 'handleSmartRead' },
+      tempDir,
+      new SymbolResolver(astIndex),
+      new FileCache(),
+      new ContextRegistry(),
+      astIndex,
+    );
+
+    expect(result.content[0].text).toContain('Symbol "handleSmartRead" not found');
+  });
+
+  it('says when other symbols share the requested name', async () => {
+    const file = join(tempDir, 'dup.ts');
+    await writeFile(file, 'export function main() {\n  return 1;\n}\n\nexport class main {\n  x = 1;\n}\n');
+    const sym = (kind: string, a: number, b: number) => ({
+      name: 'main', qualifiedName: 'main', kind, signature: 'main', location: { startLine: a, endLine: b, lineCount: b - a + 1 },
+      visibility: 'default', async: false, static: false, decorators: [], children: [], doc: null, references: [],
+    });
+    const structure = {
+      path: file, language: 'TypeScript', meta: { lines: 8, bytes: 1, lastModified: 0, contentHash: 'h' },
+      imports: [], exports: [], symbols: [sym('function', 1, 3), sym('class', 5, 7)],
+    };
+    const astIndex = { outline: async () => structure, symbol: async () => null } as any;
+
+    const result = await handleReadSymbol(
+      { path: 'dup.ts', symbol: 'main' },
+      tempDir,
+      new SymbolResolver(astIndex),
+      new FileCache(),
+      new ContextRegistry(),
+      astIndex,
+    );
+
+    const text = result.content[0].text;
+    expect(text).toContain('[L1-3]');
+    expect(text).toMatch(/1 more symbol named "main": L5-7 \(class\)/);
   });
 });

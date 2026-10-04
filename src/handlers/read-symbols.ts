@@ -6,6 +6,7 @@ import type { ContextRegistry } from "../core/context-registry.js";
 import { estimateTokens } from "../core/token-estimator.js";
 import { resolveSafePath } from "../core/validation.js";
 import { assessConfidence, formatConfidence } from "../core/confidence.js";
+import { sameNameNote, structureFor } from "./read-symbol.js";
 
 export interface ReadSymbolsArgs {
   path: string;
@@ -38,10 +39,7 @@ export async function handleReadSymbols(
   }
 
   // Get AST structure ONCE
-  let structure = cached?.structure;
-  if (!structure && astIndex) {
-    structure = (await astIndex.outline(absPath)) ?? undefined;
-  }
+  const structure = await structureFor(cached, absPath, astIndex);
 
   const N = args.symbols.length;
   const sections: string[] = [];
@@ -118,7 +116,7 @@ export async function handleReadSymbols(
     const symbolName = args.symbols[i];
     const idx = i + 1;
 
-    const resolved = await symbolResolver.resolve(symbolName, structure);
+    const resolved = await symbolResolver.resolve(symbolName, structure, absPath);
 
     if (!resolved) {
       sections.push(
@@ -212,9 +210,10 @@ export async function handleReadSymbols(
 
     const symbolLines: string[] = [
       `SYMBOL ${idx}/${N}: ${symbolName} (${resolved.symbol.kind}) ${loc} (${lineCount} lines${truncated ? `, show=${showMode}` : ""})`,
-      "",
-      displaySource,
     ];
+    const sameName = sameNameNote(symbolResolver, symbolName, structure, resolved.startLine);
+    if (sameName) symbolLines.push(sameName);
+    symbolLines.push("", displaySource);
 
     if (resolved.symbol.references.length > 0) {
       symbolLines.push("");
@@ -245,7 +244,9 @@ export async function handleReadSymbols(
       ? ` | DEDUPED: ${dedupedCount} (parser overlap — saved ~${dedupedCount}× body tokens)`
       : "");
   const body = sections.join("\n\n---\n\n");
-  const footer = "CONTEXT TRACKED: These symbols are now in your context.";
+  const footer = anyResolved
+    ? "CONTEXT TRACKED: These symbols are now in your context."
+    : "Nothing was read: none of the requested symbols were found.";
 
   const output = [header, "", body, "", footer].join("\n");
 
