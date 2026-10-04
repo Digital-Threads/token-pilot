@@ -19,6 +19,24 @@ describe('handleOutline', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it('leaves out node_modules, dist, coverage and .git — and says so', async () => {
+    for (const dir of ['node_modules/x', 'dist', 'coverage', '.git/hooks', 'src/node_modules/y']) {
+      await mkdir(join(tempDir, dir), { recursive: true });
+      await writeFile(join(tempDir, dir, 'f.js'), 'module.exports = 1;\n');
+    }
+    const astIndex = { outline: async () => null } as any;
+
+    const text = (await handleOutline({ path: '.' }, tempDir, astIndex)).content[0].text;
+
+    // src/node_modules/y/f.js is not counted either
+    expect(text).toContain('src/ (2 code files)');
+    for (const dir of ['node_modules/', 'dist/', 'coverage/', '.git/']) {
+      expect(text).not.toContain(`  ${dir} (`);
+    }
+    expect(text).toMatch(/not shown: .*node_modules/);
+    expect(text).toMatch(/OUTLINE: \.\/ \(1 subdirs\)/);
+  });
+
   it('returns a guidance message when path is not a directory', async () => {
     const result = await handleOutline({ path: 'src/a.ts' }, tempDir, {} as any);
     expect(result.content[0].text).toContain('is not a directory');
