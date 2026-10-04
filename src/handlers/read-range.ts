@@ -43,20 +43,23 @@ export async function handleReadRange(
     }
   }
 
+  // a trailing newline ends the last line, it is not one more line
+  const total = lines.length > 0 && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
   const start = Math.max(0, args.start_line - 1);
-  const end = Math.min(lines.length, args.end_line);
+  const end = Math.min(total, args.end_line);
 
-  if (start >= lines.length || start >= end) {
+  if (start >= total || start >= end) {
     return {
       content: [{
         type: 'text',
-        text: `Invalid line range: ${args.start_line}-${args.end_line} (file has ${lines.length} lines)`,
+        text: `Invalid line range: ${args.start_line}-${args.end_line} (file has ${total} lines)`,
       }],
     };
   }
 
+  const clamped = start + 1 !== args.start_line || end !== args.end_line;
   const outputLines: string[] = [
-    `FILE: ${args.path} [L${args.start_line}-${args.end_line}]`,
+    `FILE: ${args.path} [L${start + 1}-${end}]${clamped ? ` (requested ${args.start_line}-${args.end_line}; file has ${total} lines)` : ''}`,
     '',
   ];
 
@@ -70,8 +73,8 @@ export async function handleReadRange(
 
   contextRegistry.trackLoad(absPath, {
     type: 'range',
-    startLine: args.start_line,
-    endLine: args.end_line,
+    startLine: start + 1,
+    endLine: end,
     tokens,
   });
   if (cached?.hash) {

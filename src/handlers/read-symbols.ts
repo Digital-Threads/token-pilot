@@ -244,7 +244,9 @@ export async function handleReadSymbols(
       ? ` | DEDUPED: ${dedupedCount} (parser overlap — saved ~${dedupedCount}× body tokens)`
       : "");
   const body = sections.join("\n\n---\n\n");
-  const footer = "CONTEXT TRACKED: These symbols are now in your context.";
+  const footer = anyResolved
+    ? "CONTEXT TRACKED: These symbols are now in your context."
+    : "Nothing was read: none of the requested symbols were found.";
 
   const output = [header, "", body, "", footer].join("\n");
 

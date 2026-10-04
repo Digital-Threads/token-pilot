@@ -40,6 +40,13 @@ const GO_CONTINUATION = new Set([',', '(', '[', '=', '+', '-', '*', '/', '&', '|
 const TEST_FILE_RE = /(^|[\\/])(__tests__|tests?)[\\/]|\.(test|spec)\.[cm]?[jt]sx?$/;
 const SIGNATURE_MAX = 200;
 
+/** Lines in a file: a trailing newline ends the last line, it does not start a new one. */
+export function countLines(content: string): number {
+  if (content === '') return 0;
+  const n = content.split('\n').length;
+  return content.endsWith('\n') ? n - 1 : n;
+}
+
 export async function buildFileStructure(
   filePath: string,
   entries: AstIndexOutlineEntry[],
@@ -54,7 +61,7 @@ export async function buildFileStructure(
     path: filePath,
     language: lang,
     meta: {
-      lines: src.lineCount,
+      lines: countLines(content),
       bytes: fileStat.size,
       lastModified: fileStat.mtimeMs,
       contentHash: createHash('sha256').update(content).digest('hex'),
