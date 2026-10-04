@@ -1,0 +1,103 @@
+{
+  "dominant_language": "ts",
+  "files": [
+    {
+      "line": 5,
+      "path": "src/core/symbol-resolver.ts",
+      "source": "    5\texport class SymbolResolver {\n    6\t  private astIndex: AstIndexClient;\n    7\t\n    8\t  constructor(astIndex: AstIndexClient) {\n    9\t    this.astIndex = astIndex;\n   10\t  }\n   11\t\n   12\t  /**\n   13\t   * Resolve a symbol (`name`, `Class.method`, `Class::method`) in one file.\n   14\t   *\n   15\t   * The file's structure is authoritative when it has symbols. Without one,\n   16\t   * ast-index's symbol index is asked, but only a hit in that same file\n   17\t   * counts, and its end line is read from the source — never guessed.\n   18\t   */\n   19\t  async resolve(\n   20\t    qualifiedName: string,\n   21\t    structure?: FileStructure,\n   22\t    filePath?: string,\n   23\t  ): Promise<ResolvedSymbol | null> {\n   24\t    if (structure && structure.symbols.length > 0) {\n   25\t      const found = this.pick(this.findAll(qualifiedName, structure));\n   26\t      return found ? toResolved(found, structure.path) : null;\n   27\t    }\n   28\t\n   29\t    const file = structure?.path ?? filePath;\n   30\t    if (!file || splitName(qualifiedName).length > 1) return null; // can't check the class without a structure\n   31\t\n   32\t    const detail = await this.astIndex.symbol(qualifiedName);\n   33\t    if (!detail || !this.pathMatches(detail.file, file)) return null;\n   34\t\n   35\t    const built = await buildFileStructure(file, [\n   36\t      { name: detail.name, kind: detail.kind, start_line: detail.start_line, end_line: 0 },\n   37\t    ]).catch(() => null);\n   38\t    const sym = built && this.pick(\n   39\t      findDeep(built.symbols, (s) => s.name === detail.name)\n   40\t        .filter((s) => s.location.startLine <= detail.start_line && detail.start_line <= s.location.endLine),\n   41\t    );\n   42\t    return sym ? toResolved(sym, file) : null;\n   43\t  }\n   44\t\n   45\t  /** Every symbol in the structure that `qualifiedName` names, in document order. */\n   46\t  findAll(qualifiedName: string, structure?: FileStructure): SymbolInfo[] {\n   47\t    if (!structure) return [];\n   48\t    const parts = splitName(qualifiedName);\n   49\t    const last = parts[parts.length - 1];\n   50\t\n   51\t    const byPath = parts.length === 1\n   52\t      ? findDeep(structure.symbols, (s) => s.name === last)\n   53\t      : findDeep(structure.symbols, (s) => s.name === parts[0])\n   54\t        .flatMap((head) => this.descend(parts.slice(1), head.children));\n   55\t    // Go methods are top-level with qualifiedName Receiver.Method\n   56\t    const byQualified = findDeep(structure.symbols, (s) => s.qualifiedName === qualifiedName.replace(/::/g, '.'));\n   57\t\n   58\t    const seen = new Set<SymbolInfo>();\n   59\t    return [...byPath, ...byQualified]\n   60\t      .filter((s) => (seen.has(s) ? false : (seen.add(s), true)))\n   61\t      .sort((a, b) => a.location.startLine - b.location.startLine);\n   62\t  }\n   63\t\n   64\t  /**\n",
+      "symbol": "SymbolResolver"
+    }
+  ],
+  "neighbours": [],
+  "query": "SymbolResolver",
+  "symbols": [
+    {
+      "kind": "class",
+      "line": 5,
+      "name": "SymbolResolver",
+      "path": "src/core/symbol-resolver.ts",
+      "score": 57.3,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 12,
+      "name": "./core/symbol-resolver.js",
+      "path": "src/server.ts",
+      "score": 0.5625,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 28,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-for-edit.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbols.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 5,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/core/symbol-resolver.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 19,
+      "name": "../../src/core/symbol-resolver.ts",
+      "path": "tests/handlers/read-symbols.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 8,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/read-symbol.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 14,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/honest-counts.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 16,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/cached-structure.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    }
+  ],
+  "tests": [
+    {
+      "source": "src/core/symbol-resolver.ts",
+      "tests": [
+        "tests/core/symbol-resolver.test.ts"
+      ]
+    }
+  ]
+}

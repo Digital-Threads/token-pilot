@@ -1,0 +1,159 @@
+{
+  "dominant_language": "ts",
+  "files": [
+    {
+      "line": 5,
+      "outline": [
+        {
+          "end_line": 100,
+          "kind": "class",
+          "line": 5,
+          "name": "SymbolResolver"
+        },
+        {
+          "end_line": 6,
+          "kind": "property",
+          "line": 6,
+          "name": "astIndex"
+        },
+        {
+          "end_line": 10,
+          "kind": "function",
+          "line": 8,
+          "name": "constructor"
+        },
+        {
+          "end_line": 43,
+          "kind": "function",
+          "line": 19,
+          "name": "resolve"
+        },
+        {
+          "end_line": 62,
+          "kind": "function",
+          "line": 46,
+          "name": "findAll"
+        },
+        {
+          "end_line": 84,
+          "kind": "function",
+          "line": 67,
+          "name": "extractSource"
+        },
+        {
+          "end_line": 89,
+          "kind": "function",
+          "line": 86,
+          "name": "descend"
+        },
+        {
+          "end_line": 94,
+          "kind": "function",
+          "line": 92,
+          "name": "pick"
+        },
+        {
+          "end_line": 99,
+          "kind": "function",
+          "line": 97,
+          "name": "pathMatches"
+        }
+      ],
+      "outline_hidden": 0,
+      "path": "src/core/symbol-resolver.ts",
+      "symbol": "SymbolResolver"
+    }
+  ],
+  "neighbours": [],
+  "query": "SymbolResolver",
+  "symbols": [
+    {
+      "kind": "class",
+      "line": 5,
+      "name": "SymbolResolver",
+      "path": "src/core/symbol-resolver.ts",
+      "score": 159.38,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 12,
+      "name": "./core/symbol-resolver.js",
+      "path": "src/server.ts",
+      "score": 0.5625,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbol.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 28,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-for-edit.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 3,
+      "name": "../core/symbol-resolver.js",
+      "path": "src/handlers/read-symbols.ts",
+      "score": 0.555,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 5,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/core/symbol-resolver.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 19,
+      "name": "../../src/core/symbol-resolver.ts",
+      "path": "tests/handlers/read-symbols.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 8,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/read-symbol.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 14,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/honest-counts.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    },
+    {
+      "kind": "import",
+      "line": 16,
+      "name": "../../src/core/symbol-resolver.js",
+      "path": "tests/handlers/cached-structure.test.ts",
+      "score": 0.15074999999999997,
+      "vendor": false
+    }
+  ],
+  "tests": [
+    {
+      "source": "src/core/symbol-resolver.ts",
+      "tests": [
+        "tests/core/symbol-resolver.test.ts"
+      ]
+    }
+  ]
+}

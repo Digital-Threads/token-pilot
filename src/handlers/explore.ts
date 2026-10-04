@@ -70,14 +70,20 @@ export async function handleExplore(
     }
   }
 
-  // Source — file heads (source is already line-numbered)
+  // Source — file heads (source is already line-numbered); for a class or
+  // module hit ast-index ≥3.56 sends the file's outline instead.
   if (result.files.length > 0) {
     lines.push("");
     lines.push("## Source");
     for (const f of result.files) {
       lines.push(`${f.path}:${f.line}`);
       lines.push("```");
-      lines.push(f.source.replace(/\n+$/, ""));
+      if (f.source !== undefined) lines.push(f.source.replace(/\n+$/, ""));
+      for (const o of f.outline ?? []) {
+        const span = o.end_line > o.line ? `${o.line}-${o.end_line}` : `${o.line}`;
+        lines.push(`${o.line === f.line ? "→" : " "} :${span} ${o.name} [${o.kind}]`);
+      }
+      if (f.outlineHidden) lines.push(`  … ${f.outlineHidden} more`);
       lines.push("```");
     }
   }

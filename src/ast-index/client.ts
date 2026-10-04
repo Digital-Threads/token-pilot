@@ -670,6 +670,8 @@ export class AstIndexClient {
               path: f.path,
               line: f.line,
               source: f.source,
+              outline: f.outline,
+              outlineHidden: f.outline_hidden,
             }))
           : [],
         neighbours: Array.isArray(parsed.neighbours)

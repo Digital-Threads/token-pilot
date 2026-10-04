@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { handleExplore } from "../../src/handlers/explore.js";
+import { AstIndexClient } from "../../src/ast-index/client.js";
 import type { AstIndexExploreResult } from "../../src/ast-index/types.js";
 
 function fakeAstIndex(result: AstIndexExploreResult) {
@@ -135,5 +137,45 @@ describe("handleExplore", () => {
     );
     expect(emptyOut.content[0].text).toContain("No results");
     expect(emptyOut.meta.symbolCount).toBe(0);
+  });
+
+  // Real `explore SymbolResolver -f 1 --format json` output: for a class,
+  // ast-index 3.56 sends the file's outline instead of its source.
+  describe("ranked files from both ast-index versions", () => {
+    const repoRoot = join(__dirname, "..", "..");
+    const fixture = (name: string) =>
+      readFileSync(join(repoRoot, "tests", "fixtures", "ast-index", name), "utf-8");
+    const run = async (json: string) => {
+      const client = new AstIndexClient(repoRoot) as any;
+      client.binaryPath = "/bin/ast-index";
+      client.ensureIndex = async () => {};
+      client.exec = async () => json;
+
+      return (await handleExplore({ query: "SymbolResolver" }, repoRoot, client)).content[0].text;
+    };
+
+    it("ast-index 3.50: shows the file's source", async () => {
+      const text = await run(fixture("explore-class-3.50.json"));
+
+      expect(text).toContain("src/core/symbol-resolver.ts:5");
+      expect(text).toContain("    5\texport class SymbolResolver {");
+    });
+
+    it("ast-index 3.56: shows the file's outline when there is no source", async () => {
+      const text = await run(fixture("explore-class-3.56.json"));
+
+      expect(text).toContain("src/core/symbol-resolver.ts:5");
+      expect(text).toContain("→ :5-100 SymbolResolver [class]");
+      expect(text).toContain("  :19-43 resolve [function]");
+      expect(text).toContain("  :6 astIndex [property]");
+    });
+
+    it("ast-index 3.56: says how many outline entries the binary left out", async () => {
+      const json = JSON.parse(fixture("explore-class-3.56.json"));
+      json.files[0].outline_hidden = 3;
+      const text = await run(JSON.stringify(json));
+
+      expect(text).toContain("  … 3 more");
+    });
   });
 });
