@@ -53,4 +53,34 @@ describe("AstIndexClient freshness", () => {
     await client.ensureIndex();
     expect(client.isStale()).toBe(false);
   });
+
+  it("runs one `update` at a time: a periodic update and a query refresh share it", async () => {
+    const pending: Array<() => void> = [];
+    const client = indexedClient(
+      (args) =>
+        args[0] === "update"
+          ? new Promise<string>((r) => pending.push(() => r("Index is up to date.")))
+          : Promise.resolve(""),
+    );
+    client.lastFresh = 0;
+
+    const both = Promise.all([client.incrementalUpdate(), client.ensureIndex()]);
+    await Promise.resolve();
+    pending.forEach((release) => release());
+    await both;
+
+    const updates = client.exec.mock.calls.filter((c: string[][]) => c[0][0] === "update");
+    expect(updates).toHaveLength(1);
+  });
+
+  it("does not report a stale index when another process is already updating it", async () => {
+    const client = indexedClient(async () => {
+      throw new Error("Command failed: ast-index update\nError: Another rebuild is already running");
+    });
+    client.lastFresh = 0;
+
+    await client.ensureIndex();
+
+    expect(client.isStale()).toBe(false);
+  });
 });

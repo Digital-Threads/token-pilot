@@ -93,6 +93,11 @@ const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
 /** Row cap for `ast-index query` (its default is 100). */
 const QUERY_ROW_CAP = 200_000;
 
+/** The binary's answer when another process is rebuilding or updating the index. */
+function isAlreadyRunning(err: unknown): boolean {
+  return /already running/i.test(err instanceof Error ? err.message : String(err));
+}
+
 /** Every file named in a call tree. */
 function collectFiles(node: AstIndexCallTreeNode, out = new Set<string>()): string[] {
   if (node.file) out.add(node.file);
@@ -134,6 +139,8 @@ export class AstIndexClient {
   private freshPromise: Promise<void> | null = null;
   private stale = false;
   private static readonly FRESH_MS = 15_000;
+  // The one `ast-index update` in flight in this process (see runUpdate).
+  private updatePromise: Promise<string> | null = null;
 
   constructor(
     projectRoot: string,
@@ -235,7 +242,7 @@ export class AstIndexClient {
         `[token-pilot] ast-index: updating index (${existingFileCount} files)...`,
       );
       try {
-        await this.exec(["update"], 30000);
+        await this.runUpdate(30000);
         try {
           existingFileCount = parseFileCount(
             await this.exec(["--format", "json", "stats"]),
@@ -323,18 +330,33 @@ export class AstIndexClient {
     }
     if (!this.freshPromise) {
       this.lastFresh = Date.now();
-      this.freshPromise = this.exec(["update"], 10_000)
+      this.freshPromise = this.runUpdate(10_000)
         .then(() => {
           this.stale = false;
         })
-        .catch(() => {
-          this.stale = true;
+        .catch((err) => {
+          // another process holds the index lock and is updating it already
+          if (!isAlreadyRunning(err)) this.stale = true;
         })
         .finally(() => {
           this.freshPromise = null;
         });
     }
     return this.freshPromise;
+  }
+
+  /**
+   * One `ast-index update` at a time in this process: the binary refuses a
+   * second one ("Another rebuild is already running"), so concurrent callers
+   * (query refresh, periodic update, git watcher) share the run in flight.
+   */
+  private runUpdate(timeoutMs: number): Promise<string> {
+    if (!this.updatePromise) {
+      this.updatePromise = this.exec(["update"], timeoutMs).finally(() => {
+        this.updatePromise = null;
+      });
+    }
+    return this.updatePromise;
   }
 
   /** True when the last refresh failed: recent edits may be missing. */
@@ -1119,7 +1141,7 @@ export class AstIndexClient {
   async incrementalUpdate(): Promise<void> {
     if (!this.indexed || this.indexDisabled || this.indexOversized) return;
     try {
-      await this.exec(["update"], 15000);
+      await this.runUpdate(15000);
       this.lastFresh = Date.now();
       this.stale = false;
     } catch (err) {
