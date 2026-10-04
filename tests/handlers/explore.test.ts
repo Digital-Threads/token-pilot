@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { handleExplore } from "../../src/handlers/explore.js";
 import type { AstIndexExploreResult } from "../../src/ast-index/types.js";
 
@@ -10,6 +13,13 @@ function fakeAstIndex(result: AstIndexExploreResult) {
 
 describe("handleExplore", () => {
   it("formats ranked symbols, source, blast radius, and tests", async () => {
+    // A caller is shown only when its body references a ranked symbol.
+    const root = await mkdtemp(join(tmpdir(), "tp-explore-fmt-"));
+    await mkdir(join(root, "src", "hooks"), { recursive: true });
+    await writeFile(
+      join(root, "src", "hooks", "summary-pipeline.ts"),
+      "export function runSummaryPipeline() {\n  return new AstIndexClient();\n}\n",
+    );
     const result: AstIndexExploreResult = {
       query: "AstIndexClient buildIndex",
       dominantLanguage: "ts",
@@ -35,7 +45,7 @@ describe("handleExplore", () => {
           name: "runSummaryPipeline",
           kind: "function",
           path: "src/hooks/summary-pipeline.ts",
-          line: 69,
+          line: 1,
           link: "caller",
         },
       ],
@@ -49,7 +59,7 @@ describe("handleExplore", () => {
 
     const out = await handleExplore(
       { query: "AstIndexClient buildIndex" },
-      "/repo",
+      root,
       fakeAstIndex(result),
     );
     const text = out.content[0].text;
@@ -69,7 +79,7 @@ describe("handleExplore", () => {
     // Blast-radius / graph neighbour line
     expect(text).toContain("## Graph neighbours (blast radius)");
     expect(text).toContain(
-      "caller  function runSummaryPipeline  src/hooks/summary-pipeline.ts:69",
+      "caller  function runSummaryPipeline  src/hooks/summary-pipeline.ts:1",
     );
 
     // Test path grouped by source
