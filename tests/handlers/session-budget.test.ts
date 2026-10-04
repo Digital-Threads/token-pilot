@@ -133,4 +133,33 @@ describe("handleSessionBudget", () => {
     expect(payload.savedTokens).toBe(0);
     expect(payload.effectiveThreshold).toBe(300);
   });
+
+  it('sessionId "" reads every session, as the tool description says', async () => {
+    await seedEvents(tempDir, [event("sess-1", 800), event("sess-2", 400)]);
+    const res = await handleSessionBudget({ sessionId: "" }, tempDir, {
+      baseThreshold: 300,
+      adaptiveThreshold: false,
+      adaptiveBudgetTokens: 100_000,
+    });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.savedTokens).toBe(1200);
+    expect(payload.eventCount).toBe(2);
+  });
+
+  it("the average per event counts only events that saved something", async () => {
+    const task = JSON.stringify({
+      ts: Date.now(), session_id: "sess-1", agent_type: null, agent_id: null,
+      event: "task", file: "", lines: 0, estTokens: 3000, summaryTokens: 0, savedTokens: 0,
+    }) + "\n";
+    await seedEvents(tempDir, [event("sess-1", 5_000), task, task]);
+    const res = await handleSessionBudget({ sessionId: "sess-1" }, tempDir, {
+      baseThreshold: 300,
+      adaptiveThreshold: true,
+      adaptiveBudgetTokens: 100_000,
+    });
+    const payload = JSON.parse(res.content[0].text);
+    expect(payload.eventCount).toBe(3);
+    expect(payload.avgSavedPerEvent).toBe(5000);
+    expect(payload.eventsUntilExhaustion).toBe(19);
+  });
 });

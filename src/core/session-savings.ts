@@ -22,21 +22,28 @@ export function loadSessionSavedTokens(
 export interface SessionStats {
   savedTokens: number;
   eventCount: number;
+  /** Events that saved anything (savedTokens > 0) — the base for averages. */
+  savingEventCount: number;
   firstTsMs: number | null;
   lastTsMs: number | null;
 }
 
+/**
+ * `sessionId` null reads every session. An empty id stays "no session, no
+ * data" — the adaptive hook must not tighten on other sessions' savings.
+ */
 export function loadSessionStats(
   projectRoot: string,
-  sessionId: string,
+  sessionId: string | null,
 ): SessionStats {
   const empty: SessionStats = {
     savedTokens: 0,
     eventCount: 0,
+    savingEventCount: 0,
     firstTsMs: null,
     lastTsMs: null,
   };
-  if (!sessionId) return empty;
+  if (sessionId === "") return empty;
   const path = join(projectRoot, ".token-pilot", "hook-events.jsonl");
   let raw: string;
   try {
@@ -46,6 +53,7 @@ export function loadSessionStats(
   }
   let savedTokens = 0;
   let eventCount = 0;
+  let savingEventCount = 0;
   let firstTsMs: number | null = null;
   let lastTsMs: number | null = null;
   for (const line of raw.split("\n")) {
@@ -56,8 +64,9 @@ export function loadSessionStats(
         savedTokens?: number;
         ts?: number;
       };
-      if (e.session_id !== sessionId) continue;
+      if (sessionId !== null && e.session_id !== sessionId) continue;
       if (typeof e.savedTokens === "number") savedTokens += e.savedTokens;
+      if (typeof e.savedTokens === "number" && e.savedTokens > 0) savingEventCount += 1;
       eventCount += 1;
       if (typeof e.ts === "number") {
         if (firstTsMs == null || e.ts < firstTsMs) firstTsMs = e.ts;
@@ -67,5 +76,5 @@ export function loadSessionStats(
       /* skip malformed */
     }
   }
-  return { savedTokens, eventCount, firstTsMs, lastTsMs };
+  return { savedTokens, eventCount, savingEventCount, firstTsMs, lastTsMs };
 }

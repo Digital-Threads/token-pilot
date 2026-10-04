@@ -38,7 +38,8 @@ export async function handleSessionBudget(
   cfg: SessionBudgetConfig,
 ): Promise<SessionBudgetResult> {
   const sessionId = args.sessionId ?? "";
-  const stats = loadSessionStats(projectRoot, sessionId);
+  // "" = no session filter (as the tool description promises).
+  const stats = loadSessionStats(projectRoot, sessionId || null);
   const savedTokens = stats.savedTokens;
 
   const budget = cfg.adaptiveBudgetTokens > 0 ? cfg.adaptiveBudgetTokens : 0;
@@ -55,8 +56,9 @@ export async function handleSessionBudget(
   // Time-to-compact projection. Silent (null fields) when we lack data.
   let avgSavedPerEvent: number | null = null;
   let eventsUntilExhaustion: number | null = null;
-  if (stats.eventCount > 0 && savedTokens > 0) {
-    avgSavedPerEvent = savedTokens / stats.eventCount;
+  // Average over events that saved something — Task and allow events save 0.
+  if (stats.savingEventCount > 0 && savedTokens > 0) {
+    avgSavedPerEvent = savedTokens / stats.savingEventCount;
     if (budget > 0 && avgSavedPerEvent > 0) {
       const remaining = Math.max(0, budget - savedTokens);
       eventsUntilExhaustion = Math.floor(remaining / avgSavedPerEvent);
