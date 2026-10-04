@@ -1,0 +1,13 @@
+Analyzing 2 dependencies of 'app'...
+  Checking: direct imports + transitive, XML, resources
+
+
+=== Unused ===
+  ✗ util (implementation)
+
+=== Summary ===
+Total: 1 unused, 0 exported, 1 used of 2 dependencies
+  - Direct: 1
+  - Transitive: 0
+  - XML: 0
+  - Resources: 0

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { FileStructure } from "../types.js";
 import type {
@@ -35,12 +35,14 @@ import {
   parseFileCount,
   parseOutlineText,
   parseImportsText,
+  parseJsImports,
   parseImplementationsText,
   parseHierarchyText,
   parseAgrepText,
   parseTodoText,
   parseDeprecatedText,
   parseAnnotationsText,
+  parseCallTreeText,
   parseModuleListText,
   parseModuleDepText,
   parseUnusedDepsText,
@@ -52,8 +54,51 @@ import { parsePythonRegex } from "./regex-parser-python.js";
 
 const TS_JS_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"]);
 const PYTHON_EXTENSIONS = new Set(["py", "pyw"]);
+const JS_IMPORT_EXTENSIONS = new Set([
+  ...TS_JS_EXTENSIONS,
+  "mts",
+  "cts",
+  "vue",
+  "svelte",
+]);
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Directories whose files never belong in a tool result. ast-index ≥3.4x
+ * indexes `node_modules/**\/*.d.ts` on every `rebuild` and `update` of a
+ * project with a package.json — regardless of .gitignore and of
+ * `.ast-index.yaml` `exclude` (verified on 3.50) — so the filter has to
+ * live here, on every result the client hands out.
+ */
+export const EXCLUDED_DIRS: readonly string[] = [
+  "node_modules",
+  "dist",
+  "coverage",
+  ".git",
+];
+
+/** True when any segment of `path` (relative to `projectRoot`) is excluded. */
+export function isExcludedPath(path: string, projectRoot?: string): boolean {
+  const rel =
+    projectRoot && isAbsolute(path) ? relative(projectRoot, path) : path;
+  return rel.split(/[\\/]/).some((seg) => EXCLUDED_DIRS.includes(seg));
+}
+
+/** SQL condition on `files.path` that keeps excluded directories out. */
+const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
+  (d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`,
+).join(" AND ");
+
+/** Row cap for `ast-index query` (its default is 100). */
+const QUERY_ROW_CAP = 200_000;
+
+/** Every file named in a call tree. */
+function collectFiles(node: AstIndexCallTreeNode, out = new Set<string>()): string[] {
+  if (node.file) out.add(node.file);
+  for (const c of node.callers ?? []) collectFiles(c, out);
+  return [...out];
+}
 
 /**
  * True when `projectRoot` is itself a git repo or worktree root. A `.git`
@@ -84,6 +129,11 @@ export class AstIndexClient {
   // Periodic-update timer and overlap guard (see startPeriodicUpdate below)
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
   private periodicUpdateInFlight = false;
+  // Query-time refresh (see freshen): last refresh attempt and its outcome.
+  private lastFresh = 0;
+  private freshPromise: Promise<void> | null = null;
+  private stale = false;
+  private static readonly FRESH_MS = 15_000;
 
   constructor(
     projectRoot: string,
@@ -132,7 +182,7 @@ export class AstIndexClient {
   }
 
   async ensureIndex(): Promise<void> {
-    if (this.indexed) return;
+    if (this.indexed) return this.freshen();
 
     if (this.indexDisabled) {
       throw new Error(
@@ -199,6 +249,7 @@ export class AstIndexClient {
         }
 
         this.indexed = true;
+        this.lastFresh = Date.now();
         console.error(
           `[token-pilot] ast-index: index ready (${existingFileCount} files)`,
         );
@@ -225,6 +276,7 @@ export class AstIndexClient {
       }
 
       this.indexed = true;
+      this.lastFresh = Date.now();
       console.error(
         `[token-pilot] ast-index: index built (${fileCount} files)`,
       );
@@ -256,6 +308,38 @@ export class AstIndexClient {
       console.error(`[token-pilot] ast-index: rebuild failed — ${errMsg}`);
       throw buildErr;
     }
+  }
+
+  /**
+   * New and edited files reach the index only through `update` — the file
+   * watcher knows files already read, the periodic update runs every 5 min.
+   * Refresh before a query, at most every FRESH_MS (≈0.3 s on 1.4k files).
+   * A failed refresh marks the index as possibly stale; no retry until the
+   * next window, so a slow repo does not pay the timeout on every call.
+   */
+  private freshen(): Promise<void> {
+    if (Date.now() - this.lastFresh < AstIndexClient.FRESH_MS) {
+      return this.freshPromise ?? Promise.resolve();
+    }
+    if (!this.freshPromise) {
+      this.lastFresh = Date.now();
+      this.freshPromise = this.exec(["update"], 10_000)
+        .then(() => {
+          this.stale = false;
+        })
+        .catch(() => {
+          this.stale = true;
+        })
+        .finally(() => {
+          this.freshPromise = null;
+        });
+    }
+    return this.freshPromise;
+  }
+
+  /** True when the last refresh failed: recent edits may be missing. */
+  isStale(): boolean {
+    return this.stale;
   }
 
   private async handleOversizedIndex(fileCount: number): Promise<void> {
@@ -321,18 +405,10 @@ export class AstIndexClient {
 
   async symbol(name: string): Promise<AstIndexSymbolDetail | null> {
     try {
-      const result = await this.exec(["symbol", name, "--format", "json"]);
-      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
-      if (Array.isArray(raw) && raw.length > 0) {
-        const first = raw[0];
-        return {
-          name: first.name,
-          kind: first.kind,
-          file: first.path,
-          start_line: first.line,
-          signature: first.signature,
-        };
-      }
+      const detail = this.firstSymbol(
+        await this.exec(["symbol", name, "--format", "json"]),
+      );
+      if (detail) return detail;
     } catch {
       /* fall through to ensureIndex path */
     }
@@ -340,23 +416,48 @@ export class AstIndexClient {
     if (this.indexDisabled || this.indexOversized) return null;
     try {
       await this.ensureIndex();
-      const result = await this.exec(["symbol", name, "--format", "json"]);
-      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
-      if (!Array.isArray(raw) || raw.length === 0) return null;
-      const first = raw[0];
-      return {
-        name: first.name,
-        kind: first.kind,
-        file: first.path,
-        start_line: first.line,
-        signature: first.signature,
-      };
+      return this.firstSymbol(
+        await this.exec(["symbol", name, "--format", "json"]),
+      );
     } catch (err) {
       console.error(
         `[token-pilot] ast-index symbol failed: ${err instanceof Error ? err.message : err}`,
       );
       return null;
     }
+  }
+
+  /** First `symbol --format json` entry outside excluded directories. */
+  private firstSymbol(json: string): AstIndexSymbolDetail | null {
+    const raw: AstIndexSymbolRaw[] = JSON.parse(json);
+    if (!Array.isArray(raw)) return null;
+    const first = raw.find((s) => this.keep(s.path));
+    if (!first) return null;
+
+    return {
+      name: first.name,
+      kind: first.kind,
+      file: first.path,
+      start_line: first.line,
+      signature: first.signature,
+    };
+  }
+
+  /**
+   * `limit + 1` was asked for: more than `limit` parsed means truncated.
+   * Excluded paths are dropped after that check.
+   */
+  private capped<T extends { file: string }>(
+    entries: T[],
+    limit: number,
+  ): T[] & { truncated?: boolean } {
+    const kept = entries.slice(0, limit).filter((e) => this.keep(e.file));
+    return entries.length > limit ? Object.assign(kept, { truncated: true }) : kept;
+  }
+
+  /** False for paths inside node_modules / dist / coverage / .git. */
+  private keep(path: string | undefined): boolean {
+    return !!path && !isExcludedPath(path, this.projectRoot);
   }
 
   async search(
@@ -367,7 +468,7 @@ export class AstIndexClient {
       maxResults?: number;
       fuzzy?: boolean;
     },
-  ): Promise<AstIndexSearchResult[]> {
+  ): Promise<AstIndexSearchResult[] & { truncated?: boolean }> {
     await this.ensureIndex();
     const args = ["search", query, "--format", "json"];
     if (options?.inFile) args.push("--in-file", options.inFile);
@@ -433,16 +534,23 @@ export class AstIndexClient {
             text: m.content ?? m.text ?? m.signature ?? "",
           }),
         )
-        .filter((r) => r.file !== "" && r.text !== "");
+        .filter((r) => r.text !== "" && this.keep(r.file));
 
       // Deduplicate by file:line
       const seen = new Set<string>();
-      return mapped.filter((r) => {
+      const unique = mapped.filter((r) => {
         const key = `${r.file}:${r.line}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
+      // The binary caps each list at --limit (default 20).
+      const cap = options?.maxResults ?? 20;
+      const truncated = [parsed.content_matches, parsed.symbols].some(
+        (l) => Array.isArray(l) && l.length >= cap,
+      );
+
+      return truncated ? Object.assign(unique, { truncated }) : unique;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index search failed: ${err instanceof Error ? err.message : err}`,
@@ -462,7 +570,7 @@ export class AstIndexClient {
       ]);
       const raw: AstIndexUsageRaw[] = JSON.parse(result);
       if (!Array.isArray(raw)) return [];
-      return raw.map((u) => ({
+      return raw.filter((u) => this.keep(u.path)).map((u) => ({
         file: u.path,
         line: u.line,
         text: u.context,
@@ -504,7 +612,7 @@ export class AstIndexClient {
             ? parsed.dominant_language
             : "",
         symbols: Array.isArray(parsed.symbols)
-          ? parsed.symbols.map((s) => ({
+          ? parsed.symbols.filter((s) => this.keep(s.path)).map((s) => ({
               name: s.name,
               kind: s.kind,
               path: s.path,
@@ -514,14 +622,14 @@ export class AstIndexClient {
             }))
           : [],
         files: Array.isArray(parsed.files)
-          ? parsed.files.map((f) => ({
+          ? parsed.files.filter((f) => this.keep(f.path)).map((f) => ({
               path: f.path,
               line: f.line,
               source: f.source,
             }))
           : [],
         neighbours: Array.isArray(parsed.neighbours)
-          ? parsed.neighbours.map((n) => ({
+          ? parsed.neighbours.filter((n) => this.keep(n.path)).map((n) => ({
               name: n.name,
               kind: n.kind,
               path: n.path,
@@ -530,10 +638,15 @@ export class AstIndexClient {
             }))
           : [],
         tests: Array.isArray(parsed.tests)
-          ? parsed.tests.map((t) => ({
-              source: t.source,
-              tests: Array.isArray(t.tests) ? t.tests : [],
-            }))
+          ? parsed.tests
+              .filter((t) => this.keep(t.source))
+              .map((t) => ({
+                source: t.source,
+                tests: Array.isArray(t.tests)
+                  ? t.tests.filter((f) => this.keep(f))
+                  : [],
+              }))
+              .filter((t) => t.tests.length > 0)
           : [],
       };
     } catch (err) {
@@ -561,11 +674,15 @@ export class AstIndexClient {
         "--format",
         "json",
       ]);
+      let list: Array<AstIndexImplementation & { path?: string }>;
       try {
-        return JSON.parse(result);
+        list = JSON.parse(result);
       } catch {
-        return parseImplementationsText(result);
+        list = parseImplementationsText(result);
       }
+      return Array.isArray(list)
+        ? list.filter((i) => this.keep(i.file ?? i.path))
+        : [];
     } catch (err) {
       console.error(
         `[token-pilot] ast-index implementations failed: ${err instanceof Error ? err.message : err}`,
@@ -605,14 +722,21 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Project files in the index (paths relative to the project root),
+   * excluded directories left out. ast-index has no `files` command; the
+   * list comes from its read-only `query` over the `files` table.
+   */
   async listFiles(): Promise<string[]> {
     try {
       await this.ensureIndex();
-      const result = await this.exec(["files"], 15000);
-      return result
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
+      const rows = await this.queryRows(
+        `SELECT path FROM files WHERE ${SQL_KEEP_PATH} ORDER BY path`,
+      );
+
+      return rows
+        .map((r) => String(r.path ?? ""))
+        .filter((p) => this.keep(p));
     } catch (err) {
       console.error(
         `[token-pilot] ast-index files failed: ${err instanceof Error ? err.message : err}`,
@@ -632,7 +756,17 @@ export class AstIndexClient {
         "--format",
         "json",
       ]);
-      return JSON.parse(result);
+      const parsed: Partial<AstIndexRefsResponse> = JSON.parse(result);
+      const keep = (e: { path: string }) => this.keep(e.path);
+      const sections = [parsed.definitions, parsed.imports, parsed.usages];
+      const truncated = sections.some((s) => (s?.length ?? 0) >= limit);
+
+      return {
+        definitions: (parsed.definitions ?? []).filter(keep),
+        imports: (parsed.imports ?? []).filter(keep),
+        usages: (parsed.usages ?? []).filter(keep),
+        ...(truncated ? { truncated } : {}),
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index refs failed: ${err instanceof Error ? err.message : err}`,
@@ -641,17 +775,33 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Directory map without excluded directories. Every group is fetched so
+   * the cap (default 50, the binary's own) applies after the filter;
+   * `showing` / `total_dirs` describe the filtered map and `file_count`
+   * counts project files only.
+   */
   async map(options?: {
     module?: string;
     limit?: number;
   }): Promise<AstIndexMapResponse | null> {
     await this.ensureIndex();
     try {
-      const args = ["map", "--format", "json"];
+      const limit = options?.limit ?? 50;
+      const args = ["map", "--format", "json", "--limit", "1000"];
       if (options?.module) args.push("--module", options.module);
-      if (options?.limit) args.push("--limit", String(options.limit));
-      const result = await this.exec(args, 15000);
-      return JSON.parse(result);
+      const raw: AstIndexMapResponse = JSON.parse(await this.exec(args, 15000));
+      const rawGroups = Array.isArray(raw.groups) ? raw.groups : [];
+      const groups = rawGroups.filter((g) => this.keep(g.path));
+      const unseen = Math.max(0, (raw.total_dirs ?? 0) - rawGroups.length);
+
+      return {
+        ...raw,
+        file_count: (await this.projectFileCount()) ?? raw.file_count,
+        groups: groups.slice(0, limit),
+        showing: Math.min(limit, groups.length),
+        total_dirs: groups.length + unseen,
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index map failed: ${err instanceof Error ? err.message : err}`,
@@ -660,11 +810,29 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Project conventions. ast-index computes frameworks and naming patterns
+   * over every indexed file, node_modules declarations included, and cannot
+   * be scoped — so when vendored files are in the index those two are
+   * dropped (`vendored_skipped`) instead of reporting a dependency's
+   * classes as the project's.
+   */
   async conventions(): Promise<AstIndexConventionsResponse | null> {
     await this.ensureIndex();
     try {
       const result = await this.exec(["conventions", "--format", "json"]);
-      return JSON.parse(result);
+      const conv: AstIndexConventionsResponse = JSON.parse(result);
+      const vendored = await this.queryRows(
+        `SELECT count(*) AS n FROM files WHERE NOT (${SQL_KEEP_PATH})`,
+      ).catch(() => []);
+      if (!(Number(vendored[0]?.n) > 0)) return conv;
+
+      return {
+        architecture: conv.architecture ?? [],
+        frameworks: {},
+        naming_patterns: [],
+        vendored_skipped: true,
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index conventions failed: ${err instanceof Error ? err.message : err}`,
@@ -697,9 +865,15 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Callers tree, `perLevel` callers at most on each level. call-tree prints
+   * text only — `--format json` is ignored. Three times `perLevel` is asked
+   * for because many of the binary's entries are dropped below.
+   */
   async callTree(
     functionName: string,
     depth = 3,
+    perLevel = 10,
   ): Promise<AstIndexCallTreeNode | null> {
     await this.ensureIndex();
     try {
@@ -708,10 +882,53 @@ export class AstIndexClient {
         functionName,
         "--depth",
         String(depth),
-        "--format",
-        "json",
+        "--limit",
+        String(perLevel * 3),
       ]);
-      return JSON.parse(result);
+      const tree = parseCallTreeText(result);
+      if (!tree) return null;
+
+      // call-tree is grep-based: it names a "caller" after the nearest
+      // call-like text above the call site, so `new Set(` or a quoted
+      // `read_symbol("…")` become callers. Keep only nodes whose location
+      // is a real symbol definition in the index.
+      const defs = await this.definitionsIn(collectFiles(tree));
+      let dropped = 0;
+      const prune = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => {
+        const raw = n.callers ?? [];
+        const valid = raw.filter((c) => {
+          if (c.recursive) return true;
+          if (!this.keep(c.file)) return false;
+          const real = !defs || defs.has(`${c.file}:${c.line}:${c.name}`);
+          if (!real) dropped++;
+          return real;
+        });
+        const capped = valid.length > perLevel || raw.length >= perLevel * 3;
+
+        return {
+          ...n,
+          ...(capped ? { capped: true } : {}),
+          callers: valid.slice(0, perLevel).map(prune),
+        };
+      };
+      // A "(recursive)" entry points at a node shown earlier — gone if that
+      // node was dropped.
+      const shown = new Set<string>();
+      const mark = (n: AstIndexCallTreeNode): void => {
+        if (!n.recursive) shown.add(n.name);
+        n.callers?.forEach(mark);
+      };
+      const unlink = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => ({
+        ...n,
+        callers: (n.callers ?? [])
+          .filter((c) => !c.recursive || shown.has(c.name))
+          .map(unlink),
+      });
+      const pruned = prune(tree);
+      mark(pruned);
+      const linked = unlink(pruned);
+
+      return dropped > 0 ? { ...linked, dropped } : linked;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index call-tree failed: ${err instanceof Error ? err.message : err}`,
@@ -740,7 +957,7 @@ export class AstIndexClient {
     module?: string;
     exportOnly?: boolean;
     limit?: number;
-  }): Promise<AstIndexUnusedSymbol[]> {
+  }): Promise<AstIndexUnusedSymbol[] & { truncated?: boolean }> {
     await this.ensureIndex();
     try {
       const args = ["unused-symbols", "--format", "json"];
@@ -748,8 +965,13 @@ export class AstIndexClient {
       if (options?.exportOnly) args.push("--export-only");
       if (options?.limit) args.push("--limit", String(options.limit));
       const result = await this.exec(args, 15000);
-      const parsed = JSON.parse(result);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: AstIndexUnusedSymbol[] = JSON.parse(result);
+      if (!Array.isArray(parsed)) return [];
+      const kept = parsed.filter((s) => this.keep(s.path));
+      // The binary's cap (default 50) applies before vendored entries go.
+      const truncated = parsed.length >= (options?.limit ?? 50);
+
+      return truncated ? Object.assign(kept, { truncated }) : kept;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index unused-symbols failed: ${err instanceof Error ? err.message : err}`,
@@ -759,6 +981,19 @@ export class AstIndexClient {
   }
 
   async fileImports(filePath: string): Promise<AstIndexImportEntry[]> {
+    // JS/TS: read the file — the binary prints only the first line (`{`)
+    // of a multi-line import, losing its source.
+    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    if (JS_IMPORT_EXTENSIONS.has(ext)) {
+      try {
+        const { readFile } = await import("node:fs/promises");
+        const abs = resolve(this.projectRoot, filePath);
+        return parseJsImports(await readFile(abs, "utf-8"));
+      } catch {
+        /* unreadable — ask the binary */
+      }
+    }
+
     await this.ensureIndex();
     try {
       const result = await this.exec(["imports", filePath]);
@@ -814,13 +1049,14 @@ export class AstIndexClient {
       );
     }
 
-    const limit = options?.limit ?? 50;
-    const args = ["agrep", pattern];
+    // --json: one record per match. The text form prints every line of a
+    // multi-line match. No cap here — the caller shows `limit` of the total.
+    const args = ["agrep", pattern, "--json"];
     if (options?.lang) args.push("--lang", options.lang);
 
     try {
       const result = await this.exec(args, 15000);
-      return parseAgrepText(result).slice(0, limit);
+      return parseAgrepText(result).filter((m) => this.keep(m.file));
     } catch (err) {
       console.error(
         `[token-pilot] ast-index agrep failed: ${err instanceof Error ? err.message : err}`,
@@ -829,12 +1065,13 @@ export class AstIndexClient {
     }
   }
 
-  async todo(): Promise<AstIndexTodoEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async todo(limit = 50): Promise<AstIndexTodoEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["todo"], 15000);
-      return parseTodoText(result);
+      const result = await this.exec(["todo", "--limit", String(limit + 1)], 15000);
+      return this.capped(parseTodoText(result), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index todo failed: ${err instanceof Error ? err.message : err}`,
@@ -843,12 +1080,13 @@ export class AstIndexClient {
     }
   }
 
-  async deprecated(): Promise<AstIndexDeprecatedEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async deprecated(limit = 50): Promise<AstIndexDeprecatedEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["deprecated"], 15000);
-      return parseDeprecatedText(result);
+      const result = await this.exec(["deprecated", "--limit", String(limit + 1)], 15000);
+      return this.capped(parseDeprecatedText(result), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index deprecated failed: ${err instanceof Error ? err.message : err}`,
@@ -857,12 +1095,19 @@ export class AstIndexClient {
     }
   }
 
-  async annotations(name: string): Promise<AstIndexAnnotationEntry[]> {
+  /** Up to `limit` entries; `truncated` when the binary had more. */
+  async annotations(
+    name: string,
+    limit = 50,
+  ): Promise<AstIndexAnnotationEntry[] & { truncated?: boolean }> {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const result = await this.exec(["annotations", name], 15000);
-      return parseAnnotationsText(result, name);
+      const result = await this.exec(
+        ["annotations", name, "--limit", String(limit + 1)],
+        15000,
+      );
+      return this.capped(parseAnnotationsText(result, name), limit);
     } catch (err) {
       console.error(
         `[token-pilot] ast-index annotations failed: ${err instanceof Error ? err.message : err}`,
@@ -875,6 +1120,8 @@ export class AstIndexClient {
     if (!this.indexed || this.indexDisabled || this.indexOversized) return;
     try {
       await this.exec(["update"], 15000);
+      this.lastFresh = Date.now();
+      this.stale = false;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index incremental update failed: ${err instanceof Error ? err.message : err}`,
@@ -919,8 +1166,8 @@ export class AstIndexClient {
     if (this.indexDisabled || this.indexOversized) return [];
     await this.ensureIndex();
     try {
-      const cmdArgs = pattern ? ["module", pattern] : ["module"];
-      const result = await this.exec(cmdArgs, 15000);
+      // The pattern is required; "" lists every module.
+      const result = await this.exec(["module", pattern ?? ""], 15000);
       return parseModuleListText(result);
     } catch (err) {
       console.error(
@@ -1022,10 +1269,55 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * `path:line:name` of every symbol defined in `files`; null when the
+   * index cannot be queried (callers then skip the check).
+   */
+  private async definitionsIn(files: string[]): Promise<Set<string> | null> {
+    if (files.length === 0) return new Set();
+    const list = files.map((f) => `'${f.replace(/'/g, "''")}'`).join(",");
+    try {
+      const rows = await this.queryRows(
+        `SELECT f.path AS path, s.line AS line, s.name AS name FROM symbols s JOIN files f ON f.id = s.file_id WHERE f.path IN (${list})`,
+      );
+      return new Set(rows.map((r) => `${r.path}:${r.line}:${r.name}`));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Number of project files in the index (excluded dirs left out). */
+  async projectFileCount(): Promise<number | null> {
+    try {
+      const rows = await this.queryRows(
+        `SELECT count(*) AS n FROM files WHERE ${SQL_KEEP_PATH}`,
+      );
+      const n = Number(rows[0]?.n);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Rows of a read-only `ast-index query` (SELECT only). */
+  private async queryRows(sql: string): Promise<Array<Record<string, unknown>>> {
+    const out = await this.exec(
+      ["query", sql, "--limit", String(QUERY_ROW_CAP), "--format", "json"],
+      15000,
+    );
+    const parsed = JSON.parse(out);
+
+    return Array.isArray(parsed?.rows) ? parsed.rows : [];
+  }
+
   // --- Utility methods ---
 
   isAvailable(): boolean {
     return this.binaryPath !== null;
+  }
+
+  getProjectRoot(): string {
+    return this.projectRoot;
   }
 
   isOversized(): boolean {

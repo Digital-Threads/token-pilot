@@ -49,13 +49,16 @@ describe("handleExploreArea", () => {
       isAvailable: () => true,
       isDisabled: () => false,
       isOversized: () => false,
-      fileImports: async () => [
-        { source: "../shared/util" },
-        { source: "react" },
+      // src/feature.ts imports these; app/page.ts imports ../src/feature
+      fileImports: async (p: string) =>
+        p.endsWith("page.ts")
+          ? [{ source: "../src/feature" }]
+          : [{ source: "../shared/util" }, { source: "react" }],
+      // ast-index search answers with project-relative paths
+      search: async () => [
+        { file: "app/page.ts", line: 1, text: 'import { feature } from "../src/feature";' },
       ],
-      refs: async () => ({
-        imports: [{ path: join(tempDir, "app", "page.ts") }],
-      }),
+      refs: async () => ({ definitions: [], imports: [], usages: [] }),
       outline: async () => ({
         meta: { lines: 1 },
         symbols: [
@@ -89,8 +92,8 @@ describe("handleExploreArea", () => {
     expect(text).toContain("TESTS: tests/feature.test.ts");
     expect(text).toContain("RECENT CHANGES:");
     expect(result.meta.codeFiles).toEqual(["src/feature.ts"]);
-    expect(result.meta.internalDeps).toEqual(["shared/util"]);
-    expect(result.meta.importedBy).toEqual(["app/page"]);
+    expect(result.meta.internalDeps).toEqual(["shared/util.ts"]);
+    expect(result.meta.importedBy).toEqual(["app/page.ts"]);
     expect(result.meta.testFiles).toEqual(["tests/feature.test.ts"]);
     expect(result.meta.changeCount).toBeGreaterThan(0);
   });

@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, basename, relative } from 'node:path';
-import type { AstIndexClient } from '../ast-index/client.js';
+import { EXCLUDED_DIRS, type AstIndexClient } from '../ast-index/client.js';
 import type { SymbolInfo } from '../types.js';
 import { resolveSafePath } from '../core/validation.js';
 import type { OutlineArgs } from '../core/validation.js';
@@ -76,9 +76,11 @@ export async function outlineDir(
   const codeFiles: string[] = [];
   const subdirs: string[] = [];
 
+  const skipped: string[] = [];
+
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      subdirs.push(entry.name);
+      (EXCLUDED_DIRS.includes(entry.name) ? skipped : subdirs).push(entry.name);
     } else if (entry.isFile()) {
       const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
       if (CODE_EXTENSIONS.has(ext)) {
@@ -104,6 +106,9 @@ export async function outlineDir(
   const subLabel = subdirs.length > 0 ? `${subdirs.length} subdirs` : '';
   const countLabel = [totalLabel, subLabel].filter(Boolean).join(', ');
   sections.push(`${indent}OUTLINE: ${relDir}/ (${countLabel})`);
+  if (skipped.length > 0) {
+    sections.push(`${indent}  (not shown: ${skipped.sort().map(d => `${d}/`).join(', ')})`);
+  }
   sections.push('');
 
   // Show subdirectories
@@ -263,7 +268,7 @@ async function countCodeFiles(dirPath: string, depth = 0): Promise<number> {
       if (entry.isFile()) {
         const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
         if (CODE_EXTENSIONS.has(ext)) count++;
-      } else if (entry.isDirectory()) {
+      } else if (entry.isDirectory() && !EXCLUDED_DIRS.includes(entry.name)) {
         count += await countCodeFiles(resolve(dirPath, entry.name), depth + 1);
       }
     }

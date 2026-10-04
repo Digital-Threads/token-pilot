@@ -92,6 +92,8 @@ export interface AstIndexRefsResponse {
   definitions: AstIndexRefEntry[];
   imports: AstIndexRefEntry[];
   usages: AstIndexRefEntry[];
+  /** Set by the client: a section reached the requested limit. */
+  truncated?: boolean;
 }
 
 export interface AstIndexRefEntry {
@@ -124,6 +126,8 @@ export interface AstIndexConventionsResponse {
   architecture: string[];
   frameworks: Record<string, Array<{ name: string; count: number }>>;
   naming_patterns: Array<{ suffix: string; count: number }>;
+  /** Set by the client: frameworks/naming_patterns dropped (vendored files indexed). */
+  vendored_skipped?: boolean;
 }
 
 /** ast-index callers --format json */
@@ -134,11 +138,17 @@ export interface AstIndexCallerEntry {
   context?: string;
 }
 
-/** ast-index call-tree --format json */
+/** ast-index call-tree (text output, see parseCallTreeText) */
 export interface AstIndexCallTreeNode {
   name: string;
   file?: string;
   line?: number;
+  /** Already shown higher up the tree — no location, no callers. */
+  recursive?: boolean;
+  /** This level hit the per-level cap: more callers may exist. */
+  capped?: boolean;
+  /** Root only: entries dropped because their location is not a definition. */
+  dropped?: number;
   callers?: AstIndexCallTreeNode[];
 }
 

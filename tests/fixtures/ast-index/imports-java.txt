@@ -1,0 +1,4 @@
+Imports in src/main/java/com/x/Svc.java:
+  org.springframework.stereotype.Service;
+
+  Total: 1 imports

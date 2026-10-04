@@ -1,0 +1,5 @@
+Modules matching '%%':
+  core: core
+  net: net
+  util: util
+  app: app

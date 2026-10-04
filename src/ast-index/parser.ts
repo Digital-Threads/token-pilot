@@ -13,6 +13,7 @@ import type {
   AstIndexTodoEntry,
   AstIndexDeprecatedEntry,
   AstIndexAnnotationEntry,
+  AstIndexCallTreeNode,
   AstIndexModuleEntry,
   AstIndexModuleDep,
   AstIndexUnusedDep,
@@ -114,36 +115,127 @@ export function parseHierarchyText(text: string, rootName: string): AstIndexHier
   return { name: rootName, kind: 'class', children: childNodes, parents };
 }
 
+/** `{ a, type B, c as d }` / `def, { x }` / `* as ns` → imported names. */
+function importNames(clause: string): string[] {
+  return clause
+    .replace(/[{}]/g, ',')
+    .split(',')
+    .map(s => s.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim())
+    .filter(s => s.length > 0 && s !== 'type');
+}
+
+/**
+ * Parse `ast-index imports` (text). Lines look like
+ *   type { A, B } from './types.js';   { type C, d } from "./x";
+ *   def, { named } from './m';   * as ns from 'pkg';   './side.css';
+ *   x = require("./y");                      (TS/JS)
+ *   from pkg.models import User, Group   import os.path    (Python)
+ *   org.springframework.stereotype.Service;                (Java/Kotlin)
+ * For a multi-line import the binary prints only its first line (`{`,
+ * `type {`) — there is no source to read, so those are skipped.
+ */
 export function parseImportsText(text: string): AstIndexImportEntry[] {
   const entries: AstIndexImportEntry[] = [];
   for (const line of text.split('\n')) {
-    const trimmed = line.trim();
+    const trimmed = line.trim().replace(/;$/, '');
     if (!trimmed || trimmed.startsWith('Imports in') || trimmed.startsWith('Total:')) continue;
 
-    // Match: { X, Y } from 'source'
-    const braceMatch = trimmed.match(/^\{\s*(.+?)\s*\}\s+from\s+['"](.+?)['"]/);
-    if (braceMatch) {
-      entries.push({ specifiers: braceMatch[1].split(',').map(s => s.trim()), source: braceMatch[2] });
+    // Side effect: './x.css'
+    const sideEffect = trimmed.match(/^['"](.+?)['"]$/);
+    if (sideEffect) {
+      entries.push({ specifiers: [], source: sideEffect[1] });
       continue;
     }
 
-    // Match: * as X from 'source'
-    const nsMatch = trimmed.match(/^\*\s+as\s+(\S+)\s+from\s+['"](.+?)['"]/);
-    if (nsMatch) {
-      entries.push({ specifiers: [nsMatch[1]], source: nsMatch[2], isNamespace: true });
+    // x = require("./y")
+    const req = trimmed.match(/^([\w$]+)\s*=\s*require\(\s*['"](.+?)['"]\s*\)$/);
+    if (req) {
+      entries.push({ specifiers: [req[1]], source: req[2], isDefault: true });
       continue;
     }
 
-    // Match: X from 'source' (default import)
-    const defaultMatch = trimmed.match(/^(\w+)\s+from\s+['"](.+?)['"]/);
-    if (defaultMatch) {
-      entries.push({ specifiers: [defaultMatch[1]], source: defaultMatch[2], isDefault: true });
+    // <clause> from 'source'
+    const from = trimmed.match(/^(?:type\s+)?(.+?)\s+from\s+['"](.+?)['"]$/);
+    if (from) {
+      const clause = from[1];
+      const ns = clause.match(/^\*\s+as\s+([\w$]+)$/);
+      if (ns) {
+        entries.push({ specifiers: [ns[1]], source: from[2], isNamespace: true });
+      } else if (clause.startsWith('{')) {
+        entries.push({ specifiers: importNames(clause), source: from[2] });
+      } else {
+        entries.push({ specifiers: importNames(clause), source: from[2], isDefault: true });
+      }
+      continue;
+    }
+
+    // Python: from pkg.mod import A, B  /  import pkg.mod
+    const pyFrom = trimmed.match(/^from\s+([\w.]+)\s+import\s+(.+)$/);
+    if (pyFrom) {
+      entries.push({ specifiers: importNames(pyFrom[2].replace(/[()]/g, '')), source: pyFrom[1] });
+      continue;
+    }
+    const pyImport = trimmed.match(/^import\s+([\w.]+)(?:\s+as\s+\w+)?$/);
+    if (pyImport) {
+      entries.push({ specifiers: [pyImport[1]], source: pyImport[1], isNamespace: true });
+      continue;
+    }
+
+    // Java / Kotlin / C#-style qualified name: org.x.Service
+    const qualified = trimmed.match(/^(?:static\s+)?([\w$]+(?:\.[\w$*]+)+)$/);
+    if (qualified) {
+      const last = qualified[1].split('.').pop()!;
+      entries.push({ specifiers: [last], source: qualified[1] });
     }
   }
   return entries;
 }
 
+/**
+ * Module specifiers of a JS/TS source file, read from the text itself:
+ * `ast-index imports` loses the source of every multi-line import.
+ * Static imports and re-exports keep their names; side-effect, dynamic
+ * `import()` and `require()` have none.
+ */
+export function parseJsImports(text: string): AstIndexImportEntry[] {
+  const entries: AstIndexImportEntry[] = [];
+  const staticRe = /\b(?:import|export)\s+(?:type\s+)?([\w$*{}\s,]+?)\s*from\s*['"]([^'"\n]+)['"]/g;
+  for (const m of text.matchAll(staticRe)) {
+    const clause = m[1].trim();
+    const ns = clause.match(/^\*\s+as\s+([\w$]+)$/);
+    entries.push({ specifiers: ns ? [ns[1]] : clause === '*' ? ['*'] : importNames(clause), source: m[2] });
+  }
+  for (const m of text.matchAll(/\bimport\s+['"]([^'"\n]+)['"]/g)) {
+    entries.push({ specifiers: [], source: m[1] });
+  }
+  for (const m of text.matchAll(/\b(?:require|import)\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g)) {
+    entries.push({ specifiers: [], source: m[1] });
+  }
+  return entries;
+}
+
+/**
+ * Parse `ast-index agrep --json` (ast-grep's JSON): one entry per match,
+ * 0-based lines made 1-based; a multi-line match shows its first line and
+ * its length. Falls back to the text form `file:line:source` — which prints
+ * every line of a multi-line match, so it cannot count matches.
+ */
 export function parseAgrepText(text: string): AstIndexAgrepMatch[] {
+  try {
+    const json = JSON.parse(text);
+    if (Array.isArray(json)) {
+      return json.map((m: { file: string; lines?: string; text?: string; range: { start: { line: number }; end: { line: number } } }) => {
+        const first = (m.lines ?? m.text ?? '').split('\n')[0].trim();
+        const span = m.range.end.line - m.range.start.line + 1;
+        return {
+          file: m.file,
+          line: m.range.start.line + 1,
+          text: span > 1 ? `${first} … (${span} lines)` : first,
+        };
+      });
+    }
+  } catch { /* text output */ }
+
   const results: AstIndexAgrepMatch[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -156,11 +248,51 @@ export function parseAgrepText(text: string): AstIndexAgrepMatch[] {
   return results;
 }
 
+/**
+ * The grouped-block layout of `todo`, `deprecated` and `annotations`
+ * (text only — `--format json` is ignored):
+ *   TODO (2):                  ← group header (todo only)
+ *     web/a.ts:9               ← location
+ *       // TODO(alice): fix    ← the source line
+ */
+function parseLocationBlocks(text: string): Array<{ group?: string; file: string; line: number; source: string }> {
+  const out: Array<{ group?: string; file: string; line: number; source: string }> = [];
+  let group: string | undefined;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const header = raw.match(/^(\w+) \(\d+\):$/);
+    if (header) {
+      group = header[1];
+      continue;
+    }
+    const loc = raw.match(/^ {2}(\S.*?):(\d+)$/);
+    if (loc) {
+      out.push({ group, file: loc[1], line: parseInt(loc[2], 10), source: '' });
+      continue;
+    }
+    if (/^ {3,}/.test(raw) && out.length > 0 && !out[out.length - 1].source) {
+      out[out.length - 1].source = line;
+    }
+  }
+  return out;
+}
+
 export function parseTodoText(text: string): AstIndexTodoEntry[] {
   const results: AstIndexTodoEntry[] = [];
+  for (const b of parseLocationBlocks(text)) {
+    const kind = (b.group ?? b.source.match(/\b(TODO|FIXME|HACK|XXX)\b/i)?.[1] ?? 'TODO').toUpperCase();
+    const body = b.source
+      .replace(/^(\/\/+|#+|\/\*+|\*+|<!--|--)\s*/, '')
+      .replace(new RegExp(`^${kind}\\b:?\\s*`, 'i'), '')
+      .replace(/^:\s*/, '')
+      .replace(/\s*(\*\/|-->)$/, '');
+    results.push({ file: b.file, line: b.line, kind, text: body });
+  }
+
+  // Older single-line form: file:line: TODO: text
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    const match = line.match(/^(.+?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
+    const match = line.match(/^(\S.*?):(\d+):\s*(TODO|FIXME|HACK|XXX|NOTE|WARN(?:ING)?)[:\s]+(.*)$/i);
     if (match) {
       results.push({ file: match[1], line: parseInt(match[2], 10), kind: match[3].toUpperCase(), text: match[4].trim() });
     }
@@ -168,11 +300,18 @@ export function parseTodoText(text: string): AstIndexTodoEntry[] {
   return results;
 }
 
+/** Entries have no symbol name: the binary prints only the marker line. */
 export function parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
-  const results: AstIndexDeprecatedEntry[] = [];
+  const results: AstIndexDeprecatedEntry[] = parseLocationBlocks(text).map(b => ({
+    kind: '',
+    name: '',
+    file: b.file,
+    line: b.line,
+    message: b.source.match(/@deprecated\s+(.+?)\s*(\*\/)?$/i)?.[1] || undefined,
+  }));
+
+  // Older single-line form: kind name (file:line) - message
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    // Try format: kind name (file:line) - message  OR  kind name (file:line)
     const match = line.match(/^(\w+)\s+(\S+)\s+\((.+?):(\d+)\)(?:\s*-\s*(.+))?$/);
     if (match) {
       results.push({ kind: match[1], name: match[2], file: match[3], line: parseInt(match[4], 10), message: match[5]?.trim() });
@@ -181,11 +320,18 @@ export function parseDeprecatedText(text: string): AstIndexDeprecatedEntry[] {
   return results;
 }
 
+/** Entries have no symbol name: the binary prints only the annotation line. */
 export function parseAnnotationsText(text: string, annotationName: string): AstIndexAnnotationEntry[] {
-  const results: AstIndexAnnotationEntry[] = [];
+  const results: AstIndexAnnotationEntry[] = parseLocationBlocks(text).map(b => ({
+    kind: '',
+    name: '',
+    file: b.file,
+    line: b.line,
+    annotation: annotationName,
+  }));
+
+  // Older single-line form: [@Annotation] kind name (file:line)
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    // Try format: kind name (file:line)  OR  @Annotation kind name (file:line)
     const match = line.match(/^(?:@\S+\s+)?(\w+)\s+(\S+)\s+\((.+?):(\d+)\)$/);
     if (match) {
       results.push({ kind: match[1], name: match[2], file: match[3], line: parseInt(match[4], 10), annotation: annotationName });
@@ -194,75 +340,134 @@ export function parseAnnotationsText(text: string, annotationName: string): AstI
   return results;
 }
 
+/**
+ * Parse `ast-index call-tree` (text only — `--format json` is ignored):
+ *   Call tree for 'fn':
+ *     fn
+ *       ← caller (src/a.ts:12)
+ *         ← callerOfCaller (src/b.ts:3)
+ *         ← caller (recursive)
+ * Two spaces of indent per level. Null when there is no root line.
+ */
+export function parseCallTreeText(text: string): AstIndexCallTreeNode | null {
+  let root: AstIndexCallTreeNode | null = null;
+  const stack: Array<{ depth: number; node: AstIndexCallTreeNode }> = [];
+
+  for (const line of text.split('\n')) {
+    if (!line.trim() || line.startsWith('Call tree for')) continue;
+    const depth = Math.floor((line.length - line.trimStart().length) / 2);
+    const body = line.trim();
+
+    if (!root) {
+      root = { name: body, callers: [] };
+      stack.push({ depth, node: root });
+      continue;
+    }
+
+    const m = body.match(/^←\s+(\S+)\s+\((?:(recursive)|(.+):(\d+))\)$/);
+    if (!m) continue;
+    const node: AstIndexCallTreeNode = m[2]
+      ? { name: m[1], recursive: true, callers: [] }
+      : { name: m[1], file: m[3], line: parseInt(m[4], 10), callers: [] };
+
+    while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop();
+    stack[stack.length - 1].node.callers!.push(node);
+    stack.push({ depth, node });
+  }
+
+  return root;
+}
+
+/**
+ * Parse `ast-index module <pattern>` (text only):
+ *   Modules matching '%core%':
+ *     core: core
+ *     feature:auth: feature/auth
+ *     No modules found.
+ */
 export function parseModuleListText(text: string): AstIndexModuleEntry[] {
   const results: AstIndexModuleEntry[] = [];
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: name (path) — N files  OR  name (path)  OR  path
-    const match = line.match(/^(\S+)\s+\((.+?)\)(?:\s*—\s*(\d+)\s+files?)?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2], file_count: match[3] ? parseInt(match[3], 10) : undefined });
-    } else {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('─')) {
-        const name = trimmed.split('/').pop() ?? trimmed;
-        results.push({ name, path: trimmed });
-      }
-    }
+    const m = line.match(/^ {2}(\S.*): (\S.*)$/);
+    if (m) results.push({ name: m[1], path: m[2].trim() });
   }
   return results;
 }
 
+/**
+ * Parse `ast-index deps` / `dependents` (text only):
+ *   Dependencies of 'app' (2):          Modules depending on 'net' (2):
+ *     implementation:                     via api (1):
+ *       core (core)                         core (core)
+ * The group line gives the dependency kind.
+ */
 export function parseModuleDepText(text: string): AstIndexModuleDep[] {
   const results: AstIndexModuleDep[] = [];
+  let kind: string | undefined;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: → name (path)  OR  ← name (path)  OR  name (path)  OR  name
-    const match = line.match(/^[→←\-\s]*(\S+)(?:\s+\((.+?)\))?(?:\s+\[(direct|transitive)\])?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2] ?? match[1], type: match[3] });
+    const group = line.match(/^ {2}(?:via )?([\w-]+)(?: \(\d+\))?:$/);
+    if (group) {
+      kind = group[1];
+      continue;
     }
+    const dep = line.match(/^ {4}(\S+) \((.+)\)$/);
+    if (dep) results.push({ name: dep[1], path: dep[2], type: kind });
   }
   return results;
 }
 
+/**
+ * Parse `ast-index unused-deps` (text only): entries of the `=== Unused ===`
+ * block, `  ✗ util (implementation)`; `(none - …)` means none.
+ */
 export function parseUnusedDepsText(text: string): AstIndexUnusedDep[] {
   const results: AstIndexUnusedDep[] = [];
+  let inUnused = false;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: ⚠ name (path) — reason  OR  name (path)  OR  name — reason
-    const match = line.match(/^[⚠!\s]*(\S+)(?:\s+\((.+?)\))?(?:\s*[—\-]+\s*(.+))?$/);
-    if (match) {
-      results.push({ name: match[1], path: match[2] ?? match[1], reason: match[3]?.trim() });
+    if (/^=== .* ===$/.test(line.trim())) {
+      inUnused = line.includes('Unused');
+      continue;
+    }
+    if (!inUnused) continue;
+    const m = line.match(/^\s+[✗⚠!x]\s+(\S+)(?: \((.+)\))?$/);
+    if (m) {
+      results.push({
+        name: m[1],
+        path: m[1],
+        reason: m[2] ? `${m[2]} dependency, no symbol used` : undefined,
+      });
     }
   }
   return results;
 }
 
+/**
+ * Parse `ast-index api <module>` (text only):
+ *   Public API of 'core' (1):
+ *     core/src/main/kotlin/c/Core.kt:3
+ *       class Core { fun go() = Net().ping() }
+ * Kind and name are read from the declaration line when it has a keyword.
+ */
 export function parseModuleApiText(text: string): AstIndexModuleApi[] {
   const results: AstIndexModuleApi[] = [];
+  let pending: { file: string; line: number } | null = null;
   for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (Array.isArray(parsed)) return parsed;
-    } catch { /* not JSON, parse as text */ }
-    // Format: kind name (file:line)  OR  kind name signature (file:line)
-    const match = line.match(/^(\w+)\s+(\S+)(?:\s+(.*?))?\s+\((.+?):(\d+)\)$/);
-    if (match) {
-      results.push({ kind: match[1], name: match[2], signature: match[3]?.trim() || undefined, file: match[4], line: parseInt(match[5], 10) });
+    const loc = line.match(/^ {2}(\S.*?):(\d+)$/);
+    if (loc) {
+      pending = { file: loc[1], line: parseInt(loc[2], 10) };
+      continue;
+    }
+    if (pending && /^ {4,}\S/.test(line)) {
+      const signature = line.trim();
+      const decl = signature.match(/\b(class|interface|object|enum|struct|trait|protocol|fun|func|function|def|fn|val|var|const|let|type|typealias)\s+([\w$]+)/);
+      results.push({
+        kind: decl?.[1] ?? '',
+        name: decl?.[2] ?? '',
+        signature,
+        file: pending.file,
+        line: pending.line,
+      });
+      pending = null;
     }
   }
   return results;

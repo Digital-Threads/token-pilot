@@ -91,8 +91,9 @@ export function buildFingerprint(
     fp.frameworks = fwMatch[1].split(',').map(s => s.trim()).filter(Boolean);
   }
 
-  // Extract file count from MAP or ast-index data
-  const fileCountMatch = overviewText.match(/(\d+)\s*files/);
+  // File count: the FILES line, else the TYPE line — never a MAP entry
+  const fileCountMatch =
+    overviewText.match(/^FILES:\s*(\d+)/m) ?? overviewText.match(/TYPE[^\n]*\((\d+) files\)/);
   if (fileCountMatch) {
     fp.sourceFileCount = parseInt(fileCountMatch[1], 10);
   }
@@ -109,20 +110,15 @@ export function buildFingerprint(
     fp.testLayout = archMatch[1].trim();
   }
 
-  // Extract MAP entries as module indicators
+  // Directories: the MAP header's total when capped, else its entries
+  const mapTotal = overviewText.match(/^MAP \(\d+ of (\d+) directories\):/m);
   const mapEntries = overviewText.match(/^\s{2}\S+.*\(\d+ files/gm);
-  if (mapEntries) {
-    fp.moduleCount = mapEntries.length;
-    // Detect entrypoints from common patterns
-    for (const entry of mapEntries) {
-      const dirMatch = entry.match(/^\s*(\S+)/);
-      if (dirMatch) {
-        const dir = dirMatch[1];
-        if (/^(src|lib|app|main|index)/.test(dir)) {
-          fp.entrypoints.push(dir);
-        }
-      }
-    }
+  fp.moduleCount = mapTotal ? parseInt(mapTotal[1], 10) : (mapEntries?.length ?? 0);
+
+  // Entry files (the overview's ENTRYPOINTS line), not directories
+  const entryMatch = overviewText.match(/^ENTRYPOINTS:\s*(.+)$/m);
+  if (entryMatch) {
+    fp.entrypoints = entryMatch[1].split(',').map(s => s.trim()).filter(Boolean);
   }
 
   return fp;
@@ -146,7 +142,7 @@ export function formatCachedFingerprint(fp: ArchitectureFingerprint): string {
     lines.push(`FILES: ${fp.sourceFileCount}`);
   }
   if (fp.moduleCount > 0) {
-    lines.push(`MODULES: ${fp.moduleCount}`);
+    lines.push(`DIRECTORIES: ${fp.moduleCount}`);
   }
   if (fp.namingConventions.length > 0) {
     lines.push(`PATTERNS: ${fp.namingConventions.join(', ')}`);

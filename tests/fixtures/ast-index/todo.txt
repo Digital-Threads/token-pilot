@@ -1,0 +1,15 @@
+Found 4 comments:
+
+FIXME (1):
+  src/main/java/com/x/Svc.java:15
+        // FIXME broken when null
+
+TODO (2):
+  web/a.ts:9
+    // TODO(alice): handle errors
+  src/main/java/com/x/Svc.java:7
+        // TODO: remove this hack
+
+HACK (1):
+  src/main/java/com/x/Other.java:6
+        // HACK: temporary workaround

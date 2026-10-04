@@ -205,23 +205,24 @@ describe("AstIndexClient", () => {
         annotation: "Injectable",
       },
     ]);
-    expect(parseModuleListText("auth (src/auth) — 3 files")).toEqual([
-      { name: "auth", path: "src/auth", file_count: 3 },
+    // Real ast-index 3.50 layouts (see tests/fixtures/ast-index/).
+    expect(parseModuleListText("Modules matching '%auth%':\n  auth: src/auth\n")).toEqual([
+      { name: "auth", path: "src/auth" },
     ]);
-    expect(parseModuleDepText("→ db (src/db) [direct]")).toEqual([
-      { name: "db", path: "src/db", type: "direct" },
+    expect(parseModuleDepText("Dependencies of 'app' (1):\n  implementation:\n    db (src/db)\n")).toEqual([
+      { name: "db", path: "src/db", type: "implementation" },
     ]);
-    expect(parseUnusedDepsText("⚠ legacy (src/legacy) — unused")).toEqual([
-      { name: "legacy", path: "src/legacy", reason: "unused" },
+    expect(parseUnusedDepsText("=== Unused ===\n  ✗ legacy (implementation)\n")).toEqual([
+      { name: "legacy", path: "legacy", reason: "implementation dependency, no symbol used" },
     ]);
     expect(
-      parseModuleApiText("function login login() (/repo/src/auth.ts:12)"),
+      parseModuleApiText("Public API of 'auth' (1):\n  src/auth.ts:12\n    function login() {\n"),
     ).toEqual([
       {
         kind: "function",
         name: "login",
-        signature: "login()",
-        file: "/repo/src/auth.ts",
+        signature: "function login() {",
+        file: "src/auth.ts",
         line: 12,
       },
     ]);
@@ -364,8 +365,8 @@ describe("AstIndexClient", () => {
           return "Hierarchy for 'Demo':\nParents:\n  Base (extends)\n";
         case "stats":
           return "Files: 5\nSymbols: 9";
-        case "files":
-          return "/repo/a.ts\n/repo/b.ts\n";
+        case "query":
+          return JSON.stringify({ rows: [{ path: "a.ts" }, { path: "b.ts" }] });
         case "refs":
           return JSON.stringify({
             definitions: [{ path: "/repo/a.ts", line: 1 }],
@@ -389,7 +390,7 @@ describe("AstIndexClient", () => {
             { name: "caller", path: "/repo/a.ts", line: 3 },
           ]);
         case "call-tree":
-          return JSON.stringify({ name: "root", children: [] });
+          return "Call tree for 'root':\n  root\n";
         case "changed":
           return JSON.stringify([
             { name: "Demo", kind: "class", file: "/repo/a.ts", line: 1 },
@@ -409,15 +410,15 @@ describe("AstIndexClient", () => {
         case "annotations":
           return "@Injectable class Service (/repo/a.ts:7)";
         case "module":
-          return "auth (src/auth) — 2 files";
+          return "Modules matching '%%':\n  auth: src/auth\n";
         case "deps":
-          return "→ db (src/db) [direct]";
+          return "Dependencies of 'auth' (1):\n  api:\n    db (src/db)\n";
         case "dependents":
-          return "← api (src/api)";
+          return "Modules depending on 'auth' (1):\n  via implementation (1):\n    api (src/api)\n";
         case "unused-deps":
-          return "⚠ legacy (src/legacy) — unused";
+          return "=== Unused ===\n  ✗ legacy (implementation)\n";
         case "api":
-          return "function login login() (/repo/src/auth.ts:12)";
+          return "Public API of 'auth' (1):\n  src/auth.ts:12\n    function login() {\n";
         case "update":
           return "";
         default:
@@ -445,7 +446,7 @@ describe("AstIndexClient", () => {
     expect((await client.implementations("Demo"))[0].name).toBe("DemoImpl");
     expect((await client.hierarchy("Demo"))?.parents?.[0].name).toBe("Base");
     expect(await client.stats()).toContain("Files: 5");
-    expect(await client.listFiles()).toEqual(["/repo/a.ts", "/repo/b.ts"]);
+    expect(await client.listFiles()).toEqual(["a.ts", "b.ts"]);
     expect((await client.refs("Demo")).definitions.length).toBe(1);
     expect((await client.map())?.project_type).toBe("ts");
     expect((await client.conventions())?.architecture).toEqual(["layered"]);

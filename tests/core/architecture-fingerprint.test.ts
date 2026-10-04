@@ -116,7 +116,16 @@ describe('architecture-fingerprint', () => {
 
       const fp = buildFingerprint(text, '0.14.0');
       expect(fp.moduleCount).toBe(3);
-      expect(fp.entrypoints).toContain('src/core');
+      // Directories are not entry points.
+      expect(fp.entrypoints).toEqual([]);
+    });
+
+    it('takes the directory total from a capped MAP and entry files from ENTRYPOINTS', () => {
+      const text = ['ENTRYPOINTS: src/index.ts, src/cli.ts', 'MAP (2 of 61 directories):', '  src/core (15 files)', '  src/handlers (8 files)'].join('\n');
+      const fp = buildFingerprint(text, '0.14.0');
+
+      expect(fp.moduleCount).toBe(61);
+      expect(fp.entrypoints).toEqual(['src/index.ts', 'src/cli.ts']);
     });
 
     it('handles empty overview text', () => {
@@ -147,7 +156,7 @@ describe('architecture-fingerprint', () => {
       expect(output).toContain('TYPE: typescript');
       expect(output).toContain('FRAMEWORKS: vitest, express');
       expect(output).toContain('FILES: 42');
-      expect(output).toContain('MODULES: 5');
+      expect(output).toContain('DIRECTORIES: 5');
       expect(output).toContain('v0.14.0');
     });
 

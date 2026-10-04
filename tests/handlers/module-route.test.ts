@@ -54,7 +54,7 @@ describe("handleModuleRoute", () => {
     );
     expect(result.content[0].text).toContain("No dependency path returned");
     expect(result.content[0].text).toContain("within 8 hops");
-    expect(result.content[0].text).toContain("ast-index rebuild");
+    expect(result.content[0].text).toContain("no module graph");
   });
 
   it("surfaces a failure hint when the client returns null", async () => {

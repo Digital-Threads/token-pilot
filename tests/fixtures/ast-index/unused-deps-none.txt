@@ -1,0 +1,13 @@
+Analyzing 1 dependencies of 'core'...
+  Checking: direct imports + transitive, XML, resources
+
+
+=== Unused ===
+  (none - all dependencies are used)
+
+=== Summary ===
+Total: 0 unused, 0 exported, 1 used of 1 dependencies
+  - Direct: 1
+  - Transitive: 0
+  - XML: 0
+  - Resources: 0

@@ -1,11 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readdir, stat } from "node:fs/promises";
-import { resolve, relative, basename, dirname } from "node:path";
+import { resolve, relative, basename, dirname, isAbsolute, sep } from "node:path";
 import type { AstIndexClient } from "../ast-index/client.js";
 import type { ExploreAreaArgs } from "../core/validation.js";
 import { resolveSafePath } from "../core/validation.js";
 import { outlineDir, CODE_EXTENSIONS } from "./outline.js";
+import {
+  isTestFile,
+  isTestPath,
+  resolveImportPath,
+  testSubject,
+} from "./related-files.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +26,10 @@ const execFileAsync = promisify(execFile);
 // directory outline. Halving both caps keeps the structural overview
 // while dropping the tail nobody actually reads. Self-sizing (compare
 // against baseline and trim if exceeded) deferred to v0.29.0.
-const MAX_IMPORT_FILES = 10;
+// Source files whose imports are read (JS/TS: a file read each) and
+// possible importers verified; both caps are reported when hit.
+const MAX_IMPORT_FILES = 30;
+const MAX_IMPORTER_CHECKS = 50;
 const MAX_OUTPUT_LINES = 200;
 
 export interface ExploreAreaMeta {
@@ -87,7 +96,7 @@ export async function handleExploreArea(
         ? buildImportsSection(codeFiles, absPath, projectRoot, astIndex)
         : Promise.resolve(null),
       include.includes("tests")
-        ? buildTestsSection(codeFiles, absPath, projectRoot)
+        ? buildTestsSection(codeFiles, absPath, projectRoot, astIndex)
         : Promise.resolve(null),
       include.includes("changes")
         ? buildChangesSection(relDir, projectRoot)
@@ -191,30 +200,30 @@ async function buildImportsSection(
     return { lines: [], internalDeps: [], importedBy: [], externalDeps: [] };
   }
 
-  const filesToAnalyze = codeFiles.slice(0, MAX_IMPORT_FILES);
+  const relOf = relPathOf(projectRoot);
+  const inArea = (abs: string) => abs === absPath || abs.startsWith(absPath + sep);
+  const sources = codeFiles.filter((f) => !isTestPath(relOf(f)));
+  const analyzed = sources.slice(0, MAX_IMPORT_FILES);
   const externalDeps = new Set<string>();
   const internalDeps = new Set<string>();
-  const relDir = relative(projectRoot, absPath) || ".";
 
-  // Get imports for each file
+  // What the area's source files import (tests left out)
   const importResults = await Promise.allSettled(
-    filesToAnalyze.map((f) => astIndex.fileImports(f)),
+    analyzed.map((f) => astIndex.fileImports(f)),
   );
 
-  for (const result of importResults) {
-    if (result.status !== "fulfilled" || !result.value) continue;
+  importResults.forEach((result, i) => {
+    if (result.status !== "fulfilled" || !result.value) return;
     for (const imp of result.value) {
       const source = imp.source;
       if (!source) continue;
       if (source.startsWith(".") || source.startsWith("/")) {
-        // Internal import — track if it's outside this area
-        const resolved = resolve(absPath, source);
-        if (!resolved.startsWith(absPath + "/") && resolved !== absPath) {
-          const relImport = relative(projectRoot, resolved).replace(
-            /\.[^.]+$/,
-            "",
+        const resolved = resolveImportPath(analyzed[i], source, projectRoot);
+        const target = resolved ?? resolve(dirname(analyzed[i]), source);
+        if (!inArea(target)) {
+          internalDeps.add(
+            resolved ? relOf(resolved) : relOf(target).replace(/\.[^./]+$/, ""),
           );
-          internalDeps.add(relImport);
         }
       } else {
         // External package
@@ -224,33 +233,37 @@ async function buildImportsSection(
         externalDeps.add(pkg);
       }
     }
-  }
+  });
 
-  // Find who imports files from this area (reverse dependencies)
-  const importedBy = new Set<string>();
-  const fileBasenames = filesToAnalyze.map((f) =>
-    basename(f).replace(/\.[^.]+$/, ""),
+  // Who imports this area: files whose import lines mention an area file's
+  // name, kept only when one of their imports resolves into the area.
+  const candidates = new Set<string>();
+  const names = [...new Set(analyzed.map((f) => basename(f).replace(/\.[^.]+$/, "")))];
+  const hitLists = await Promise.allSettled(
+    names.map(async (name) => astIndex.search(name, { maxResults: 200 })),
   );
-
-  const refResults = await Promise.allSettled(
-    fileBasenames.slice(0, 10).map((name) => astIndex.refs(name, 10)),
-  );
-
-  for (const result of refResults) {
-    if (result.status !== "fulfilled" || !result.value) continue;
-    const refs = result.value;
-    if (refs.imports) {
-      for (const imp of refs.imports) {
-        const impFile = imp.path;
-        if (!impFile) continue;
-        const relFile = relative(projectRoot, impFile);
-        // Only include files outside this area
-        if (!relFile.startsWith(relDir + "/") && relFile !== relDir) {
-          importedBy.add(relFile.replace(/\.[^.]+$/, ""));
-        }
-      }
+  for (const hits of hitLists) {
+    if (hits.status !== "fulfilled") continue;
+    for (const h of hits.value) {
+      if (!/\b(import|from|require|use|include)\b/.test(h.text)) continue;
+      const rel = relOf(h.file);
+      if (!inArea(resolve(projectRoot, rel)) && !isTestPath(rel)) candidates.add(rel);
     }
   }
+
+  const toCheck = [...candidates].slice(0, MAX_IMPORTER_CHECKS);
+  const importedBy = new Set<string>();
+  await Promise.all(
+    toCheck.map(async (rel) => {
+      const abs = resolve(projectRoot, rel);
+      const imps = await astIndex.fileImports(abs).catch(() => []);
+      const hit = imps.some((imp) => {
+        const r = resolveImportPath(abs, imp.source, projectRoot);
+        return r !== null && inArea(r);
+      });
+      if (hit) importedBy.add(rel);
+    }),
+  );
 
   const lines: string[] = [];
 
@@ -268,10 +281,22 @@ async function buildImportsSection(
     );
   }
 
+  if (analyzed.length < sources.length) {
+    lines.push(
+      `(imports read from ${analyzed.length} of ${sources.length} source files — narrow the path for the rest)`,
+    );
+  }
+
   if (importedBy.size > 0) {
     const importers = Array.from(importedBy).sort().slice(0, 10);
     lines.push(
       `IMPORTED BY: ${importers.join(", ")}${importedBy.size > 10 ? ` ... (${importedBy.size} total)` : ""}`,
+    );
+  }
+
+  if (candidates.size > toCheck.length) {
+    lines.push(
+      `(${candidates.size - toCheck.length} possible importers not checked)`,
     );
   }
 
@@ -285,90 +310,100 @@ async function buildImportsSection(
 }
 
 // ──────────────────────────────────────────────
-// Tests section — find test/spec files matching area files
+// Tests section — tests of this area's files
 // ──────────────────────────────────────────────
 
+/**
+ * Tests of the area: test files co-located in it, in a mirrored test dir
+ * (`tests/handlers/` for `src/handlers/`) or in a top-level test root —
+ * named after an area file (`x.test.ts`), or (mirrored / co-located) one
+ * that imports an area file.
+ */
 async function buildTestsSection(
   codeFiles: string[],
   absPath: string,
   projectRoot: string,
+  astIndex: AstIndexClient,
 ): Promise<{ lines: string[]; testFiles: string[] }> {
-  const testFiles: string[] = [];
-  const areaFileNames = new Set(
-    codeFiles.map((f) => basename(f).replace(/\.[^.]+$/, "")),
+  const relOf = relPathOf(projectRoot);
+  const inArea = (abs: string) => abs === absPath || abs.startsWith(absPath + sep);
+  const areaNames = new Set(
+    codeFiles
+      .filter((f) => !isTestPath(relOf(f)))
+      .map((f) => basename(f).replace(/\.[^.]+$/, "")),
   );
+  const areaTail = basename(absPath);
 
-  // Scan for test files: check area dir + common test dirs
-  const dirsToScan = [absPath];
-
-  // Check for sibling __tests__ or tests directory
-  const parent = dirname(absPath);
-  const areaName = basename(absPath);
-  const testDirCandidates = [
-    resolve(absPath, "__tests__"),
-    resolve(absPath, "tests"),
-    resolve(absPath, "test"),
-    resolve(parent, "__tests__", areaName),
-    resolve(parent, "tests", areaName),
-  ];
-
-  for (const testDir of testDirCandidates) {
-    const testDirStat = await stat(testDir).catch(() => null);
-    if (testDirStat?.isDirectory()) {
-      dirsToScan.push(testDir);
-    }
+  // Every project test file from the index; without one, the usual places.
+  let candidates: string[] = [];
+  try {
+    candidates = (await astIndex.listFiles()).map(relOf).filter(isTestFile);
+  } catch {
+    // no index file list — scan the usual places below
+  }
+  if (candidates.length === 0) {
+    candidates = await scanTestDirs(absPath, projectRoot, areaTail);
   }
 
-  // Also check project-level test directories
-  const projectTestDirs = [
-    resolve(projectRoot, "tests"),
-    resolve(projectRoot, "test"),
-    resolve(projectRoot, "__tests__"),
-  ];
-  for (const testDir of projectTestDirs) {
-    if (dirsToScan.includes(testDir)) continue;
-    const testDirStat = await stat(testDir).catch(() => null);
-    if (testDirStat?.isDirectory()) {
-      dirsToScan.push(testDir);
-    }
-  }
+  const testFiles: string[] = [];
+  for (const rel of candidates) {
+    const abs = resolve(projectRoot, rel);
+    const dir = dirname(rel);
+    const coLocated = inArea(abs);
+    const mirrored = basename(dir) === areaTail;
+    const testRoot = /^(tests?|__tests__|spec)$/.test(dir);
+    if (!coLocated && !mirrored && !testRoot) continue;
 
-  for (const dir of dirsToScan) {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        const name = entry.name;
-        if (
-          name.includes(".test.") ||
-          name.includes(".spec.") ||
-          name.includes("_test.") ||
-          name.includes("_spec.")
-        ) {
-          // Check if this test corresponds to an area file
-          const testBase = name
-            .replace(/\.(test|spec)\./, ".")
-            .replace(/_(test|spec)\./, ".")
-            .replace(/\.[^.]+$/, "");
-          if (areaFileNames.has(testBase) || dir !== absPath) {
-            const relPath = relative(projectRoot, resolve(dir, name));
-            if (!testFiles.includes(relPath)) {
-              testFiles.push(relPath);
-            }
-          }
-        }
-      }
-    } catch {
-      /* skip unreadable dirs */
+    if (areaNames.has(testSubject(basename(rel)))) {
+      testFiles.push(rel);
+      continue;
+    }
+    if (coLocated || mirrored) {
+      const imps = await astIndex.fileImports(abs).catch(() => []);
+      const importsArea = imps.some((imp) => {
+        const r = resolveImportPath(abs, imp.source, projectRoot);
+        return r !== null && inArea(r);
+      });
+      if (importsArea) testFiles.push(rel);
     }
   }
 
   if (testFiles.length === 0) return { lines: [], testFiles: [] };
 
-  const lines: string[] = [];
-  lines.push(`TESTS: ${testFiles.join(", ")}`);
-  lines.push("");
-  return { lines, testFiles: [...testFiles].sort() };
+  const sorted = [...new Set(testFiles)].sort();
+  return { lines: [`TESTS: ${sorted.join(", ")}`, ""], testFiles: sorted };
+}
+
+/** Test files (relative) in the area and the conventional test dirs. */
+async function scanTestDirs(
+  absPath: string,
+  projectRoot: string,
+  areaTail: string,
+): Promise<string[]> {
+  const dirs = [
+    absPath,
+    resolve(absPath, "__tests__"),
+    resolve(absPath, "tests"),
+    resolve(absPath, "test"),
+    resolve(projectRoot, "tests"),
+    resolve(projectRoot, "test"),
+    resolve(projectRoot, "__tests__"),
+    resolve(projectRoot, "tests", areaTail),
+    resolve(projectRoot, "test", areaTail),
+    resolve(projectRoot, "__tests__", areaTail),
+  ];
+  const out: string[] = [];
+  for (const dir of [...new Set(dirs)]) {
+    try {
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const rel = relative(projectRoot, resolve(dir, entry.name)).split(sep).join("/");
+        if (entry.isFile() && isTestFile(rel)) out.push(rel);
+      }
+    } catch {
+      /* missing or unreadable */
+    }
+  }
+  return out;
 }
 
 // ──────────────────────────────────────────────
@@ -404,6 +439,12 @@ async function buildChangesSection(
 // ──────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────
+
+/** Project-relative, `/`-separated; ast-index paths are already relative. */
+function relPathOf(projectRoot: string): (p: string) => string {
+  return (p) =>
+    (isAbsolute(p) ? relative(projectRoot, p) : p).split(sep).join("/");
+}
 
 function extractResult<T>(settled: PromiseSettledResult<T | null>): T | null {
   if (settled.status === "fulfilled" && settled.value) {

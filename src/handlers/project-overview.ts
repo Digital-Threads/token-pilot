@@ -1,4 +1,5 @@
-import { basename } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import { detectProject } from '../core/project-detector.js';
 import type { ProjectDetection, DetectedStack } from '../core/project-detector.js';
@@ -17,13 +18,19 @@ export async function handleProjectOverview(
   appVersion?: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
   const lines: string[] = [];
+  const include = args.include ?? ALL_SECTIONS;
+  const partial = !ALL_SECTIONS.every(s => include.includes(s));
 
-  // Check for cached fingerprint
-  const cachedFp = await loadFingerprint(projectRoot);
-  if (cachedFp) {
-    lines.push(formatCachedFingerprint(cachedFp));
-    lines.push('');
+  // A partial overview lacks sections a previous full one had: show those
+  // from the cached fingerprint. A full overview has them all fresh.
+  if (partial) {
+    const cachedFp = await loadFingerprint(projectRoot);
+    if (cachedFp) {
+      lines.push(formatCachedFingerprint(cachedFp));
+      lines.push('');
+    }
   }
+  const freshStart = lines.length;
 
   // 1. Dual detection: ast-index + config scanner
   let astIndexType: string | undefined;
@@ -43,7 +50,6 @@ export async function handleProjectOverview(
   const detection = await detectProject(projectRoot, astIndexType);
 
   // Determine which sections to include
-  const include = args.include ?? ['stack', 'ci', 'quality', 'architecture'];
   const showStack = include.includes('stack');
   const showCI = include.includes('ci');
   const showQuality = include.includes('quality');
@@ -67,6 +73,15 @@ export async function handleProjectOverview(
 
     if (detection.configStacks.length === 0 && !astIndexType) {
       lines.push('TYPE: unknown (no config files found)');
+    }
+
+    if (mapData) {
+      lines.push(`FILES: ${mapData.file_count} indexed (node_modules, dist, coverage not counted)`);
+    }
+
+    const entrypoints = await detectEntrypoints(projectRoot);
+    if (entrypoints.length > 0) {
+      lines.push(`ENTRYPOINTS: ${entrypoints.join(', ')}`);
     }
 
     // Confidence
@@ -93,6 +108,9 @@ export async function handleProjectOverview(
         .join(', ');
       lines.push(`PATTERNS: ${patterns}`);
     }
+    if (convData.vendored_skipped) {
+      lines.push('(ast-index frameworks and naming patterns not shown: its index includes node_modules declarations and they cannot be told apart)');
+    }
     lines.push('');
   }
 
@@ -117,7 +135,12 @@ export async function handleProjectOverview(
 
   // 7. Directory map (from ast-index)
   if (showArch && mapData) {
-    lines.push('MAP:');
+    const total = mapData.total_dirs ?? mapData.groups.length;
+    lines.push(
+      mapData.groups.length < total
+        ? `MAP (${mapData.groups.length} of ${total} directories):`
+        : 'MAP:',
+    );
     for (const group of mapData.groups) {
       const kinds = group.kinds
         ? ' — ' + Object.entries(group.kinds).map(([k, v]) => `${v} ${k}`).join(', ')
@@ -154,16 +177,62 @@ export async function handleProjectOverview(
 
   lines.push('HINT: Use smart_read() on files, find_usages() for symbol references, outline() for directory overview.');
 
-  // Save fingerprint for next session
+  // Save the fingerprint from this call's own fresh lines — never from the
+  // cached block — and only for a full overview.
   const outputText = lines.join('\n');
-  try {
-    const fp = buildFingerprint(outputText, appVersion ?? 'unknown');
-    await saveFingerprint(projectRoot, fp);
-  } catch {
-    // Non-critical — don't fail the handler
+  if (!partial) {
+    try {
+      const fp = buildFingerprint(lines.slice(freshStart).join('\n'), appVersion ?? 'unknown');
+      await saveFingerprint(projectRoot, fp);
+    } catch {
+      // Non-critical — don't fail the handler
+    }
   }
 
   return { content: [{ type: 'text', text: outputText }] };
+}
+
+const ALL_SECTIONS: NonNullable<ProjectOverviewArgs['include']> = ['stack', 'ci', 'quality', 'architecture'];
+
+/** Likely entry points when nothing in the package manifest names one. */
+const COMMON_ENTRYPOINTS = [
+  'src/index.ts', 'src/main.ts', 'src/index.js', 'src/main.js', 'index.ts', 'index.js',
+  'main.go', 'src/main.rs', 'src/lib.rs', 'main.py', 'app.py', 'manage.py', 'src/main.py',
+];
+
+/**
+ * Entry files: package.json `main` / `bin` mapped from build output back to
+ * the source (`dist/index.js` → `src/index.ts`), else common entry names.
+ */
+async function detectEntrypoints(projectRoot: string): Promise<string[]> {
+  const found: string[] = [];
+  const isFile = (p: string) => stat(join(projectRoot, p)).then(s => s.isFile(), () => false);
+
+  try {
+    const pkg = JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf-8'));
+    const bins = typeof pkg.bin === 'string' ? [pkg.bin] : Object.values(pkg.bin ?? {});
+    for (const p of [pkg.main, ...bins]) {
+      if (typeof p !== 'string') continue;
+      const clean = p.replace(/^\.\//, '');
+      const src = clean.replace(/^(dist|build|lib|out)\//, 'src/').replace(/\.[cm]?js$/, '.ts');
+      for (const c of [src, src.replace(/\.ts$/, '.tsx'), clean]) {
+        if (await isFile(c)) {
+          if (!found.includes(c)) found.push(c);
+          break;
+        }
+      }
+    }
+  } catch {
+    // no package.json
+  }
+
+  if (found.length === 0) {
+    for (const c of COMMON_ENTRYPOINTS) {
+      if (await isFile(c)) found.push(c);
+    }
+  }
+
+  return found;
 }
 
 // ──────────────────────────────────────────────

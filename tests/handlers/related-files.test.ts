@@ -2,7 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { handleRelatedFiles } from '../../src/handlers/related-files.js';
+import { parseJsImports } from '../../src/ast-index/parser.js';
+
+// src/a.ts imports ./b; every other file's imports are read from disk, the
+// way the client reads JS/TS imports. Importers are verified through this.
+const importsOf = async (p: string) =>
+  p.endsWith('/src/a.ts')
+    ? [{ source: './b', specifiers: ['b'] }]
+    : parseJsImports(readFileSync(p, 'utf-8'));
 
 describe('handleRelatedFiles', () => {
   let tempDir: string;
@@ -24,7 +33,7 @@ describe('handleRelatedFiles', () => {
     const astIndex = {
       isDisabled: () => false,
       isOversized: () => false,
-      fileImports: async () => [{ source: './b', specifiers: ['b'] }],
+      fileImports: importsOf,
       outline: async () => ({ symbols: [{ name: 'a' }] }),
       refs: async () => ({
         imports: [{ path: join(tempDir, 'src', 'consumer.ts') }],
@@ -74,7 +83,7 @@ describe('handleRelatedFiles', () => {
     const astIndex = {
       isDisabled: () => false,
       isOversized: () => false,
-      fileImports: async () => [{ source: './b', specifiers: ['b'] }],
+      fileImports: importsOf,
       outline: async () => ({ symbols: [{ name: 'a' }] }),
       refs: async () => ({
         imports: [{ path: join(tempDir, 'src', 'other', 'consumer.ts') }],
@@ -95,7 +104,7 @@ describe('handleRelatedFiles', () => {
     const astIndex = {
       isDisabled: () => false,
       isOversized: () => false,
-      fileImports: async () => [{ source: './b', specifiers: ['b'] }],
+      fileImports: importsOf,
       outline: async () => ({ symbols: [{ name: 'a' }] }),
       refs: async () => ({
         imports: [{ path: join(tempDir, 'src', 'consumer.ts') }],
