@@ -49,6 +49,7 @@ import {
   parseModuleApiText,
 } from "./parser.js";
 import { buildFileStructure } from "./enricher.js";
+import { blockAt, codeLines, mentions } from "./references.js";
 import { parseTypeScriptRegex } from "./regex-parser.js";
 import { parsePythonRegex } from "./regex-parser-python.js";
 
@@ -932,16 +933,26 @@ export class AstIndexClient {
 
       // call-tree is grep-based: it names a "caller" after the nearest
       // call-like text above the call site, so `new Set(` or a quoted
-      // `read_symbol("…")` become callers. Keep only nodes whose location
-      // is a real symbol definition in the index.
-      const defs = await this.definitionsIn(collectFiles(tree));
+      // `read_symbol("…")` become callers, and so does the function above a
+      // comment that mentions the name. Keep only nodes whose location is a
+      // real symbol definition whose own body references the callee.
+      const files = collectFiles(tree);
+      const defs = await this.definitionsIn(files);
+      const lines = new Map<string, string[] | null>();
+      for (const f of files) lines.set(f, await codeLines(this.projectRoot, f));
+      const callsIt = (c: AstIndexCallTreeNode, callee: string): boolean => {
+        const code = c.file ? lines.get(c.file) : null;
+        // unreadable: nothing to check against
+        if (!code || c.line == null) return true;
+        return mentions(blockAt(code, c.line), callee.split(/[.:]/).pop() ?? callee, true);
+      };
       let dropped = 0;
       const prune = (n: AstIndexCallTreeNode): AstIndexCallTreeNode => {
         const raw = n.callers ?? [];
         const valid = raw.filter((c) => {
           if (c.recursive) return true;
           if (!this.keep(c.file)) return false;
-          const real = !defs || defs.has(`${c.file}:${c.line}:${c.name}`);
+          const real = (!defs || defs.has(`${c.file}:${c.line}:${c.name}`)) && callsIt(c, n.name);
           if (!real) dropped++;
           return real;
         });

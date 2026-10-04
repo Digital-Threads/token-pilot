@@ -456,6 +456,17 @@ function maskSource(raw: string, lang: string, jsx = false): Array<[number, numb
   return out;
 }
 
+/** `raw` with its comments blanked (line breaks kept), the language taken from `filePath`. */
+export function withoutComments(raw: string, filePath: string): string {
+  const chars = raw.split('');
+  for (const [s, e, isString] of maskSource(raw, detectLanguage(filePath), /\.[jt]sx$/i.test(filePath))) {
+    if (isString) continue;
+    for (let k = s; k < e; k++) if (chars[k] !== '\n') chars[k] = ' ';
+  }
+
+  return chars.join('');
+}
+
 // ─── Symbols ────────────────────────────────────────────────────────────
 
 interface Sym {
