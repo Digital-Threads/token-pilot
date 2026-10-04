@@ -100,4 +100,42 @@ describe('extractSectionContent', () => {
     expect(content).toContain('Overview text.');
     expect(content).not.toContain('API intro.');
   });
+
+  it('ignores "#" lines inside fenced code blocks (``` and ~~~)', () => {
+    const md = [
+      '# Real',
+      '```bash',
+      '# not a heading',
+      '```',
+      '~~~~',
+      '## also not',
+      '```',
+      '~~~~',
+      '## Second',
+      'text',
+    ].join('\n');
+    const sections = parseMarkdownSections(md);
+    expect(sections.map((s) => s.heading)).toEqual(['Real', 'Second']);
+    expect(sections[1].startLine).toBe(9); // the fenced "## also not" (L6) did not count
+  });
+
+  it('reads setext headings and skips front matter', () => {
+    const md = [
+      '---',
+      'title: x',
+      '---',
+      'Big Title',
+      '=========',
+      'intro',
+      '',
+      'Sub Part',
+      '--------',
+      'body',
+    ].join('\n');
+    const sections = parseMarkdownSections(md);
+    expect(sections.map((s) => [s.heading, s.level, s.startLine, s.endLine])).toEqual([
+      ['Big Title', 1, 4, 10],
+      ['Sub Part', 2, 8, 10],
+    ]);
+  });
 });

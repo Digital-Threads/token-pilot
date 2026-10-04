@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 import type { ContextRegistry } from '../core/context-registry.js';
 import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
-import { parseMarkdownSections, findSection, extractSectionContent } from './markdown-sections.js';
+import { parseMarkdownSections, findSection, extractSectionContent, duplicateSectionNote } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
 import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
 import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
@@ -25,6 +25,7 @@ export async function handleReadSection(
 
   // Dispatch to format-specific parser
   let sectionData: { heading: string; startLine: number; endLine: number; lineCount: number; content: string; label: string } | null = null;
+  let note = '';
 
   if (ext === '.md' || ext === '.markdown') {
     const sections = parseMarkdownSections(content);
@@ -39,6 +40,7 @@ export async function handleReadSection(
     }
     const hashes = '#'.repeat(section.level);
     sectionData = { ...section, content: extractSectionContent(lines, section), label: `${hashes} ${section.heading}` };
+    note = duplicateSectionNote(sections, args.heading, (s, h) => findSection([s as typeof section], h) !== undefined);
   } else if (ext === '.yaml' || ext === '.yml') {
     const sections = parseYamlSections(content);
     const section = findYamlSection(sections, args.heading);
@@ -87,6 +89,7 @@ export async function handleReadSection(
   const outputLines: string[] = [
     `FILE: ${args.path}`,
     `SECTION: ${sectionData.label} [L${sectionData.startLine}-${sectionData.endLine}] (${sectionData.lineCount} lines)`,
+    ...(note ? [note] : []),
     '',
     sectionData.content,
     '',

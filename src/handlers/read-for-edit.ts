@@ -7,6 +7,7 @@ import {
   parseMarkdownSections,
   findSection,
   extractSectionContent,
+  duplicateSectionNote,
 } from "./markdown-sections.js";
 import {
   parseYamlSections,
@@ -133,6 +134,7 @@ export async function handleReadForEdit(
       rawContent: string;
       label: string;
     } | null = null;
+    let note = "";
 
     if (ext === ".md" || ext === ".markdown") {
       const sections = parseMarkdownSections(fileContent);
@@ -154,6 +156,7 @@ export async function handleReadForEdit(
         rawContent: extractSectionContent(fileLines, section),
         label: `${hashes} ${section.heading}`,
       };
+      note = duplicateSectionNote(sections, args.section, (s, h) => findSection([s as typeof section], h) !== undefined);
     } else if (ext === ".yaml" || ext === ".yml") {
       const sections = parseYamlSections(fileContent);
       const section = findYamlSection(sections, args.section);
@@ -221,6 +224,7 @@ export async function handleReadForEdit(
     const outputLines: string[] = [
       `FILE: ${args.path}`,
       `EDIT SECTION: ${sectionResult.label} [L${sectionResult.startLine}-${sectionResult.endLine}] (${sectionResult.lineCount} lines)`,
+      ...(note ? [note] : []),
       "",
       sectionResult.rawContent,
       "",

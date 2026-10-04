@@ -146,4 +146,12 @@ describe('handleReadSection', () => {
     expect(text).not.toContain('Alice');
     expect(text).not.toContain('Eve');
   });
+
+  it('says which of several same-named headings it returned', async () => {
+    await writeFile(join(tempDir, 'dup.md'), ['# A', '## Usage', 'one', '# B', '## Usage', 'two'].join('\n'));
+    const result = await handleReadSection({ path: 'dup.md', heading: 'Usage' }, tempDir, new ContextRegistry());
+    const text = result.content[0].text;
+    expect(text).toContain('one');
+    expect(text).toMatch(/2 sections named "Usage".*L2.*L5/);
+  });
 });
