@@ -186,6 +186,35 @@ describe('buildFileStructure — TypeScript', () => {
   });
 });
 
+describe('buildFileStructure — TSX', () => {
+  const outline = [
+    'Outline of tests/fixtures/symbols/component.tsx:',
+    '  :3 Props [interface]',
+    '  :5 List [class]',
+    '  :14 Page [class]',
+    '  :17 warn [function]',
+    '  :21 handleSave [function]',
+    '  :36 ratio [function]',
+    '  :38 Other [class]',
+    '  :42 Third [class]',
+    '  :43 run [function]',
+  ];
+
+  it('closing tags after `}` and self-closing `/>` are not regex literals', async () => {
+    const s = await structureOf('component.tsx', outline);
+    expect(ranges(s.symbols)).toEqual({
+      Props: [3, 3],
+      List: [5, 12],
+      Page: [14, 34],
+      ratio: [36, 36],
+      Other: [38, 40],
+      Third: [42, 46],
+    });
+    expect(ranges(find(s.symbols, 'Page').children)).toEqual({ warn: [17, 17], handleSave: [21, 23] });
+    expect(ranges(find(s.symbols, 'Third').children)).toEqual({ run: [43, 45] });
+  });
+});
+
 describe('buildFileStructure — other languages', () => {
   it('JavaScript', async () => {
     const s = await structureOf('sample.js', ['  :1 K [class]', '  :2 m [function]', '  :3 n [function]', '  :8 f [function]']);

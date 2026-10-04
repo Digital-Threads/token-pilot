@@ -54,7 +54,7 @@ export async function buildFileStructure(
   const content = await readFile(filePath, 'utf-8');
   const fileStat = await stat(filePath);
   const lang = detectLanguage(filePath);
-  const src = new Source(content, lang);
+  const src = new Source(content, lang, /\.[jt]sx$/i.test(filePath));
   const symbols = buildSymbols(entries, src, lang, filePath);
 
   return {
@@ -87,12 +87,12 @@ class Source {
   /** Per line (0-based): `{` nesting depth at the start of the line. */
   readonly braceDepth: Int32Array;
 
-  constructor(readonly raw: string, readonly lang: string) {
+  constructor(readonly raw: string, readonly lang: string, jsx = false) {
     this.rawLines = raw.split('\n');
     this.lineStarts = [0];
     for (let k = 0; k < raw.length; k++) if (raw.charCodeAt(k) === 10) this.lineStarts.push(k + 1);
 
-    const masked = maskSource(raw, lang);
+    const masked = maskSource(raw, lang, jsx);
     const chars = raw.split('');
     const commentLine = new Uint8Array(this.lineStarts.length);
     const stringLine = new Uint8Array(this.lineStarts.length);
@@ -194,9 +194,10 @@ function isWordChar(ch: string): boolean {
 /**
  * Ranges of comments (false) and string/regex literals (true) to blank out.
  * Code inside JS template interpolations `${…}` stays visible; the `${` and
- * its closing `}` are blanked so they never count as a block.
+ * its closing `}` are blanked so they never count as a block. In JSX/TSX
+ * `</tag>` and `/>` are tags, never the start of a regex literal.
  */
-function maskSource(raw: string, lang: string): Array<[number, number, boolean]> {
+function maskSource(raw: string, lang: string, jsx = false): Array<[number, number, boolean]> {
   const js = JS_LANGUAGES.has(lang);
   const go = lang === 'Go';
   const hashComments = HASH_COMMENT_LANGUAGES.has(lang);
@@ -316,8 +317,9 @@ function maskSource(raw: string, lang: string): Array<[number, number, boolean]>
     }
 
     if (js && c === '/') {
-      const allowed = prevSig === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prevSig)
-        || (prevSig === 'a' && REGEX_PREFIX_WORDS.has(prevWord));
+      const tag = jsx && (prevSig === '<' || d === '>');
+      const allowed = !tag && (prevSig === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prevSig)
+        || (prevSig === 'a' && REGEX_PREFIX_WORDS.has(prevWord)));
       const e = allowed ? scanRegex(i) : -1;
       if (e > 0) {
         out.push([i, e, true]);
