@@ -337,10 +337,11 @@ describe("renderPreBashOutput", () => {
   });
 
   // v0.30.0 — advisory kind (used for test-runner nudge toward test_summary)
-  it("advise → permissionDecision=allow + additionalContext", () => {
+  // A permissionDecision of "allow" would skip the user's permission prompt.
+  it("advise → additionalContext only, no permissionDecision", () => {
     const json = renderPreBashOutput({ kind: "advise", reason: "hint" })!;
     const parsed = JSON.parse(json);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("hint");
   });
 });

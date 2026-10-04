@@ -149,10 +149,11 @@ describe("renderPreGrepOutput", () => {
   });
 
   // v0.30.0 — advisory kind for TODO-like scans routed to code_audit
-  it("advise decision → permissionDecision=allow + additionalContext", () => {
+  // A permissionDecision of "allow" would skip the user's permission prompt.
+  it("advise decision → additionalContext only, no permissionDecision", () => {
     const json = renderPreGrepOutput({ kind: "advise", reason: "use Y" })!;
     const parsed = JSON.parse(json);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput.additionalContext).toBe("use Y");
   });
 });

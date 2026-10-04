@@ -965,13 +965,13 @@ export function decidePreBash(
   return detectHeavyPattern(cmd, opts);
 }
 
+/** Advice carries no permissionDecision: "allow" would skip the user's permission prompt. */
 export function renderPreBashOutput(decision: PreBashDecision): string | null {
   if (decision.kind === "allow") return null;
   if (decision.kind === "advise") {
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: decision.reason,
       },
     });

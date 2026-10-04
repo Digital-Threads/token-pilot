@@ -167,7 +167,8 @@ export function decidePreGrep(
 }
 
 /**
- * Render the Claude Code hook JSON response.
+ * Render the Claude Code hook JSON response. Advice carries no
+ * permissionDecision: "allow" would skip the user's permission prompt.
  */
 export function renderPreGrepOutput(decision: PreGrepDecision): string | null {
   if (decision.kind === "allow") return null;
@@ -175,7 +176,6 @@ export function renderPreGrepOutput(decision: PreGrepDecision): string | null {
     return JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
         additionalContext: decision.reason,
       },
     });
