@@ -5,6 +5,109 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-04
+
+A four-part audit of 1.0.1 checked every MCP tool and every hook against
+ground truth (grep, git, the raw `ast-index` output, the files themselves) on
+TypeScript, JavaScript, Python, Go, Rust, PHP and Java. This release fixes what
+it found; each fix starts from a test that reproduced the finding.
+
+### Security
+
+- `smart_diff` and `smart_log` passed `ref` to git unchecked, so a ref such as
+  `--output=<path>` made git write a file anywhere. A ref that starts with `-`
+  is now rejected.
+
+### Fixed — reading tools return the code they claim to
+
+- Symbol ranges come from the source: the closing brace (with strings,
+  template literals, comments and regex literals skipped) or, for Python, the
+  indentation. Before, a symbol ended where the next one started, so a function
+  with nested functions was cut short (`createServer` in this repo came back as
+  31 of its 1,458 lines) and the next symbol's doc comment, decorators or
+  overloads were swallowed. Nested functions and class members are now nested,
+  in every language.
+- `read_symbol`, `read_symbols` and `read_for_edit` no longer answer "Symbol
+  not found" after `smart_read` or `read_for_edit` cached an empty structure.
+- `Class.method` requires the class (`Beta.run` returned `Alpha.run`); a symbol
+  is never taken from another file; two symbols with the same name are both
+  mentioned.
+- `read_diff` works after an edit: the file watcher no longer throws away its
+  baseline.
+- `smart_read` honours `scope`, `show_imports` and `show_docs`; `read_symbol`
+  honours `include_edit_context`; a one-line minified file is no longer
+  returned whole; `smart_read_many` honours `max_tokens`, says when it cut a
+  file and never marks unseen lines as already in context.
+- `read_for_edit`: callers resolve against the project (they pointed into the
+  plugin cache), tests next to the file or under `tests/` are found, an
+  untracked file says so.
+- Markdown ignores headings inside code fences and reads setext headings; CSV
+  rows are records (quoted multi-line fields); the last JSON key no longer
+  includes the closing brace; quoted YAML keys work.
+- Line counts are no longer one too high; `read_range` reports the range it
+  actually returned.
+
+### Fixed — search and navigation
+
+- `call_tree` was always empty; it parses the binary's text output and checks
+  each caller against a real definition.
+- `find_usages` was capped at about 20 results per source whatever `limit` said,
+  applied `scope` after the cap and never said it truncated. Definitions match
+  the exact name, `scope` is a path prefix, comment lines are not usages.
+- `find_unused` was mostly false positives; every candidate is now checked
+  with a word search across the project and dropped if referenced anywhere.
+- `related_files`, `code_audit`, `explore_area` and `explore` gave paths into
+  the plugin cache, missed `type` imports and tests, and matched importers by
+  name. `code_audit`'s TODO/deprecated/annotation scans always returned
+  nothing. All fixed.
+- `node_modules`, `dist`, `coverage` and `.git` are left out of every result:
+  ast-index indexes `node_modules/**/*.d.ts` regardless of `.gitignore`, which
+  crowded out project results.
+- `module_info` no longer invents modules from headings; `project_overview`'s
+  cache no longer feeds on itself; a stale index is updated before queries and
+  results say when files may be missing.
+
+### Fixed — git, tests and session tools
+
+- `smart_diff`: lines starting with `--` or `++` were dropped; changed symbols
+  are marked per symbol from the changed lines only; removed symbols are
+  reported; commit and branch scopes outline the file at that revision; merge
+  commits show what they brought in; paths with spaces or non-ASCII names
+  work; one output cap with one honest note.
+- `test_summary`: vitest counts were wrong whenever a test was `todo`;
+  failures are listed once; a timeout says timeout; a non-test command no
+  longer gets a PASS; the child process no longer inherits the plugin's
+  environment, so results match the terminal.
+- `session_budget`, `session_snapshot`, `session_analytics`, and the `stats`,
+  `errors`, `doctor` and `--help` CLI reports give correct numbers and labels.
+
+### Fixed — hooks
+
+- Agent dispatches were blocked on everyday words ("design", "plan",
+  "scope"), including Claude Code's built-in Plan agent. Only a
+  `general-purpose` dispatch (or one with no type) is redirected, and only on a
+  multi-word trigger phrase; low-confidence guesses stay silent. Under the
+  Claude Code module the tool guide now goes into the subagent's prompt
+  instead of the parent's context.
+- The Bash gate reads each part of a compound command on its own. Recursive
+  search in any spelling (`grep -rn`, `rg`, `git grep`) is caught unless
+  bounded; `cat package.json && node x`, `sed -n '1,20p'`, `git diff | head`
+  and `find` inside the project pass.
+- `TOKEN_PILOT_BYPASS=1` works in every gate; env overrides such as
+  `TOKEN_PILOT_DENY_THRESHOLD` work without a `.token-pilot.json`;
+  `TOKEN_PILOT_MODE=advisory` lets reads through.
+- Deny and advice texts name the tools and parameters as they really are,
+  for plugin and npm installs alike.
+- Command hooks find the project root from `CLAUDE_PROJECT_DIR` or the nearest
+  `.git`, not the current directory; files outside the project are not gated.
+- The Read gate also weighs bytes, so a one-line minified bundle is gated; one
+  extension list is shared by every gate.
+- Each subagent dispatch is counted once, on SubagentStop. `hook-post-task` is
+  no longer registered; the npm installer removes the old entry, installs the
+  UserPromptSubmit reminder it always shipped but never wrote, and re-installs
+  anything an older install is missing.
+- Codex gets Codex-specific session text.
+
 ## [1.0.1] - 2026-10-04
 
 ### Fixed — the module named token-pilot's tools by their npm names in Agent advice
