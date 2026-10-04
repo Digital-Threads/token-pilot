@@ -424,4 +424,23 @@ describe('handleReadForEdit', () => {
     expect(text).not.toContain('API content.');
     expect(text).toContain('AFTER EDIT');
   });
+
+  it('CSV rows: the edit block is the exact file text (header not glued on)', async () => {
+    const csv = ['id,note', '1,a', '2,"two', 'lines"', '3,c'].join('\n');
+    await writeFile(join(tempDir, 'data.csv'), csv);
+
+    const result = await handleReadForEdit(
+      { path: 'data.csv', section: 'row:2' },
+      tempDir,
+      {} as any,
+      new FileCache(),
+      new ContextRegistry(),
+      {} as any,
+    );
+
+    const text = result.content[0].text;
+    const block = text.split('\n\n')[1];
+    expect(block).toBe('2,"two\nlines"');
+    expect(csv).toContain(block);
+  });
 });

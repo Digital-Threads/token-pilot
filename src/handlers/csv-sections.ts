@@ -13,24 +13,59 @@ export interface CsvSection {
   startLine: number;
   endLine: number;
   lineCount: number;
+  /** Lines of the header record. */
+  headerStartLine?: number;
+  headerEndLine?: number;
+}
+
+/** One CSV record and the file lines it occupies (1-based). */
+export interface CsvRecordSpan {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/**
+ * Split CSV into records: a quoted field may span lines, blank lines are
+ * not records. Line numbers point into the file as it is.
+ */
+export function csvRecords(content: string): CsvRecordSpan[] {
+  const lines = content.split('\n');
+  const out: CsvRecordSpan[] = [];
+  let inQuote = false;
+  let start = 0;
+  let buf: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, '');
+    if (!inQuote && line.trim() === '') continue;
+    if (!inQuote) {
+      start = i + 1;
+      buf = [];
+    }
+    buf.push(line);
+    for (const ch of line) if (ch === '"') inQuote = !inQuote; // "" toggles twice
+    if (!inQuote) out.push({ start, end: i + 1, text: buf.join('\n') });
+  }
+  if (inQuote && buf.length > 0) out.push({ start, end: lines.length, text: buf.join('\n') });
+  return out;
 }
 
 /**
  * Parse CSV into an outline: columns, row count, sample.
- * Simple parser — handles quoted fields with commas.
+ * Handles quoted fields with commas and line breaks.
  */
 export function parseCsvOutline(content: string): CsvOutline {
-  const lines = content.split('\n').filter(l => l.trim());
-  if (lines.length === 0) return { columns: [], rowCount: 0, sampleRows: [] };
+  const records = csvRecords(content);
+  if (records.length === 0) return { columns: [], rowCount: 0, sampleRows: [] };
 
-  const columns = parseCsvRow(lines[0]);
-  const dataLines = lines.slice(1);
-  const sampleRows = dataLines.slice(0, 5).map(parseCsvRow);
+  const columns = parseCsvRow(records[0].text);
+  const data = records.slice(1);
 
   return {
     columns,
-    rowCount: dataLines.length,
-    sampleRows,
+    rowCount: data.length,
+    sampleRows: data.slice(0, 5).map((r) => parseCsvRow(r.text)),
   };
 }
 
@@ -40,20 +75,28 @@ export function parseCsvOutline(content: string): CsvOutline {
  *   "rows:1-50" — row range (1-indexed, refers to data rows, not header)
  *   "rows:1-50" with column filter isn't supported at section level
  */
-export function parseCsvSectionSpec(heading: string, totalDataRows: number): CsvSection | null {
-  // rows:N-M format
+export function parseCsvSectionSpec(heading: string, recordsOrRowCount: CsvRecordSpan[] | number): CsvSection | null {
+  // a bare count means one line per record, header on line 1
+  const records = typeof recordsOrRowCount === 'number'
+    ? Array.from({ length: recordsOrRowCount + 1 }, (_, i) => ({ start: i + 1, end: i + 1, text: '' }))
+    : recordsOrRowCount;
+  const totalDataRows = records.length - 1;
+  const span = (label: string, from: number, to: number): CsvSection => ({
+    heading: label,
+    startLine: records[from].start,
+    endLine: records[to].end,
+    lineCount: records[to].end - records[from].start + 1,
+    headerStartLine: records[0].start,
+    headerEndLine: records[0].end,
+  });
+
+  // rows:N-M format (data rows, 1-based, header excluded)
   const rowMatch = heading.match(/^rows?:\s*(\d+)\s*-\s*(\d+)$/i);
   if (rowMatch) {
     const start = Math.max(1, parseInt(rowMatch[1], 10));
     const end = Math.min(totalDataRows, parseInt(rowMatch[2], 10));
     if (start > end || start > totalDataRows) return null;
-    // +1 for header line offset
-    return {
-      heading: `rows ${start}-${end}`,
-      startLine: start + 1, // +1 because line 1 is header
-      endLine: end + 1,
-      lineCount: end - start + 1,
-    };
+    return span(`rows ${start}-${end}`, start, end);
   }
 
   // Single row number
@@ -61,12 +104,7 @@ export function parseCsvSectionSpec(heading: string, totalDataRows: number): Csv
   if (singleMatch) {
     const row = parseInt(singleMatch[1], 10);
     if (row < 1 || row > totalDataRows) return null;
-    return {
-      heading: `row ${row}`,
-      startLine: row + 1,
-      endLine: row + 1,
-      lineCount: 1,
-    };
+    return span(`row ${row}`, row, row);
   }
 
   return null;
@@ -76,9 +114,9 @@ export function parseCsvSectionSpec(heading: string, totalDataRows: number): Csv
  * Extract CSV rows for a section. Returns header + requested rows.
  */
 export function extractCsvSectionContent(lines: string[], section: CsvSection): string {
-  const header = lines[0]; // always include header
+  const header = lines.slice((section.headerStartLine ?? 1) - 1, section.headerEndLine ?? 1); // always include header
   const dataRows = lines.slice(section.startLine - 1, section.endLine);
-  return [header, ...dataRows].join('\n');
+  return [...header, ...dataRows].join('\n');
 }
 
 /**

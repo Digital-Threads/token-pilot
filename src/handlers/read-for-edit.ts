@@ -20,9 +20,8 @@ import {
   extractJsonSectionContent,
 } from "./json-sections.js";
 import {
-  parseCsvOutline,
+  csvRecords,
   parseCsvSectionSpec,
-  extractCsvSectionContent,
 } from "./csv-sections.js";
 import type { AstIndexClient } from "../ast-index/client.js";
 import type { SymbolResolver } from "../core/symbol-resolver.js";
@@ -196,22 +195,23 @@ export async function handleReadForEdit(
         label: section.heading,
       };
     } else if (ext === ".csv") {
-      const outline = parseCsvOutline(fileContent);
-      const section = parseCsvSectionSpec(args.section, outline.rowCount);
+      const records = csvRecords(fileContent);
+      const section = parseCsvSectionSpec(args.section, records);
       if (!section) {
         return {
           content: [
             {
               type: "text",
-              text: `Invalid section "${args.section}" for CSV. Use: rows:1-50 or row:5\nTotal rows: ${outline.rowCount}`,
+              text: `Invalid section "${args.section}" for CSV. Use: rows:1-50 or row:5\nTotal rows: ${Math.max(0, records.length - 1)}`,
             },
           ],
         };
       }
+      // only the file's own lines: the header is not next to the rows, so it can't be in old_string
       sectionResult = {
         ...section,
-        rawContent: extractCsvSectionContent(fileLines, section),
-        label: section.heading,
+        rawContent: fileLines.slice(section.startLine - 1, section.endLine).join("\n"),
+        label: `${section.heading} (columns: ${records[0]?.text.split("\n")[0] ?? ""})`,
       };
     }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent, formatCsvOutline } from '../../src/handlers/csv-sections.js';
+import { parseCsvOutline, parseCsvSectionSpec, extractCsvSectionContent, formatCsvOutline, csvRecords } from '../../src/handlers/csv-sections.js';
 
 const SAMPLE_CSV = [
   'id,name,email,role',
@@ -98,5 +98,26 @@ describe('formatCsvOutline', () => {
     expect(output).toContain('SAMPLE');
     expect(output).toContain('name=John Doe');
     expect(output).toContain('read_section');
+  });
+});
+
+describe('CSV records, not physical lines', () => {
+  // row 1 has a quoted field spanning two lines; a blank line sits before row 3
+  const CSV = ['id,note', '1,"first', 'second"', '2,plain', '', '3,last'].join('\n');
+
+  it('counts records and keeps multi-line fields whole', () => {
+    const outline = parseCsvOutline(CSV);
+    expect(outline.rowCount).toBe(3);
+    expect(outline.sampleRows[0]).toEqual(['1', 'first\nsecond']);
+    expect(outline.sampleRows[1]).toEqual(['2', 'plain']);
+  });
+
+  it('maps rows to their real line ranges', () => {
+    const records = csvRecords(CSV);
+    expect(parseCsvSectionSpec('row:1', records)).toMatchObject({ startLine: 2, endLine: 3 });
+    expect(parseCsvSectionSpec('row:3', records)).toMatchObject({ startLine: 6, endLine: 6 });
+    expect(parseCsvSectionSpec('rows:2-3', records)).toMatchObject({ startLine: 4, endLine: 6, lineCount: 3 });
+    const content = extractCsvSectionContent(CSV.split('\n'), parseCsvSectionSpec('row:1', records)!);
+    expect(content).toBe('id,note\n1,"first\nsecond"');
   });
 });
