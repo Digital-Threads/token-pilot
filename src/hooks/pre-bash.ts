@@ -291,6 +291,8 @@ function parse(tokens: Token[]): Segment[] {
   /** What a `|` here would take the output of: the last command, or the whole group it closed. */
   let piping: Segment[] = [];
   let pipeFrom: Segment[] = [];
+  /** The group a `)` just closed: redirections right after it apply to the whole group. */
+  let closedByParen: Segment[] | null = null;
   let pendingRedir: Segment["redirs"][number] | null = null;
 
   const fresh = (): Segment => ({
@@ -310,6 +312,12 @@ function parse(tokens: Token[]): Segment[] {
     if (start !== undefined) piping = segs.slice(start);
   };
 
+  /** `} > out.txt`, `done > out.txt`, `) > out.txt`: every command of the group writes there. */
+  const redirectGroup = (group: Segment[], from: Segment): void => {
+    const out = from.redirs.filter((r) => !r.v.startsWith("<"));
+    for (const s of group) if (s !== from) s.redirs.push(...out);
+  };
+
   const end = (): void => {
     if (cur.words.length === 0 && cur.redirs.length === 0) return;
     // A command already piped inside the group keeps its own pipe.
@@ -319,13 +327,19 @@ function parse(tokens: Token[]): Segment[] {
     segs.push(cur);
     piping = [cur];
 
-    if (CLOSERS.has(cur.words[0])) closeGroup();
-    else {
+    if (CLOSERS.has(cur.words[0])) {
+      closeGroup();
+      redirectGroup(piping, cur);
+    } else if (cur.words.length === 0 && closedByParen) {
+      redirectGroup(closedByParen, cur);
+      piping = [...closedByParen, cur];
+    } else {
       for (const w of cur.words) {
         if (OPENERS.has(w)) groups.push(segs.length - 1);
         else if (!KEYWORDS.has(w)) break;
       }
     }
+    closedByParen = null;
     cur = fresh();
   };
 
@@ -357,12 +371,17 @@ function parse(tokens: Token[]): Segment[] {
 
     pendingRedir = null;
     end();
-    if (tok.v === "|") pipeFrom = piping;
-    else if (tok.v === "(") groups.push(segs.length);
-    else if (tok.v === ")") closeGroup();
-    else {
+    if (tok.v === "|") {
+      pipeFrom = piping;
+      closedByParen = null;
+    } else if (tok.v === "(") groups.push(segs.length);
+    else if (tok.v === ")") {
+      closeGroup();
+      closedByParen = piping;
+    } else {
       pipeFrom = [];
       piping = [];
+      closedByParen = null;
     }
   }
 

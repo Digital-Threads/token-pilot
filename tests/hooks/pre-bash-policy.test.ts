@@ -256,6 +256,19 @@ table("group piped into a bound", [
   ["for f in *.ts; do cat $f; done", "deny"],
 ]);
 
+// Review 1.0.2 — a redirection after `)`, `}`, `done` or `fi` sends the
+// output of every command in that group to the file.
+table("group redirected to a file", [
+  ["{ cat a.ts; } > out.txt", "allow"],
+  ["(cat a.ts) > out.txt", "allow"],
+  ["for f in *.ts; do cat $f; done > out.txt", "allow"],
+  ["if true; then cat a.ts; fi >> log.txt", "allow"],
+  ["(cat a.ts) 2>/dev/null | head", "allow"],
+  ["{ cat a.ts; } 2>/dev/null", "deny"],
+  ["(cat a.ts) 2>&1", "deny"],
+  ["(cat a.ts); echo x > out.txt", "deny"],
+]);
+
 // Review 1.0.2 — a head over the slice limit does not bound a whole-file
 // viewer; `$'…'` quoting has backslash escapes.
 table("viewer bounds and ANSI-C quotes", [
