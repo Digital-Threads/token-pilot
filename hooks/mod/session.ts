@@ -58,11 +58,15 @@ async function agentEntries($: EngineInterface, dir: string): Promise<AgentEntry
 
 async function sessionText($: EngineInterface): Promise<string | null> {
   const root = await $.session.root()
-  const config = configFrom(await readText($, join(root, '.token-pilot.json')), {
+  // Literal names: the engine lists the variables a module reads.
+  const env = {
     TOKEN_PILOT_DENY_THRESHOLD: await $.env.get('TOKEN_PILOT_DENY_THRESHOLD'),
     TOKEN_PILOT_ADAPTIVE_THRESHOLD: await $.env.get('TOKEN_PILOT_ADAPTIVE_THRESHOLD'),
     TOKEN_PILOT_ADAPTIVE_BUDGET: await $.env.get('TOKEN_PILOT_ADAPTIVE_BUDGET'),
-  })
+    TOKEN_PILOT_MODE: await $.env.get('TOKEN_PILOT_MODE'),
+    TOKEN_PILOT_BYPASS: await $.env.get('TOKEN_PILOT_BYPASS'),
+  }
+  const config = configFrom(await readText($, join(root, '.token-pilot.json')), env)
   if (!config.sessionStart.enabled || (await $.env.get('TOKEN_PILOT_BYPASS')) === '1') return null
 
   // Project agents first; home agents fill in names not already present.

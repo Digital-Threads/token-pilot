@@ -19,6 +19,8 @@ export interface FormatOptions {
   tier: PipelineTier;
   /** Soft cap on the rendered message token count (estimated). Default 1200. */
   maxTokens?: number;
+  /** The Read gate's line threshold: a bounded Read passes up to this limit. Default 300. */
+  threshold?: number;
 }
 
 const DEFAULT_MAX_TOKENS = 1200;
@@ -43,14 +45,15 @@ function header(opts: FormatOptions): string {
   );
 }
 
-function footer(): string {
+function footer(threshold: number): string {
   return [
     "How to proceed:",
     `- Structural overview (preferred): ${toolPrefix()}smart_read(path).`,
-    "- For specific lines: Read(path, offset, limit) — bounded reads are passed through.",
-    `- For a single symbol: ${toolPrefix()}read_symbol(path, name).`,
+    `- For specific lines: Read(path, offset, limit) with limit ≤ ${threshold} passes.`,
+    `- For a single symbol: ${toolPrefix()}read_symbol(path, symbol).`,
     `- For edit context: ${toolPrefix()}read_for_edit(path, symbol).`,
-    "- Full read (expensive): set TOKEN_PILOT_BYPASS=1 for this session.",
+    `- The whole file anyway: page through it with Read in slices of ≤ ${threshold} lines. ` +
+      "Only the user can switch the gate off (TOKEN_PILOT_BYPASS=1 when starting Claude Code).",
   ].join("\n");
 }
 
@@ -134,7 +137,7 @@ export function formatDenyMessage(opts: FormatOptions): string {
   // Build with full signal list first.
   let sections = partition(opts.summary.signals);
   let { body } = renderSections(sections, opts.summary.note);
-  let message = [header(opts), "", body, footer()].join("\n");
+  let message = [header(opts), "", body, footer(opts.threshold ?? 300)].join("\n");
   let trimmed = false;
 
   // If we overflow, drop signals from the END of each section in lockstep
@@ -165,19 +168,19 @@ export function formatDenyMessage(opts: FormatOptions): string {
 
     trimmed = true;
     ({ body } = renderSections(sections, opts.summary.note));
-    message = [header(opts), "", body, footer()].join("\n");
+    message = [header(opts), "", body, footer(opts.threshold ?? 300)].join("\n");
   }
 
   if (trimmed) {
     const trimmedNote =
-      `\n(trimmed to fit budget; call ${toolPrefix()}outline(path) for full structure)`;
+      `\n(trimmed to fit budget; call ${toolPrefix()}smart_read(path) for the full structure)`;
     message = [
       header(opts),
       "",
       body.trimEnd(),
       trimmedNote,
       "",
-      footer(),
+      footer(opts.threshold ?? 300),
     ].join("\n");
   }
 
