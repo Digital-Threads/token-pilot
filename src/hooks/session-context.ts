@@ -84,26 +84,39 @@ function parseFrontmatter(content: string): Record<string, string> {
 
 // ─── Message builder (subtask 2.3) ───────────────────────────────────────────
 
-export const MANDATORY_BLOCK = `[token-pilot active]
-
-MANDATORY — use these BEFORE raw Read / Grep / git:
-  smart_read(path)             — structural overview of a code file
-  read_symbol(path, sym)       — one function / class body
-  read_for_edit(path, sym)     — exact text for Edit's old_string
-  outline(path)                — symbol list
-  find_usages(symbol)          — who calls / uses a symbol (INSTEAD of Grep)
-  smart_diff                   — git diff structurally (INSTEAD of raw git diff)
-  smart_log(path?)             — git log with symbol context (INSTEAD of raw git log)
+const TOOL_LIST = `  smart_read(path)             — structural overview of a code file
+  read_symbol(path, symbol)    — one function / class body
+  read_for_edit(path, symbol)  — exact text for an edit's old_string
+  outline(dir)                 — symbols of every file in a directory
+  find_usages(symbol)          — who calls / uses a symbol (instead of grep)
+  smart_diff                   — git diff structurally (instead of raw git diff)
+  smart_log(path?)             — git log with symbol context (instead of raw git log)
   test_summary(command)        — test runs without dumping full output
   project_overview             — unfamiliar repo top-level map (first step)
 Batch variants (prefer over loops): read_symbols, smart_read_many.
 read_section — Markdown/YAML/JSON/CSV ONLY (by heading/key/row); for CODE use read_range / read_symbol.
 Also available: read_range, read_diff, module_info, related_files, explore_area,
-code_audit, find_unused, session_snapshot, session_budget, session_analytics.
-Raw Read/Grep allowed only with offset/limit / narrow regex / non-code files,
-or TOKEN_PILOT_BYPASS=1.`;
+code_audit, find_unused, session_snapshot, session_budget, session_analytics.`;
 
-export const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, use the Task tool:
+const SHELL_GATE =
+  "Unbounded shell dumps (cat of a code file, grep -r, git log/diff without a bound) are refused; " +
+  "prefix a command with TOKEN_PILOT_BYPASS=1 to run it anyway.";
+
+export const MANDATORY_BLOCK = `[token-pilot active]
+
+MANDATORY — use these BEFORE whole-file Read, grep or git:
+${TOOL_LIST}
+A whole-file Read of a big code file returns its outline; Read with offset/limit
+within the gate's limit (300 lines by default) passes. ${SHELL_GATE}`;
+
+/** Codex has no Read tool and no tp-* agents: everything goes through the shell. */
+export const CODEX_BLOCK = `[token-pilot active]
+
+MANDATORY — use these BEFORE reading code through the shell (cat, sed, grep -r, git):
+${TOOL_LIST}
+${SHELL_GATE}`;
+
+export const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, dispatch it with the Agent tool:
   bug / stack trace       → tp-debugger
   PR / diff review        → tp-pr-reviewer
   impact before change    → tp-impact-analyzer
@@ -147,20 +160,28 @@ export function buildReminderMessage(
   }
 
   // Filter the decision guide to the agents this user actually has
-  // installed. Dropping lines for missing agents keeps the reminder
-  // honest when the template ships an agent the user hasn't installed.
-  const installedNames = new Set(agents.map((a) => a.name));
+  // installed, under the name they are dispatched by (a plugin's agents are
+  // `token-pilot:tp-*`). Dropping lines for missing agents keeps the
+  // reminder honest when the template ships an agent the user hasn't installed.
+  const installed = new Map(agents.map((a) => [a.name.slice(a.name.indexOf(":") + 1), a.name]));
   const guideKnownNames = new Set<string>();
-  const decisionGuideLines = DECISION_GUIDE.split("\n").filter((line) => {
+  const decisionGuideLines: string[] = [];
+  for (const line of DECISION_GUIDE.split("\n")) {
     const m = line.match(/→\s+(tp-[a-z-]+)/);
-    if (!m) return true; // header / footer
+    if (!m) {
+      decisionGuideLines.push(line); // header / footer
+      continue;
+    }
     guideKnownNames.add(m[1]);
-    return installedNames.has(m[1]);
-  });
+    const name = installed.get(m[1]);
+    if (name) decisionGuideLines.push(line.replace(m[1], name));
+  }
 
   // Fallback: custom / third-party tp-* agents we don't hard-code in the
   // guide still deserve a mention so the main agent can delegate to them.
-  const extras = agents.filter((a) => !guideKnownNames.has(a.name));
+  const extras = agents.filter(
+    (a) => !guideKnownNames.has(a.name.slice(a.name.indexOf(":") + 1)),
+  );
   if (extras.length > 0) {
     const extraLines = extras.map(
       (a) => `  custom: ${a.name}  — ${a.description}`,

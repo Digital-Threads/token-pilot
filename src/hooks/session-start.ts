@@ -17,6 +17,7 @@ import { parseProfileEnv, type ToolProfile } from "../server/tool-profiles.js";
 import {
   buildReminderMessage,
   buildSubagentAdoptionNudge,
+  CODEX_BLOCK,
   duplicateWarning,
   parseAgentEntry,
   profileBannerNote,
@@ -46,6 +47,8 @@ export interface HandleSessionStartOptions {
   projectRoot: string;
   homeDir: string;
   sessionStartConfig: SessionStartConfig;
+  /** The plugin's root (CLAUDE_PLUGIN_ROOT): its agents ship in `agents/`. */
+  pluginRoot?: string;
   /**
    * Which client this hook is serving. Codex validates the returned
    * `hookSpecificOutput` and fails the hook on a key it does not know,
@@ -60,7 +63,7 @@ export interface HandleSessionStartOptions {
 /**
  * Scan one agents directory for tp-*.md files and return parsed entries.
  */
-async function scanDir(dir: string): Promise<AgentEntry[]> {
+async function scanDir(dir: string, prefix = ""): Promise<AgentEntry[]> {
   let names: string[];
   try {
     names = await readdir(dir);
@@ -73,7 +76,8 @@ async function scanDir(dir: string): Promise<AgentEntry[]> {
     if (!filename.startsWith("tp-") || !filename.endsWith(".md")) continue;
     try {
       const content = await readFile(join(dir, filename), "utf-8");
-      agents.push(parseAgentEntry(filename, content));
+      const entry = parseAgentEntry(filename, content);
+      agents.push({ ...entry, name: prefix + entry.name });
     } catch {
       // Skip unreadable files
     }
@@ -82,30 +86,32 @@ async function scanDir(dir: string): Promise<AgentEntry[]> {
 }
 
 /**
- * Scan ~/.claude/agents/ and ./.claude/agents/ for tp-*.md agent definitions.
- * Project directory takes precedence; duplicates (by name) are dropped.
+ * Scan ./.claude/agents/, ~/.claude/agents/ and the plugin's own agents/
+ * for tp-*.md agent definitions. Earlier directories take precedence;
+ * duplicates (by bare name) are dropped. Plugin agents are named as Claude
+ * Code dispatches them: `token-pilot:tp-*`.
  *
  * @param projectRoot - absolute path to the project root
  * @param homeDir - home directory (injected for testability; defaults to os.homedir())
+ * @param pluginRoot - the plugin's root (CLAUDE_PLUGIN_ROOT), when installed as one
  */
 export async function scanAgents(
   projectRoot: string,
   homeDir: string,
+  pluginRoot?: string,
 ): Promise<AgentEntry[]> {
-  const projectAgentsDir = join(projectRoot, ".claude", "agents");
-  const homeAgentsDir = join(homeDir, ".claude", "agents");
-
-  const [projectAgents, homeAgents] = await Promise.all([
-    scanDir(projectAgentsDir),
-    scanDir(homeAgentsDir),
+  const found = await Promise.all([
+    scanDir(join(projectRoot, ".claude", "agents")),
+    scanDir(join(homeDir, ".claude", "agents")),
+    pluginRoot ? scanDir(join(pluginRoot, "agents"), "token-pilot:") : [],
   ]);
 
-  // Merge: project agents first; home agents fill in names not already present
   const seen = new Set<string>();
   const merged: AgentEntry[] = [];
-  for (const agent of [...projectAgents, ...homeAgents]) {
-    if (!seen.has(agent.name)) {
-      seen.add(agent.name);
+  for (const agent of found.flat()) {
+    const bare = agent.name.slice(agent.name.indexOf(":") + 1);
+    if (!seen.has(bare)) {
+      seen.add(bare);
       merged.push(agent);
     }
   }
@@ -121,11 +127,14 @@ export async function handleSessionStart(
       return null;
     }
 
-    const agents = await scanAgents(opts.projectRoot, opts.homeDir);
-    let message = buildReminderMessage(
-      agents,
-      opts.sessionStartConfig.maxReminderTokens,
-    );
+    // Codex has no Read tool and no tp-* agents: its own text.
+    const codex = opts.client === "codex";
+    let message = codex
+      ? CODEX_BLOCK
+      : buildReminderMessage(
+          await scanAgents(opts.projectRoot, opts.homeDir, opts.pluginRoot),
+          opts.sessionStartConfig.maxReminderTokens,
+        );
     // Prepend a profile caveat when a trimmed surface hides referenced tools.
     message =
       profileBannerNote(parseProfileEnv(process.env.TOKEN_PILOT_PROFILE)) +
@@ -141,7 +150,7 @@ export async function handleSessionStart(
     // general-purpose on routable work, surface a one-liner so the
     // user / agent sees the miss rate without needing `stats --tasks`.
     try {
-      const events = await loadEvents(opts.projectRoot);
+      const events = codex ? [] : await loadEvents(opts.projectRoot);
       const nudge = buildSubagentAdoptionNudge(events, Date.now());
       if (nudge) message += `\n\n${nudge}`;
     } catch {

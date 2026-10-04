@@ -21,10 +21,15 @@
  * inside a tool whose entire point is saving tokens.
  */
 export const MINIMAL_ANCHOR =
-  "[token-pilot] Before raw Read/Grep/git, use the token-pilot tools: " +
+  "[token-pilot] Before a whole-file Read, grep or git, use the token-pilot tools: " +
   "smart_read · read_symbol · find_usages · smart_diff / smart_log. " +
   "Delegate scoped work to tp-* specialists. " +
-  "Raw Read/Grep only with offset/limit or a narrow regex.";
+  "Read big code files with offset/limit.";
+
+/** Codex reads through the shell and has no tp-* agents. */
+export const CODEX_ANCHOR =
+  "[token-pilot] Before reading code through the shell (cat, sed, grep -r, git), " +
+  "use the token-pilot tools: smart_read · read_symbol · find_usages · smart_diff / smart_log.";
 
 /**
  * Build the per-turn `additionalContext`, or null when disabled /
@@ -33,9 +38,10 @@ export const MINIMAL_ANCHOR =
 export function buildPromptReminder(
   enabled: boolean,
   bypass: boolean,
+  client: "claude-code" | "codex" = "claude-code",
 ): string | null {
   if (!enabled || bypass) return null;
-  return MINIMAL_ANCHOR;
+  return client === "codex" ? CODEX_ANCHOR : MINIMAL_ANCHOR;
 }
 
 /** Wrap the message in the UserPromptSubmit hook output envelope. */

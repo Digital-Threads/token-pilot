@@ -20,7 +20,8 @@ export async function loadConfig(
         `[token-pilot] Invalid config at ${configPath}: ${err?.message ?? err}. Using defaults.`,
       );
     }
-    return resolveConfig(null, {});
+    // No file is no reason to ignore the environment.
+    return resolveConfig(null, process.env);
   }
 
   // Phase 6 subtask 6.4 — rewrite legacy `mode:"deny"` to `"advisory"`

@@ -23,6 +23,7 @@
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
 import { toolPrefix } from "../core/tool-names.js";
+import { isCodeFile } from "./read-gate.js";
 
 export interface PreGrepInput {
   tool_name?: string;
@@ -60,9 +61,12 @@ export function isTodoScanPattern(pattern: string): boolean {
  * - Length ≥ 4 (avoid `id`, `err`, `db` — Grep wins there)
  * - No regex metacharacters (`.` `*` `+` `?` `|` `(` `)` `[` `]`
  *   `{` `}` `^` `$` `\`) — if present we assume real regex
- * - Not purely lowercase words (those look like prose search)
- * - Matches `camelCase`, `PascalCase`, `snake_case`, `CONSTANT_CASE`,
- *   or `kebab-case` shapes
+ * - camelCase / PascalCase with an inner hump (`getUser`, `UserService`),
+ *   snake_case or CONSTANT_CASE.
+ *
+ * Not identifiers (1.0.2): kebab-case (`token-pilot`, `x-api-key`,
+ * `UTF-8` — package names, headers, CSS), a single capitalised word
+ * (`Error`, `README`), anything starting with `-`.
  */
 export function isSymbolLikePattern(pattern: string): boolean {
   if (pattern.length < 4) return false;
@@ -70,31 +74,43 @@ export function isSymbolLikePattern(pattern: string): boolean {
   // Regex metacharacters — if any present, assume user means regex.
   if (/[.*+?|()[\]{}^$\\]/.test(pattern)) return false;
 
-  // Spaces or control chars — not a single symbol.
-  if (/\s/.test(pattern)) return false;
-
-  // Must contain at least one letter (so "12345" or "-->" don't trip).
+  // A single word of letters, digits and underscores — no spaces, hyphens,
+  // leading dashes.
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(pattern)) return false;
   if (!/[a-zA-Z]/.test(pattern)) return false;
 
-  // Shapes we consider symbol-like:
-  //   camelCase        → foo(Bar)+
-  //   PascalCase       → (Foo)+
-  //   snake_case       → at least one underscore
-  //   CONSTANT_CASE    → all upper with underscore
-  //   kebab-case       → at least one hyphen
-  const hasUpperInMiddle = /[a-z][A-Z]/.test(pattern);
-  const hasUnderscore = /_/.test(pattern);
-  const hasHyphen = /-/.test(pattern);
-  const isPureUppercase = /^[A-Z][A-Z0-9]+$/.test(pattern);
-  const isPascalCase = /^[A-Z][a-zA-Z0-9]+$/.test(pattern);
+  const hasUpperInMiddle = /[a-z0-9][A-Z]/.test(pattern);
+  const hasUnderscore = /[A-Za-z0-9]_[A-Za-z0-9]/.test(pattern);
 
-  return (
-    hasUpperInMiddle ||
-    hasUnderscore ||
-    hasHyphen ||
-    isPureUppercase ||
-    isPascalCase
-  );
+  return hasUpperInMiddle || hasUnderscore;
+}
+
+/** File types a Grep may be confined to that hold code. */
+const CODE_TYPES = new Set([
+  "js", "ts", "jsx", "tsx", "py", "rust", "go", "java", "kotlin", "swift",
+  "php", "ruby", "c", "cpp", "csharp", "cs", "scala", "dart", "lua", "sh",
+  "vue", "svelte", "sql", "elixir", "clojure", "elm", "ocaml", "fsharp",
+]);
+
+/** The search is confined to files that are not code (`*.md`, type md, a README). */
+function nonCodeScope(input: PreGrepInput["tool_input"]): boolean {
+  const glob = input?.glob;
+  if (typeof glob === "string" && glob.length > 0) {
+    return !globHasCode(glob);
+  }
+
+  const type = input?.type;
+  if (typeof type === "string" && type.length > 0) return !CODE_TYPES.has(type.toLowerCase());
+
+  const path = input?.path;
+  return typeof path === "string" && /\.[A-Za-z0-9]+$/.test(path) && !isCodeFile(path);
+}
+
+/** `*.ts`, `src/**\/*.{ts,tsx}` — the glob names at least one code extension. */
+function globHasCode(glob: string): boolean {
+  const tail = glob.slice(glob.lastIndexOf(".") + 1).replace(/[{}]/g, "");
+
+  return tail.split(",").some((ext) => isCodeFile(`x.${ext.trim()}`));
 }
 
 /**
@@ -120,7 +136,7 @@ export function decidePreGrep(
       kind: "advise",
       reason:
         `Grep pattern "${pattern}" is a TODO / FIXME / HACK scan. ` +
-        `Prefer mcp__token-pilot__code_audit — it returns deduplicated, ` +
+        `Prefer ${toolPrefix()}code_audit(check="todo") — it returns deduplicated, ` +
         `categorised tags across the project with file/line references, ` +
         `typically 3-5× fewer tokens than raw Grep and ignores generated/` +
         `vendored code automatically.`,
@@ -132,13 +148,21 @@ export function decidePreGrep(
 
   if (!isSymbolLikePattern(pattern)) return { kind: "allow" };
 
+  // Bounded output (file names, counts, a head limit) or a search of
+  // non-code files: Grep is the right tool.
+  const ti = input.tool_input;
+  const outputMode = ti?.output_mode;
+  if (outputMode === "files_with_matches" || outputMode === "count") return { kind: "allow" };
+  if (typeof ti?.head_limit === "number" && ti.head_limit > 0) return { kind: "allow" };
+  if (nonCodeScope(ti)) return { kind: "allow" };
+
   const reason =
     `Grep pattern "${pattern}" looks like a code identifier. ` +
     `Use ${toolPrefix()}find_usages(symbol="${pattern}") for semantic ` +
     `search — groups results into definitions / imports / usages, typically ` +
     `5-10× cheaper than Grep's line-oriented output. ` +
-    `If you really need a raw text search (regex, comment hunt, string ` +
-    `literal) re-run Grep with -E or a regex-shaped pattern to bypass.`;
+    `Need a raw text search anyway (a string literal, a comment)? Bound it: ` +
+    `output_mode "files_with_matches" or "count", or a head_limit.`;
   return { kind: "deny", reason };
 }
 

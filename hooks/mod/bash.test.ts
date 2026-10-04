@@ -137,3 +137,33 @@ test('after a large output, points at the context-mode tool the session has', as
 
   expect((res.context ?? []).join('\n')).toContain('mcp__plugin_context-mode_context-mode__ctx_execute')
 })
+
+test('TOKEN_PILOT_BYPASS=1 in the env lets a dump through', async ($, on) => {
+  on('env.get', async (_$: any, e: any) => ({ value: e.name === 'TOKEN_PILOT_BYPASS' ? '1' : undefined }))
+  on('session.root', async () => ({ value: '/repo' }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '' }, text: '' }) as any)
+
+  const res: any = await $.tool.call({ tool: 'Bash', command: 'cat src/index.ts' } as any)
+
+  expect(res.deny).toBe(undefined)
+})
+
+test('a TOKEN_PILOT_BYPASS=1 prefix lets a dump through', async ($, on) => {
+  stubs(on)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '' }, text: '' }) as any)
+
+  const res: any = await $.tool.call({ tool: 'Bash', command: 'TOKEN_PILOT_BYPASS=1 cat src/index.ts' } as any)
+
+  expect(res.deny).toBe(undefined)
+})
+
+test('find inside the session root passes; outside it is a disk walk', async ($, on) => {
+  stubs(on)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '' }, text: '' }) as any)
+
+  const inside: any = await $.tool.call({ tool: 'Bash', command: 'find /repo/src -type f' } as any)
+  const outside: any = await $.tool.call({ tool: 'Bash', command: 'find /opt -type f' } as any)
+
+  expect(inside.deny).toBe(undefined)
+  expect(outside.deny).toContain('find /opt')
+})

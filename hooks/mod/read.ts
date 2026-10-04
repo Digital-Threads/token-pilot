@@ -16,20 +16,15 @@ import {
 } from '../../src/hooks/read-gate.js'
 import { computeEffectiveThreshold } from '../../src/hooks/adaptive-threshold.js'
 import { estimateTokens } from '../../src/core/token-estimator.js'
-import { isAbsolute, relative } from '../../src/core/portable-path.js'
+import { relative } from '../../src/core/portable-path.js'
 import { ROTATION_THRESHOLD_BYTES, tagEvent } from '../../src/core/hook-event.js'
 import type { HookEvent } from '../../src/core/event-log.js'
-import { appendLog, caught, configFrom, PREFIX } from './host.js'
+import { appendLog, caught, configFrom, isInside, PREFIX } from './host.js'
 
 export const READ_ACTIONS = ['hook-read']
 
 // $.fs.read rejects files this large; they are measured with wc -l instead.
 const FS_READ_MAX = 4 * 1024 * 1024
-
-const inside = (root: string, path: string): boolean => {
-  const rel = relative(root, path)
-  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
-}
 
 /**
  * Line count of a file $.fs.read will not return; without `wc`, estimated
@@ -59,18 +54,22 @@ export function registerRead(on: On): void {
     if (!isCodeFile(filePath)) return next(e)
 
     const root = await $.session.root()
-    const config = configFrom(await $.fs.read(`${root}/.token-pilot.json`).then(String, () => null), {
+    // Literal names: the engine lists the variables a module reads.
+    const env = {
       TOKEN_PILOT_DENY_THRESHOLD: await $.env.get('TOKEN_PILOT_DENY_THRESHOLD'),
       TOKEN_PILOT_ADAPTIVE_THRESHOLD: await $.env.get('TOKEN_PILOT_ADAPTIVE_THRESHOLD'),
       TOKEN_PILOT_ADAPTIVE_BUDGET: await $.env.get('TOKEN_PILOT_ADAPTIVE_BUDGET'),
-    })
+      TOKEN_PILOT_MODE: await $.env.get('TOKEN_PILOT_MODE'),
+      TOKEN_PILOT_BYPASS: await $.env.get('TOKEN_PILOT_BYPASS'),
+    }
+    const config = configFrom(await $.fs.read(`${root}/.token-pilot.json`).then(String, () => null), env)
     if (config.hooks.mode === 'off') return next(e)
 
     // Real paths, so a symlink pointing out of the project passes through.
     const realRoot = (await $.fs.stat(root, { resolve: true })).realPath ?? root
     // A missing file is Read's to report, not a hook failure.
     const fileStat = await $.fs.stat(filePath, { resolve: true }).catch(() => null)
-    if (!fileStat || !inside(realRoot, fileStat.realPath ?? filePath)) return next(e)
+    if (!fileStat || !isInside(realRoot, fileStat.realPath ?? filePath)) return next(e)
 
     const threshold = config.hooks.adaptiveThreshold
       ? computeEffectiveThreshold({
@@ -111,7 +110,7 @@ export function registerRead(on: On): void {
     if (!text) return { deny: pointer }
 
     const ran = await next({ ...e, offset: 1, limit: 1 })
-    if (ran.deny !== undefined || ran.isError || ran.result?.type !== 'text') return ran
+    if (ran.deny !== undefined || ran.isError) return ran
 
     const saved = Math.max(0, gate.estTokens - estimateTokens(text))
     savedThisSession += saved
@@ -143,8 +142,17 @@ export function registerRead(on: On): void {
       /* telemetry must never cost the model its outline */
     }
 
-    const header = outlineHeader(relative(root, filePath), gate.lineCount, gate.estTokens, PREFIX)
+    const body = outlineHeader(relative(root, filePath), gate.lineCount, gate.estTokens, PREFIX) + text
 
-    return { ...ran, result: { ...ran.result, file: { ...ran.result.file, content: header + text } } }
+    // Claude Code de-duplicates a Read of an unchanged file with the range it
+    // already served — our own 1-line read, the second time round — and
+    // answers "unchanged". The model has only ever seen an outline of this
+    // file, never its text, so it gets the outline again.
+    if (ran.result?.type !== 'text') {
+      const file = { filePath, content: body, numLines: 1, startLine: 1, totalLines: gate.lineCount }
+      return { ...ran, result: { type: 'text', file } } as typeof ran
+    }
+
+    return { ...ran, result: { ...ran.result, file: { ...ran.result.file, content: body } } }
   }).catch(caught)
 }

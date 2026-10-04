@@ -19,7 +19,10 @@ export function registerBash(on: On): void {
 
     const command = String(e.command ?? '')
     const mode = parseEnforcementMode(await $.env.get('TOKEN_PILOT_MODE'))
-    const decision = decidePreBash({ tool_name: 'Bash', tool_input: { command } }, mode)
+    const decision = decidePreBash({ tool_name: 'Bash', tool_input: { command } }, mode, {
+      bypass: (await $.env.get('TOKEN_PILOT_BYPASS')) === '1',
+      projectRoot: await $.session.root(),
+    })
 
     if (decision.kind === 'deny') {
       // The reason, never the command: a command line can carry secrets.

@@ -11,6 +11,19 @@ import { dirname, join, resolve } from "node:path";
  * entry — a directory for the main checkout, a file for a linked worktree,
  * which is exactly the distinction this hook needs.
  */
+/**
+ * The project a command hook serves: Claude Code's CLAUDE_PROJECT_DIR, else
+ * the checkout around cwd, else cwd. Never cwd first — after a `cd src` it
+ * is a subdirectory, and config, telemetry and the Read gate's boundary
+ * would follow it there.
+ */
+export function hookProjectRoot(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  cwd: string = process.cwd(),
+): string {
+  return env.CLAUDE_PROJECT_DIR || findCheckout(cwd) || cwd;
+}
+
 export function findCheckout(dir: string): string | null {
   let current = resolve(dir);
 

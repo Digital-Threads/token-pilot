@@ -238,3 +238,41 @@ test('a file nobody may read goes to Read untouched, not to a guessed line count
   expect(res.deny).toBe(undefined)
   expect(res.text).toBe('EACCES: permission denied')
 })
+
+const withEnv = (env: Record<string, string>) => ({
+  'env.get': async (_$: any, e: any) => ({ value: env[e.name] }),
+  // No .token-pilot.json: env overrides must still count.
+  'fs.read': async (_$: any, e: any) =>
+    String(e.path ?? e).endsWith('.token-pilot.json') ? { deny: 'no such file' } : { value: BIG },
+})
+
+for (const [label, env] of [
+  ['TOKEN_PILOT_BYPASS=1', { TOKEN_PILOT_BYPASS: '1' }],
+  ['TOKEN_PILOT_MODE=advisory', { TOKEN_PILOT_MODE: 'advisory' }],
+  ['TOKEN_PILOT_DENY_THRESHOLD above the file size, with no .token-pilot.json', { TOKEN_PILOT_DENY_THRESHOLD: '1000' }],
+] as const) {
+  test(`${label} lets a whole-file Read through`, async ($, on) => {
+    base(on, BIG, withEnv(env))
+    on('tool.call', async (_$: any, e: any) => readResult(e.file_path, 'RAW') as any)
+
+    const res: any = await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts' } as any)
+
+    expect(res.result.file.content).toBe('RAW')
+  })
+}
+
+test('serves the outline again when Claude Code answers its 1-line read with "unchanged"', async ($, on) => {
+  base(on)
+  // Claude Code de-duplicates a Read it already served with the same range;
+  // the outline's own 1-line read is such a Read the second time round.
+  on('tool.call', async (_$: any, e: any) =>
+    e.tool === `${P}smart_read`
+      ? ({ result: 'x', text: 'FILE: src/a.ts\nfunction f() [L1-2]' } as any)
+      : ({ result: { type: 'file_unchanged', file: { filePath: e.file_path } } } as any),
+  )
+
+  const res: any = await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts' } as any)
+
+  expect(res.result.type).toBe('text')
+  expect(res.result.file.content).toContain('function f()')
+})

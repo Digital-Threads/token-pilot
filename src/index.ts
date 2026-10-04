@@ -36,7 +36,7 @@ import {
   cleanStaleHookEntries,
   isTokenPilotPluginEnabled,
 } from "./hooks/installer.js";
-import { runHookEntryPoint } from "./hooks/safe-runner.js";
+import { runHookEntryPoint, writeStdout } from "./hooks/safe-runner.js";
 import { loadErrors, formatErrorList, pruneErrorArchives } from "./core/error-log.js";
 import { appendDiagnostic } from "./core/event-log.js";
 import {
@@ -102,14 +102,17 @@ import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
 import { decideReadGate, isCodeFile } from "./hooks/read-gate.js";
 import { decideMcpPath, renderMcpPathOutput } from "./hooks/mcp-path.js";
-import { findCheckout } from "./hooks/find-checkout.js";
+import { findCheckout, hookProjectRoot } from "./hooks/find-checkout.js";
 import { getAgentIndex } from "./hooks/post-task.js";
 import {
   decidePreEdit,
   renderPreEditOutput,
   type PreEditInput,
 } from "./hooks/pre-edit.js";
-import { isEditPrepared as isEditPreparedFn } from "./core/edit-prep-state.js";
+import {
+  isEditPrepared as isEditPreparedFn,
+  markEditPrepared,
+} from "./core/edit-prep-state.js";
 import { maybeEmitEcosystemReminder } from "./cli/ecosystem-reminder.js";
 import { parseEnforcementMode } from "./server/enforcement-mode.js";
 
@@ -144,12 +147,12 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // try/catch for known I/O failures; the wrapper is the safety
       // net for everything else.
       await runHookEntryPoint({ hook: "hook-read" }, async () => {
-        const cfg = await loadConfig(process.cwd());
+        const cfg = await loadConfig(hookProjectRoot());
         await handleHookRead(
           cliArgs[1],
           cfg.hooks.mode,
           cfg.hooks.denyThreshold,
-          process.cwd(),
+          hookProjectRoot(),
           {
             adaptiveThreshold: cfg.hooks.adaptiveThreshold,
             adaptiveBudgetTokens: cfg.hooks.adaptiveBudgetTokens,
@@ -167,11 +170,14 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await runHookEntryPoint({ hook: "hook-post-bash" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
+        const contextModeTool = contextModeExecuteTool(hookProjectRoot());
         const advice = decidePostBashAdvice(input, {
-          contextModeAvailable: isContextModeInstalledSync(process.cwd()),
+          contextModeAvailable: contextModeTool !== undefined,
+          contextModeTool,
         });
         const rendered = renderPostBashHookOutput(advice);
-        if (rendered) process.stdout.write(rendered);
+        // An async hook: its stdout can be a non-blocking pipe (EAGAIN).
+        if (rendered) writeStdout(rendered);
       });
       return;
     }
@@ -184,6 +190,10 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         const decision = decidePreBash(
           input,
           parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
+          {
+            bypass: process.env.TOKEN_PILOT_BYPASS === "1",
+            projectRoot: hookProjectRoot(),
+          },
         );
         const rendered = renderPreBashOutput(decision);
         if (rendered) process.stdout.write(rendered);
@@ -198,7 +208,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         // Awaited, not fire-and-forget: the hook process exits as soon as
         // this callback returns, and a pending append never reaches disk.
         if (decision.kind === "deny") {
-          await appendDiagnostic(process.cwd(), {
+          await appendDiagnostic(hookProjectRoot(), {
             code: "bash_denied",
             level: "info",
             detail: { reason: decision.reason.slice(0, 80) },
@@ -254,7 +264,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           // v0.34.0 diagnostic: B4 — empty index + force is a fail
           // case (we deny, but record so the user can see why).
           if (force && agentIndex.agents.length === 0) {
-            await appendDiagnostic(process.cwd(), {
+            await appendDiagnostic(hookProjectRoot(), {
               code: "force_subagents_no_agents",
               level: "warn",
               detail: { hint: "run `npx token-pilot install-agents`" },
@@ -279,7 +289,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           // never blocks the dispatch decision.
           if (decision.kind !== "allow") {
             const subagentType = input?.tool_input?.subagent_type ?? "";
-            appendDiagnostic(process.cwd(), {
+            appendDiagnostic(hookProjectRoot(), {
               code: "task_pre_intercept",
               level: decision.kind === "deny" ? "warn" : "info",
               detail: {
@@ -306,13 +316,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           const wfId = activeWorkflowId();
           let budgetNote = "";
           if (wfId) {
-            const st = await workflowStatus(process.cwd(), wfId);
+            const st = await workflowStatus(hookProjectRoot(), wfId);
             if (st && isWorkflowNearBudget(st)) {
               budgetNote =
                 `\n\n[token-pilot] workflow ${wfId} is at ${st.pct ?? "~"}% of its ` +
                 `${st.budget_tokens} token ceiling — finish in-flight work and ` +
                 `report rather than starting new branches.`;
-              appendDiagnostic(process.cwd(), {
+              appendDiagnostic(hookProjectRoot(), {
                 code: "workflow_near_budget",
                 level: "warn",
                 detail: { workflow_id: wfId, pct: st.pct, used: st.used_tokens },
@@ -330,7 +340,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await runHookEntryPoint({ hook: "hook-post-task" }, async () => {
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
-        const message = await processPostTask(process.cwd(), homedir(), input);
+        const message = await processPostTask(hookProjectRoot(), homedir(), input);
         if (message) {
           process.stdout.write(
             JSON.stringify({
@@ -352,15 +362,19 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // missing. Always exits 0 — the very first session must never
       // be blocked by a bootstrap hint.
       await runHookEntryPoint({ hook: "hook-bootstrap" }, async () => {
-        const cwd = process.cwd();
+        const cwd = hookProjectRoot();
         const hints = [];
         // Detect installed tp-* agents (project-level OR user-level).
         try {
           const { readdirSync, existsSync } = await import("node:fs");
           const projAgents = resolve(cwd, ".claude", "agents");
           const userAgents = resolve(homedir(), ".claude", "agents");
+          // A plugin install ships its agents in its own agents/ dir.
+          const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+          const dirs = [projAgents, userAgents];
+          if (pluginRoot) dirs.push(resolve(pluginRoot, "agents"));
           let total = 0;
-          for (const dir of [projAgents, userAgents]) {
+          for (const dir of dirs) {
             if (existsSync(dir)) {
               total += readdirSync(dir).filter(
                 (f) => f.startsWith("tp-") && f.endsWith(".md"),
@@ -420,7 +434,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         const ev = buildSubagentTaskEvent(input, Date.now());
         if (ev) {
           const { appendEvent } = await import("./core/event-log.js");
-          await appendEvent(process.cwd(), ev);
+          await appendEvent(hookProjectRoot(), ev);
         }
 
         // v0.49.0 — the tp-* response-budget watchdog. It used to hang off
@@ -430,7 +444,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         // in the transcript rides the same feature gate as the feedback
         // below, since SubagentStop additionalContext needs CC 2.1.163+.
         const budgetMessage = await checkSubagentBudget(
-          process.cwd(),
+          hookProjectRoot(),
           homedir(),
           input,
         );
@@ -448,7 +462,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           let wf = null;
           const wfId = activeWorkflowId();
           if (wfId) {
-            const st = await workflowStatus(process.cwd(), wfId);
+            const st = await workflowStatus(hookProjectRoot(), wfId);
             if (st) {
               wf = {
                 workflow_id: st.workflow_id,
@@ -472,12 +486,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "hook-session-start": {
       await runHookEntryPoint({ hook: "hook-session-start" }, async () => {
-        const cfg = await loadConfig(process.cwd());
+        const cfg = await loadConfig(hookProjectRoot());
         // sessionStart.enabled is independent of hooks.mode by design.
         if (!cfg.sessionStart.enabled) return;
         const result = await handleSessionStart({
-          projectRoot: process.cwd(),
+          projectRoot: hookProjectRoot(),
           homeDir: homedir(),
+          pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
           sessionStartConfig: cfg.sessionStart,
           client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
@@ -494,7 +509,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // decaying out of attention (the failure mode caveman fixes the same
       // way). additionalContext only — never blocks the prompt.
       await runHookEntryPoint({ hook: "hook-user-prompt" }, async () => {
-        const cfg = await loadConfig(process.cwd());
+        const cfg = await loadConfig(hookProjectRoot());
         // Reuse the awareness toggle — disabling SessionStart reminders
         // disables per-turn too. TOKEN_PILOT_PROMPT_REMINDER=0 turns off
         // just the per-turn channel while keeping SessionStart.
@@ -502,7 +517,11 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           cfg.sessionStart.enabled &&
           process.env.TOKEN_PILOT_PROMPT_REMINDER !== "0";
         const bypass = process.env.TOKEN_PILOT_BYPASS === "1";
-        const message = buildPromptReminder(enabled, bypass);
+        const message = buildPromptReminder(
+          enabled,
+          bypass,
+          cliArgs.includes("--client=codex") ? "codex" : "claude-code",
+        );
         if (message) {
           process.stdout.write(formatPromptReminderOutput(message));
         }
@@ -663,6 +682,29 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await startServer(cliArgs);
       return;
   }
+}
+
+/**
+ * context-mode's execute tool as this install names it — a plugin in
+ * ~/.claude/settings.json, or an MCP server in a `.mcp.json` — or undefined
+ * when context-mode is not installed.
+ */
+function contextModeExecuteTool(projectRoot: string): string | undefined {
+  try {
+    const settings = JSON.parse(
+      readFileSync(join(homedir(), ".claude", "settings.json"), "utf-8"),
+    );
+    const plugins: Record<string, unknown> = settings?.enabledPlugins ?? {};
+    if (Object.entries(plugins).some(([k, on]) => on && k.startsWith("context-mode@"))) {
+      return "mcp__plugin_context-mode_context-mode__ctx_execute";
+    }
+  } catch {
+    /* no user settings */
+  }
+
+  return isContextModeInstalledSync(projectRoot)
+    ? "mcp__context-mode__ctx_execute"
+    : undefined;
 }
 
 /**
@@ -1138,6 +1180,7 @@ async function runHookReadDispatchImpl(
     filePath,
     summary: pipelineResult.summary,
     tier: pipelineResult.tier,
+    threshold: effectiveThreshold,
   });
   await writeEvent("denied", Math.ceil(message.length / 4));
 
@@ -1163,7 +1206,7 @@ async function runHookReadDispatchImpl(
         },
         additionalContext:
           `[token-pilot] Read on ${filePath} was rewritten to lines 1-200 ` +
-          `(file has ${lineCount} lines). For full structure use mcp__token-pilot__smart_read(${filePath}).\n\n` +
+          `(file has ${lineCount} lines). For full structure use ${toolPrefix()}smart_read(${filePath}).\n\n` +
           message,
       },
     });
@@ -1210,10 +1253,18 @@ export function handleHookEdit() {
     process.exit(0);
   }
 
-  const projectRoot = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = hookProjectRoot();
   const isCode = isCodeFile(filePath);
   const mode = parseEnforcementMode(process.env.TOKEN_PILOT_MODE);
   const bypassed = process.env.TOKEN_PILOT_BYPASS === "1";
+
+  // A file the agent writes itself needs no read_for_edit before its Edit:
+  // the agent knows every byte. Marked before the Write; a Write that then
+  // fails costs at most one missed hint.
+  if (input.tool_name === "Write") {
+    if (isCode) markEditPrepared(projectRoot, resolve(filePath));
+    process.exit(0);
+  }
 
   // Existence check must be sync + cheap — the hook is on the request hot path.
   let fileExists = false;
@@ -1235,6 +1286,7 @@ export function handleHookEdit() {
     fileExists,
     isPrepared,
     bypassed,
+    outsideProject: fileExists && !isPathWithinProject(filePath, projectRoot),
   });
 
   const rendered = renderPreEditOutput(decision);

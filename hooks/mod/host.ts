@@ -9,26 +9,30 @@
 
 import type { EngineInterface, HookFailure } from 'claude-code'
 import { resolveConfig } from '../../src/config/resolve.js'
-import { dirname, join, normalize, relative } from '../../src/core/portable-path.js'
+import { dirname, isAbsolute, join, normalize, relative } from '../../src/core/portable-path.js'
 import type { TokenPilotConfig } from '../../src/types.js'
 
 export const PREFIX = 'mcp__plugin_token-pilot_token-pilot__'
 
-/**
- * Same rules as loadConfig: no readable `.token-pilot.json` → plain defaults,
- * env overrides ignored.
- */
+/** Same rules as loadConfig: no readable `.token-pilot.json` → defaults plus env overrides. */
 export function configFrom(
   raw: string | null,
   env: Readonly<Record<string, string | undefined>>,
 ): TokenPilotConfig {
-  if (raw === null) return resolveConfig(null, {})
+  if (raw === null) return resolveConfig(null, env)
 
   try {
     return resolveConfig(JSON.parse(raw), env)
   } catch {
-    return resolveConfig(null, {})
+    return resolveConfig(null, env)
   }
+}
+
+/** `path` lies strictly inside `root` (both already resolved). */
+export function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path)
+
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 /** Model-facing notes after a tool result — never on a deny or an error. */

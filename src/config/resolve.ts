@@ -74,6 +74,14 @@ function applyEnvOverrides(
       merged.hooks.adaptiveBudgetTokens = n;
     }
   }
+  // TOKEN_PILOT_MODE=advisory ("hooks always allow") and TOKEN_PILOT_BYPASS=1
+  // switch the Read gate off too — it is the only gate hooks.mode governs.
+  if (
+    env.TOKEN_PILOT_MODE?.trim().toLowerCase() === "advisory" ||
+    env.TOKEN_PILOT_BYPASS === "1"
+  ) {
+    merged.hooks.mode = "off";
+  }
 }
 
 /**

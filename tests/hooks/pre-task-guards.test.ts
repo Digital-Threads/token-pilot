@@ -58,15 +58,15 @@ describe("decidePreTask guard clauses", () => {
       }),
       ctx,
     );
-    expect(d.kind).toBe("advise");
+    expect(d.kind).toBe("allow");
   });
 
-  it("still advises when both description and prompt are empty", () => {
+  it("allows when both description and prompt are empty", () => {
     const d = decidePreTask(
       task({ subagent_type: "general-purpose", description: "", prompt: "" }),
       ctx,
     );
-    expect(d.kind).toBe("advise");
+    expect(d.kind).toBe("allow");
   });
 
   it("treats a non-string description as absent instead of matching on it", () => {
@@ -74,7 +74,7 @@ describe("decidePreTask guard clauses", () => {
       task({ subagent_type: "general-purpose", description: 42 }),
       ctx,
     );
-    expect(d.kind).toBe("advise");
+    expect(d.kind).toBe("allow");
   });
 
   it("survives a non-string prompt", () => {

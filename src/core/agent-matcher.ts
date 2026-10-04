@@ -39,7 +39,7 @@
  * being suggested on "diagnose failing test" (which is tp-test-triage).
  *
  * Confidence tiers:
- *   - score ≥ 3 or ≥ 1 quoted trigger → "high"
+ *   - score ≥ 3 or a multi-word quoted trigger → "high"
  *   - score in [1, 2]                 → "low"
  *   - score < 1                       → no match
  *
@@ -69,6 +69,8 @@ export interface MatchResult {
   agent: string;
   confidence: "high" | "low";
   score: number;
+  /** A multi-word quoted trigger phrase matched — the only signal strong enough to block on. */
+  phrase: boolean;
 }
 
 /**
@@ -362,19 +364,21 @@ export function matchTpAgent(
 
   if (!best || best.score < 1) return null;
 
-  // High confidence when score is strong OR at least one quoted trigger
-  // matched (quoted = explicit author-blessed phrase).
+  // High confidence when score is strong OR a multi-word quoted trigger
+  // matched (an explicit author-blessed phrase). A one-word trigger is just
+  // a keyword: "plan" also fits "execute plan task 3".
   const both = extraLower ? `${needle} ${extraLower}` : needle;
-  const hitQuoted = best.agent.quotedTriggers.some((t) =>
-    hasPhrase(triggerHaystack(t, needle, both), t),
+  const phrase = best.agent.quotedTriggers.some(
+    (t) => t.includes(" ") && hasPhrase(both, t),
   );
   const confidence: "high" | "low" =
-    best.score >= 3 || hitQuoted ? "high" : "low";
+    best.score >= 3 || phrase ? "high" : "low";
 
   return {
     agent: best.agent.name,
     confidence,
     score: best.score,
+    phrase,
   };
 }
 

@@ -20,7 +20,8 @@ describe("isSymbolLikePattern", () => {
   it("PascalCase is symbol-like", () => {
     expect(isSymbolLikePattern("UserService")).toBe(true);
     expect(isSymbolLikePattern("Foo")).toBe(false); // too short (<4)
-    expect(isSymbolLikePattern("Foos")).toBe(true);
+    // 1.0.2 — one capitalised word ("Error", "README") is prose, not a symbol.
+    expect(isSymbolLikePattern("Foos")).toBe(false);
   });
 
   it("snake_case is symbol-like", () => {
@@ -33,8 +34,9 @@ describe("isSymbolLikePattern", () => {
     expect(isSymbolLikePattern("API_KEY")).toBe(true);
   });
 
-  it("kebab-case is symbol-like", () => {
-    expect(isSymbolLikePattern("user-profile")).toBe(true);
+  // 1.0.2 — kebab-case is package names, headers and CSS, not identifiers.
+  it("kebab-case is NOT symbol-like", () => {
+    expect(isSymbolLikePattern("user-profile")).toBe(false);
   });
 
   it("short generic terms are NOT symbol-like", () => {

@@ -1,6 +1,6 @@
 ---
 name: tp-refactor-planner
-description: PROACTIVELY use this when the user asks to "plan", "design", or "scope" a refactor, or says "I want to refactor X but need a plan first". Produces step-by-step plan with exact edit context; never applies changes itself.
+description: PROACTIVELY use this when the user asks to plan, design, or scope a refactor, or says "I want to refactor X but need a plan first". Produces step-by-step plan with exact edit context; never applies changes itself.
 tools:
   - mcp__token-pilot__read_for_edit
   - mcp__plugin_token-pilot_token-pilot__read_for_edit

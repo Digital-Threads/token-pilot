@@ -2,11 +2,14 @@ import { test, expect } from 'claude-code/testing'
 
 const AGENT = '---\nname: tp-pr-reviewer\ndescription: Use this when the user asks to review a diff ("review these changes", "look at my PR")\n---\nbody\n'
 
-const base = (on: any, env: Record<string, string> = {}) => {
+const base = (on: any, env: Record<string, string> = {}, seen?: { prompt?: string }) => {
   on('env.get', async (_$: any, e: any) => ({ value: env[e.name] }))
   on('fs.list', async () => ({ value: [{ name: 'tp-pr-reviewer.md' }] }))
   on('fs.read', async () => ({ value: AGENT }))
-  on('tool.call', { tool: 'Agent' }, async () => ({ result: {}, text: 'launched' }) as any)
+  on('tool.call', { tool: 'Agent' }, async (_$: any, e: any) => {
+    if (seen) seen.prompt = e.prompt
+    return { result: {}, text: 'launched' } as any
+  })
 }
 
 const dispatch = ($: any) =>
@@ -25,14 +28,41 @@ test('routes a matching dispatch to the tp-* specialist', async ($, on) => {
   expect(res.deny).toContain('tp-pr-reviewer')
 })
 
-test('names the MCP tools as this plugin install has them', async ($, on) => {
+const launch = ($: any, subagent_type: string) =>
+  $.tool.call({ tool: 'Agent', subagent_type, description: 'tidy up', prompt: 'TASK' } as any)
+
+test('hands the tool guide to the subagent, not to the parent', async ($, on) => {
+  const seen: { prompt?: string } = {}
+  base(on, {}, seen)
+
+  const res: any = await launch($, 'general-purpose')
+
+  expect(seen.prompt?.startsWith('TASK')).toBe(true)
+  // Built after register() marks this a plugin install, not at import.
+  expect(seen.prompt).toContain('mcp__plugin_token-pilot_token-pilot__smart_read')
+  expect(JSON.stringify(res.context ?? [])).not.toContain('smart_read')
+})
+
+test('leaves a tp-* subagent prompt alone', async ($, on) => {
+  const seen: { prompt?: string } = {}
+  base(on, {}, seen)
+
+  await launch($, 'token-pilot:tp-run')
+
+  expect(seen.prompt).toBe('TASK')
+})
+
+test('never re-routes another agent type', async ($, on) => {
   base(on)
 
-  const res: any = await dispatch($)
+  const res: any = await $.tool.call({
+    tool: 'Agent',
+    subagent_type: 'Plan',
+    description: 'review these changes',
+    prompt: 'review these changes',
+  } as any)
 
-  // The guide is built after register() marks this a plugin install, not at import.
-  expect(res.deny).toContain('mcp__plugin_token-pilot_token-pilot__smart_read')
-  expect(res.deny).not.toContain('mcp__token-pilot__smart_read')
+  expect(res.deny).toBe(undefined)
 })
 
 test('leaves workflow runs to the command hooks', async ($, on) => {

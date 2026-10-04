@@ -26,6 +26,7 @@
  */
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
+import { toolPrefix } from "../core/tool-names.js";
 
 export interface PreEditInput {
   tool_name?: string;
@@ -51,6 +52,11 @@ export interface PreEditContext {
   isPrepared: boolean;
   /** TOKEN_PILOT_BYPASS=1 set in env */
   bypassed: boolean;
+  /**
+   * The file lies outside the project. read_for_edit refuses such paths, so
+   * gating them would leave strict mode no way forward.
+   */
+  outsideProject?: boolean;
 }
 
 /**
@@ -88,10 +94,10 @@ export function decidePreEdit(
   // Explicit escape hatch. Documented as TOKEN_PILOT_BYPASS=1.
   if (ctx.bypassed) return { kind: "allow" };
 
-  // Already prepared → allow.
-  if (ctx.isPrepared) return { kind: "allow" };
+  // Already prepared, or a file read_for_edit cannot prepare → allow.
+  if (ctx.isPrepared || ctx.outsideProject) return { kind: "allow" };
 
-  const suggestion = `mcp__token-pilot__read_for_edit(path="${filePath}", symbol="<target>")`;
+  const suggestion = `${toolPrefix()}read_for_edit(path="${filePath}", symbol="<target>")`;
 
   // v0.30.4 — only TOKEN_PILOT_MODE=strict produces a hard deny. The old
   // "deny is default = hard-block every un-prepped Edit" was overreach:
@@ -107,8 +113,8 @@ export function decidePreEdit(
       `this is the canonical flow. Building old_string from smart_read or Read ` +
       `snippets diverges from disk (whitespace, line-number prefixes) and Edit ` +
       `silently mismatches. ` +
-      `Escape hatch: set TOKEN_PILOT_BYPASS=1 in the environment, or switch to ` +
-      `TOKEN_PILOT_MODE=deny / advisory for warn-only behaviour.`;
+      `If read_for_edit is unavailable, ask the user: they can restart Claude Code ` +
+      `with TOKEN_PILOT_MODE=deny (warn only) or TOKEN_PILOT_BYPASS=1.`;
     return { kind: "deny", reason };
   }
 
