@@ -76,6 +76,7 @@ export function activeWorkflowId(
     env.TOKEN_PILOT_WORKFLOW_ID ||
     env.CLAUDE_CODE_WORKFLOW_ID ||
     env.CLAUDE_WORKFLOW_ID ||
+    env.LOOM_WORKFLOW_ID ||
     null
   );
 }
