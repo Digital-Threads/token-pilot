@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import type { TestSummaryArgs } from '../core/validation.js';
 import { estimateTokens } from '../core/token-estimator.js';
-
-const execFileAsync = promisify(execFile);
 
 // ──────────────────────────────────────────────
 // Types
@@ -14,6 +11,8 @@ export interface TestResult {
   passed: number;
   failed: number;
   skipped: number;
+  /** Declared but not written yet (vitest/jest `it.todo`). */
+  todo?: number;
   duration?: string;
   failures: FailedTest[];
   suites?: number;
@@ -34,56 +33,112 @@ export async function handleTestSummary(
   projectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }>; rawTokens: number }> {
   const command = args.command;
-  const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [command];
-  const bin = parts[0];
-  const binArgs = parts.slice(1).map(a => a.replace(/^"|"$/g, ''));
+  const timeoutMs = args.timeout ?? 60000;
+  const run = await runCommand(command, projectRoot, timeoutMs);
 
-  let rawOutput: string;
-  let exitCode: number | null = 0;
-
-  try {
-    const { stdout, stderr } = await execFileAsync(bin, binArgs, {
-      cwd: projectRoot,
-      timeout: args.timeout ?? 60000,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', CI: '1' },
-    });
-    rawOutput = stdout + '\n' + stderr;
-  } catch (err: unknown) {
-    // Test runners exit with non-zero when tests fail — that's expected
-    const execErr = err as { stdout?: string; stderr?: string; code?: number };
-    rawOutput = (execErr.stdout ?? '') + '\n' + (execErr.stderr ?? '');
-    exitCode = execErr.code ?? 1;
-
-    // If no output at all, it's a real error
-    if (!rawOutput.trim()) {
-      return {
-        content: [{ type: 'text', text: `Command failed: ${command}\n${err instanceof Error ? err.message : String(err)}` }],
-        rawTokens: 0,
-      };
-    }
+  if (run.spawnError) {
+    return {
+      content: [{ type: 'text', text: `Command failed to start: ${command}\n${run.spawnError}` }],
+      rawTokens: 0,
+    };
   }
 
-  const rawTokens = estimateTokens(rawOutput);
-  const runner = args.runner ?? detectRunner(command, rawOutput);
-  const result = parseTestOutput(rawOutput, runner);
-  const commandFailed = exitCode !== 0;
-
-  if (commandFailed && result.failed === 0) {
-    result.failed = 1;
-    result.total = Math.max(result.total, result.passed + result.failed + result.skipped);
-    result.failures.unshift({
-      name: `Command exited with code ${exitCode}`,
-      error: summarizeCommandError(rawOutput),
-    });
-  }
-
-  const formatted = formatTestSummary(result, command, runner, rawTokens, exitCode, commandFailed);
+  const rawTokens = estimateTokens(run.output);
+  const runner = args.runner ?? detectRunner(command, run.output);
+  const result = parseTestOutput(run.output, runner);
+  const formatted = formatTestSummary(result, run, runner, rawTokens, timeoutMs);
 
   return {
     content: [{ type: 'text', text: formatted }],
     rawTokens,
   };
+}
+
+// ──────────────────────────────────────────────
+// Running the command
+// ──────────────────────────────────────────────
+
+interface RunResult {
+  /** stdout and stderr, interleaved in arrival order. */
+  output: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  spawnError?: string;
+}
+
+const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * The environment the command would have in the user's terminal: the MCP
+ * server's own, minus what Claude Code's plugin launcher and token-pilot put
+ * there (CLAUDE_PLUGIN_ROOT and friends change how this project's own tests
+ * behave).
+ */
+export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (/^(TOKEN_PILOT_|CLAUDE_PLUGIN_)/.test(key)) continue;
+    out[key] = value;
+  }
+
+  return { ...out, FORCE_COLOR: '0', NO_COLOR: '1', CI: '1' };
+}
+
+/**
+ * Run through the shell, like a terminal would: env prefixes (`CI=1 npm
+ * test`) and `&&` work. Its own process group, so a timeout kills the test
+ * runner too, not just the shell.
+ */
+function runCommand(command: string, cwd: string, timeoutMs: number): Promise<RunResult> {
+  return new Promise((done) => {
+    const ownGroup = process.platform !== 'win32';
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let timedOut = false;
+    let settled = false;
+
+    const finish = (r: { exitCode: number | null; spawnError?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done({ output: Buffer.concat(chunks).toString('utf8'), timedOut, ...r });
+    };
+
+    const child = spawn(command, {
+      cwd,
+      env: childEnv(process.env),
+      shell: true,
+      detached: ownGroup,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const kill = (signal: NodeJS.Signals) => {
+      try {
+        if (ownGroup && child.pid) process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch { /* already gone */ }
+    };
+
+    const collect = (b: Buffer) => {
+      if (size >= MAX_OUTPUT_BYTES) return;
+      chunks.push(b);
+      size += b.length;
+    };
+    child.stdout?.on('data', collect);
+    child.stderr?.on('data', collect);
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      kill('SIGTERM');
+      setTimeout(() => {
+        kill('SIGKILL');
+        finish({ exitCode: null }); // a survivor may hold the pipes open — stop waiting
+      }, 2000).unref();
+    }, timeoutMs);
+
+    child.on('error', (err) => finish({ exitCode: null, spawnError: err.message }));
+    child.on('close', (code) => finish({ exitCode: code }));
+  });
 }
 
 // ──────────────────────────────────────────────
@@ -120,11 +175,15 @@ export function detectRunner(command: string, output: string): string {
 // Parsers
 // ──────────────────────────────────────────────
 
+/** Runners with a parser of their own; the rest go through parseGeneric. */
+const PARSED_RUNNERS = new Set(['vitest', 'jest', 'pytest', 'phpunit', 'go', 'cargo', 'node']);
+
 export function parseTestOutput(output: string, runner: string): TestResult {
   switch (runner) {
     case 'vitest':
+      return parseVitest(output);
     case 'jest':
-      return parseVitestJest(output);
+      return parseJest(output);
     case 'pytest':
       return parsePytest(output);
     case 'phpunit':
@@ -140,52 +199,120 @@ export function parseTestOutput(output: string, runner: string): TestResult {
   }
 }
 
-function parseVitestJest(output: string): TestResult {
+function lastMatch(output: string, re: RegExp): RegExpMatchArray | null {
+  let last: RegExpMatchArray | null = null;
+  for (const m of output.matchAll(re)) last = m;
+  return last;
+}
+
+/** "1 failed | 3 passed | 2 todo" or "1 failed, 3 passed, 4 total" → counts by word. */
+function countWords(segment: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const m of segment.matchAll(/(\d+)\s+(failed|passed|skipped|todo|pending|total)\b/g)) {
+    counts[m[2]] = (counts[m[2]] ?? 0) + parseInt(m[1], 10);
+  }
+  return counts;
+}
+
+function applyCounts(result: TestResult, counts: Record<string, number>, total?: number): void {
+  result.failed = counts.failed ?? 0;
+  result.passed = counts.passed ?? 0;
+  result.skipped = (counts.skipped ?? 0) + (counts.pending ?? 0);
+  if (counts.todo) result.todo = counts.todo;
+  result.total = total ?? counts.total ?? result.failed + result.passed + result.skipped + (result.todo ?? 0);
+}
+
+const SUMMARY_LINE = /^\s*(Test Files|Tests:?|Test Suites:|Snapshots:|Time:|Start at|Duration)\s/;
+const CODE_FRAME = /^\s*(>\s*)?\d*\s*\|/;
+
+/**
+ * The error under a failure header: up to three message lines plus where it
+ * happened. Stops at the next header, a separator or the run summary.
+ */
+function errorBelow(lines: string[], from: number, isHeader: (line: string) => boolean): string {
+  const message: string[] = [];
+  let location = '';
+
+  for (let i = from; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (isHeader(lines[i]) || SUMMARY_LINE.test(lines[i]) || line.startsWith('⎯')) break;
+    if (!line || CODE_FRAME.test(lines[i])) continue;
+
+    if (line.startsWith('❯ ') || line.startsWith('at ')) {
+      if (!location) location = line.replace(/^❯ /, 'at ');
+      continue;
+    }
+    if (message.length < 3 && !location) message.push(line);
+  }
+
+  return [...message, location].filter(Boolean).join('\n').substring(0, 400);
+}
+
+function failuresFromHeaders(output: string, header: RegExp): FailedTest[] {
+  const lines = output.split('\n');
+  const failures: FailedTest[] = [];
+  const seen = new Set<string>();
+
+  lines.forEach((line, i) => {
+    const m = line.match(header);
+    if (!m) return;
+    const name = m[1].trim().replace(/\s*\[ .* \]$/, '').substring(0, 200);
+    if (seen.has(name)) return;
+    seen.add(name);
+    failures.push({ name, error: errorBelow(lines, i + 1, l => header.test(l)) });
+  });
+
+  return failures;
+}
+
+/** "× name 3ms" / "✕ name (3 ms)" run-list lines — used only when there are no failure blocks. */
+function failuresFromMarks(output: string): FailedTest[] {
+  const names = new Set<string>();
+  for (const m of output.matchAll(/^\s*[×✕]\s+(.+?)(?:\s+\(?\d+\s*ms\)?)?\s*$/gm)) names.add(m[1]);
+  return [...names].map(name => ({ name: name.substring(0, 200), error: '' }));
+}
+
+function parseVitest(output: string): TestResult {
   const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
 
-  // Test Files  12 passed (12)  OR  Tests  170 passed (170)  OR  Tests  3 failed (3)
-  const testsLine = output.match(/Tests?\s+(?:(\d+)\s+failed\s*\|?\s*)?(?:(\d+)\s+passed\s*)?(?:\|?\s*(\d+)\s+skipped)?\s*\((\d+)\)/);
-  if (testsLine) {
-    result.failed = parseInt(testsLine[1] ?? '0', 10);
-    result.passed = parseInt(testsLine[2] ?? '0', 10);
-    result.skipped = parseInt(testsLine[3] ?? '0', 10);
-    result.total = parseInt(testsLine[4], 10);
+  //      Tests  1 failed | 3 passed | 1 skipped | 3 todo (8)
+  const tests = lastMatch(output, /^\s*Tests\s+(.+?)\s*\((\d+)\)\s*$/gm);
+  if (tests) applyCounts(result, countWords(tests[1]), parseInt(tests[2], 10));
+
+  //  Test Files  1 failed | 1 passed (2)
+  const files = lastMatch(output, /^\s*Test Files\s+.*\((\d+)\)\s*$/gm);
+  if (files) result.suites = parseInt(files[1], 10);
+
+  const duration = lastMatch(output, /^\s*Duration\s+([\d.]+\s*(?:ms|s|m|h))\b/gm);
+  if (duration) result.duration = duration[1];
+
+  // A passing run may print "FAIL " / "× " in its logs — only look for
+  // failures when it failed, or when there is no summary to tell.
+  if (result.failed > 0 || !tests) {
+    result.failures = failuresFromHeaders(output, /^\s*FAIL\s+(.+)$/);
+    if (result.failures.length === 0) result.failures = failuresFromMarks(output);
   }
 
-  // Test Files count
-  const suitesLine = output.match(/Test Files\s+(?:\d+\s+failed\s*\|?\s*)?(\d+)\s+passed\s*\((\d+)\)/);
-  if (suitesLine) {
-    result.suites = parseInt(suitesLine[2], 10);
-  }
+  return result;
+}
 
-  // Duration
-  const duration = output.match(/Duration\s+([\d.]+\w?\s*(?:\([^)]+\))?)/);
-  if (duration) {
-    result.duration = duration[1].trim();
-  }
+function parseJest(output: string): TestResult {
+  const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
 
-  // Parse failures
-  // FAIL  tests/foo.test.ts > describe > test name
-  const failBlocks = output.split(/(?:FAIL|✕|×)\s+/).slice(1);
-  for (const block of failBlocks.slice(0, 10)) {
-    const lines = block.split('\n');
-    const firstLine = lines[0]?.trim() ?? '';
-    const errorLines: string[] = [];
+  // Tests:       1 failed, 1 skipped, 1 todo, 1 passed, 4 total
+  const tests = lastMatch(output, /^\s*Tests:\s+(.+)$/gm);
+  if (tests) applyCounts(result, countWords(tests[1]));
 
-    for (let i = 1; i < Math.min(lines.length, 8); i++) {
-      const line = lines[i]?.trim();
-      if (!line) continue;
-      if (line.startsWith('at ') || line.startsWith('❯')) continue;
-      if (line.startsWith('⎯') || line.startsWith('─')) break;
-      errorLines.push(line);
-    }
+  // Test Suites: 1 failed, 1 total
+  const suites = lastMatch(output, /^\s*Test Suites:\s+.*?(\d+) total/gm);
+  if (suites) result.suites = parseInt(suites[1], 10);
 
-    if (firstLine) {
-      result.failures.push({
-        name: firstLine.substring(0, 200),
-        error: errorLines.join('\n').substring(0, 300),
-      });
-    }
+  const duration = lastMatch(output, /^\s*Time:\s+([\d.]+\s*(?:ms|s|m|h))\b/gm);
+  if (duration) result.duration = duration[1];
+
+  if (result.failed > 0 || !tests) {
+    result.failures = failuresFromHeaders(output, /^\s*●\s+(.+)$/);
+    if (result.failures.length === 0) result.failures = failuresFromMarks(output);
   }
 
   return result;
@@ -194,27 +321,30 @@ function parseVitestJest(output: string): TestResult {
 function parsePytest(output: string): TestResult {
   const result: TestResult = { total: 0, passed: 0, failed: 0, skipped: 0, failures: [] };
 
-  // === 5 passed, 1 failed, 2 skipped in 1.23s ===
-  const summary = output.match(/=+\s*(.*?)\s*=+\s*$/m);
+  // === 5 passed, 1 failed, 2 skipped in 1.23s === — the last such line; the
+  // first ===…=== line is "test session starts".
+  const summary = lastMatch(output, /^=+\s*(.*?\d+\s+(?:passed|failed|skipped|errors?|xfailed|xpassed|deselected).*?)\s*=+\s*$/gm);
   if (summary) {
     const parts = summary[1];
-    const passed = parts.match(/(\d+)\s+passed/);
-    const failed = parts.match(/(\d+)\s+failed/);
-    const skipped = parts.match(/(\d+)\s+skipped/);
+    const num = (re: RegExp) => parseInt(parts.match(re)?.[1] ?? '0', 10);
     const duration = parts.match(/in\s+([\d.]+s)/);
 
-    result.passed = parseInt(passed?.[1] ?? '0', 10);
-    result.failed = parseInt(failed?.[1] ?? '0', 10);
-    result.skipped = parseInt(skipped?.[1] ?? '0', 10);
+    result.passed = num(/(\d+)\s+passed/);
+    // A collection or setup error fails the run too.
+    result.failed = num(/(\d+)\s+failed/) + num(/(\d+)\s+errors?\b/);
+    result.skipped = num(/(\d+)\s+skipped/);
     result.total = result.passed + result.failed + result.skipped;
     if (duration) result.duration = duration[1];
   }
 
   // FAILED tests/test_foo.py::test_bar - AssertionError
-  const failedPattern = /^FAILED\s+(\S+)\s*-?\s*(.*)/gm;
+  const failedPattern = /^(?:FAILED|ERROR)\s+(\S+)\s*-?\s*(.*)/gm;
+  const seen = new Set<string>();
   let match;
   while ((match = failedPattern.exec(output)) !== null) {
     const [, name, error] = match;
+    if (seen.has(name)) continue;
+    seen.add(name);
     result.failures.push({
       name: name.substring(0, 200),
       error: (error || '').substring(0, 300),
@@ -388,67 +518,86 @@ function parseGeneric(output: string): TestResult {
   return result;
 }
 
-function summarizeCommandError(output: string): string {
-  const lines = output
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-    .filter(line => !line.startsWith('at ') && !line.startsWith('>'));
-
-  if (lines.length === 0) {
-    return 'Command failed without producing output.';
-  }
-
-  return lines.slice(0, 3).join('\n').substring(0, 300);
-}
 
 // ──────────────────────────────────────────────
 // Formatter
 // ──────────────────────────────────────────────
 
+const NO_TESTS = /No test files found|No tests found|no tests ran|collected 0 items/i;
+
+/** The last lines of the output — what a reader needs when nothing was parsed. */
+function outputTail(output: string): string[] {
+  return output
+    .split('\n')
+    .map(line => line.trimEnd())
+    .filter(line => line.trim().length > 0)
+    .slice(-8)
+    .map(line => `  ${line.substring(0, 200)}`);
+}
+
 function formatTestSummary(
   result: TestResult,
-  command: string,
+  run: RunResult,
   runner: string,
   rawTokens: number,
-  exitCode: number | null,
-  commandFailed: boolean,
+  timeoutMs: number,
 ): string {
-  const lines: string[] = [];
+  const parsed = result.total > 0 || result.failures.length > 0;
+  const exitFailed = !run.timedOut && run.exitCode !== 0;
 
-  const status = result.failed > 0 || commandFailed ? '❌ FAIL' : '✅ PASS';
-  lines.push(`TEST RESULT: ${status} (${runner})`);
-  lines.push('');
+  let status: string;
+  if (run.timedOut) status = `⏱ TIMEOUT after ${timeoutMs}ms`;
+  else if (!parsed && NO_TESTS.test(run.output)) status = '⚠ NO TESTS FOUND';
+  else if (result.failed > 0 || exitFailed) status = '❌ FAIL';
+  else if (!parsed) status = '⚠ NO TEST RESULTS';
+  else status = '✅ PASS';
 
-  // Stats line
-  const parts: string[] = [];
-  parts.push(`${result.total} total`);
-  parts.push(`${result.passed} passed`);
-  if (result.failed > 0) parts.push(`${result.failed} failed`);
-  if (result.skipped > 0) parts.push(`${result.skipped} skipped`);
-  if (result.duration) parts.push(`${result.duration}`);
-  if (result.suites) parts.push(`${result.suites} suites`);
-  lines.push(parts.join(' | '));
+  const lines: string[] = [`TEST RESULT: ${status} (${runner})`, ''];
 
-  if (commandFailed && exitCode != null) {
-    lines.push(`Exit code: ${exitCode}`);
+  if (run.timedOut) {
+    lines.push('The command was killed; anything below covers only the output before that.');
+  }
+  if (!PARSED_RUNNERS.has(runner) && runner !== 'generic') {
+    lines.push(`NOTE: no ${runner} parser — counts come from generic patterns and may be incomplete.`);
   }
 
-  // Failed tests detail
+  if (parsed) {
+    const parts: string[] = [`${result.total} total`, `${result.passed} passed`];
+    if (result.failed > 0) parts.push(`${result.failed} failed`);
+    if (result.skipped > 0) parts.push(`${result.skipped} skipped`);
+    if (result.todo) parts.push(`${result.todo} todo`);
+    if (result.duration) parts.push(result.duration);
+    if (result.suites) parts.push(`${result.suites} suites`);
+    lines.push(parts.join(' | '));
+  }
+
+  if (exitFailed) {
+    lines.push(`Exit code: ${run.exitCode}`);
+  }
+
   if (result.failures.length > 0) {
     lines.push('');
     lines.push('FAILURES:');
     for (const f of result.failures.slice(0, 10)) {
       lines.push(`  ✗ ${f.name}`);
-      if (f.error) {
-        for (const errLine of f.error.split('\n').slice(0, 3)) {
-          lines.push(`    ${errLine}`);
-        }
+      for (const errLine of f.error ? f.error.split('\n').slice(0, 4) : []) {
+        lines.push(`    ${errLine}`);
       }
     }
     if (result.failures.length > 10) {
       lines.push(`  ... and ${result.failures.length - 10} more failures`);
     }
+  }
+
+  // Nothing parsed, or a non-zero exit no test explains: show where it ended.
+  if (!parsed || (exitFailed && result.failed === 0)) {
+    lines.push('');
+    if (exitFailed) {
+      lines.push(`Command exited with code ${run.exitCode}${parsed ? ' though no test failed' : ' — no test counts in its output'}. Last lines:`);
+    } else {
+      lines.push('No test counts in the output. Last lines:');
+    }
+    lines.push(...outputTail(run.output));
   }
 
   lines.push('');
