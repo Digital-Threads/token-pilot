@@ -1,32 +1,34 @@
 /**
- * v0.28.0 — PreToolUse:Bash advisor / blocker.
+ * PreToolUse:Bash gate — refuses a heavy shell command BEFORE it runs.
  *
- * Intercepts heavy Bash commands BEFORE they run and redirects the
- * agent to cheaper alternatives. Why before? Claude Code's PostToolUse
- * hook cannot truncate the Bash `tool_response` (verified; the
- * updatedMCPToolOutput field is MCP-only). Post-factum advice means
- * the full stdout already sits in the agent's context. We save real
- * tokens only by refusing the heavy call up front.
+ * Why before: Claude Code's PostToolUse hook cannot truncate a Bash result,
+ * so once a command ran its whole stdout already sits in the agent's
+ * context. The only saving is refusing the call up front.
  *
- * Patterns we block (in order, first match wins):
+ * Policy (1.0.2):
+ *  - Block only clear, unbounded dumps of code: a whole code file (`cat`,
+ *    `less`, a slice over the Read gate's threshold), recursive search,
+ *    unbounded `git log` / `git diff` / `git show`, `find` over the whole
+ *    disk or the whole repository.
+ *  - Allow anything bounded: a small slice, `-m`/`-l`/`-c`, a path scope,
+ *    output redirected to a file, or piped into anything but a pass-through
+ *    (`head`, `wc`, `grep` …). Only `cat`/`sort`/`tee`-like sinks keep a
+ *    dump a dump.
+ *  - Judge each segment of a compound command (`&&` `||` `;` `|` `( )`)
+ *    with its own arguments only. Words are read the way the shell reads
+ *    them: quotes removed, heredoc bodies and comments skipped, env prefixes
+ *    and `sudo`/`env`/`time` wrappers stripped, `bash -c` / `eval` scripts
+ *    and `for` loop variables expanded.
+ *  - TOKEN_PILOT_BYPASS=1, in the hook's environment or as a prefix on the
+ *    command, lets everything through.
+ *  - When in doubt, allow: a false block costs more than a missed one.
  *
- *  1. `grep -r <pattern>`         → suggest find_usages
- *  2. `find /` / `find ~`          → suggest Glob or bounded find
- *  3. `cat <code-file>`            → suggest smart_read
- *  4. `git log` without -n/-N      → suggest smart_log
- *  5. `git diff` without path      → suggest smart_diff
- *
- * For anything not matching → allow. We err on the side of false
- * negatives: a missed heavy command stays annoying (tokens wasted)
- * but a false-positive block blocks legitimate work and erodes trust.
- *
- * Strictly lexical — we don't shell-parse. Users running `grep` inside
- * `bash -c`, heredocs, or eval'd strings slip through. Acceptable for
- * v0.28.0; tighten only if tool-audit shows repeated escapes.
+ * Pure and Node-free: the command hook and the Claude Code mod share it.
  */
 
 import type { EnforcementMode } from "../server/enforcement-mode.js";
 import { toolPrefix } from "../core/tool-names.js";
+import { isCodeFile } from "./read-gate.js";
 
 export interface PreBashInput {
   tool_name?: string;
@@ -41,227 +43,726 @@ export type PreBashDecision =
   | { kind: "advise"; reason: string }
   | { kind: "deny"; reason: string };
 
-const CODE_EXT_RE =
-  /\.(ts|tsx|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|swift|php|cs|cpp|c|h|hpp|scala|clj|ex|exs|elm|ml|fs|dart|lua|sh|bash|zsh)(\s|$|;|\||&|>|<)/;
-
-// v0.44.0 — a `head -n N` / `tail -n N` slice this large on a code file is
-// a whole-file dump in disguise. Mirrors the Read-hook denyThreshold (300)
-// so the two layers agree on what counts as "too big". Smaller slices are
-// the sanctioned bounded alternative and pass through.
-const RAW_SLICE_DENY_LINES = 300;
-
-/** Check whether the command contains a specific utility invocation at
- *  top level (not inside a quoted string). Cheap lexical match. */
-function invokes(command: string, utility: string): boolean {
-  // Match `<utility> ` at start, after `; `, `&& `, `|| `, `| `, or newline.
-  const re = new RegExp(`(^|[;&|\\n]\\s*)${utility}(\\s|$)`, "m");
-  return re.test(command);
+export interface PreBashOptions {
+  /** TOKEN_PILOT_BYPASS=1 in the hook's own environment. */
+  bypass?: boolean;
+  /** The project root: a `find` outside it walks someone else's disk. */
+  projectRoot?: string;
 }
 
+/** A slice of a code file larger than this is a whole-file dump in disguise (the Read gate's default threshold). */
+const SLICE_DENY_LINES = 300;
+/** The same for byte counts (`head -c`): about 300 lines of code. */
+const SLICE_DENY_BYTES = 20_000;
+
+const ALLOW: PreBashDecision = { kind: "allow" };
+
+// ─── shell words ─────────────────────────────────────────────────────
+
+type Token =
+  | { t: "word"; v: string }
+  | { t: "op"; v: string }
+  | { t: "redir"; v: string; fd: string; target?: string };
+
 /**
- * v0.29.0 — expose wrapped commands. Opus 4.7's v0.28.2 verification
- * report showed escape patterns: `bash -c "cat src/foo.ts"`,
- * `eval "..."`, `for f in *.ts; do cat $f; done` all slipped through
- * our heuristics because the dangerous call sat inside quotes / a loop
- * body. Unwrap those before matching.
- *
- * Returns the original command PLUS the extracted inner body for each
- * wrapper found. Duplication is fine — detectHeavyPattern is pure.
+ * Split a command line into words, operators and redirections the way the
+ * shell does, closely enough to tell a command from its arguments. Quotes
+ * are removed; comments and heredoc bodies are dropped.
  */
-export function extractWrappedCommands(command: string): string[] {
-  const out = [command];
+function lex(src: string): Token[] {
+  const out: Token[] = [];
+  const heredocs: Array<{ delim: string; strip: boolean }> = [];
+  let pendingHeredoc: boolean | null = null;
+  let word = "";
+  let inWord = false;
+  let i = 0;
 
-  // bash -c "..." / sh -c "..." / zsh -c "..."
-  for (const shell of ["bash", "sh", "zsh"]) {
-    const re = new RegExp(`\\b${shell}\\s+-c\\s+(?:"([^"]+)"|'([^']+)')`, "g");
-    for (const m of command.matchAll(re)) {
-      const inner = m[1] ?? m[2];
-      if (inner) out.push(inner);
+  const flush = (): void => {
+    if (!inWord) return;
+    out.push({ t: "word", v: word });
+    if (pendingHeredoc !== null) {
+      heredocs.push({ delim: word, strip: pendingHeredoc });
+      pendingHeredoc = null;
     }
+    word = "";
+    inWord = false;
+  };
+  const op = (v: string, width: number): void => {
+    flush();
+    out.push({ t: "op", v });
+    i += width;
+  };
+
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+
+    if (c === "\\") {
+      if (next !== "\n") {
+        word += next ?? "";
+        inWord = true;
+      }
+      i += 2;
+      continue;
+    }
+
+    if (c === "'" || (c === "$" && next === "'")) {
+      const from = c === "$" ? i + 2 : i + 1;
+      const end = src.indexOf("'", from);
+      const stop = end === -1 ? src.length : end;
+      word += src.slice(from, stop);
+      inWord = true;
+      i = stop + 1;
+      continue;
+    }
+
+    if (c === '"') {
+      i++;
+      while (i < src.length && src[i] !== '"') {
+        if (src[i] === "\\" && '"\\$`'.includes(src[i + 1] ?? "")) {
+          word += src[i + 1];
+          i += 2;
+          continue;
+        }
+        word += src[i++];
+      }
+      i++;
+      inWord = true;
+      continue;
+    }
+
+    if (c === "#" && !inWord) {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+
+    if (c === " " || c === "\t" || c === "\r") {
+      flush();
+      i++;
+      continue;
+    }
+
+    if (c === "\n") {
+      op(";", 1);
+      // Heredoc bodies start on the line after their operator.
+      for (const doc of heredocs.splice(0)) {
+        while (i < src.length) {
+          const nl = src.indexOf("\n", i);
+          const end = nl === -1 ? src.length : nl;
+          const line = src.slice(i, end);
+          i = end + 1;
+          if ((doc.strip ? line.replace(/^\t+/, "") : line) === doc.delim) break;
+        }
+      }
+      continue;
+    }
+
+    // Command and process substitution: output captured, not printed.
+    if ((c === "$" || c === "<" || c === ">") && next === "(") {
+      op("$(", 2);
+      continue;
+    }
+    if (c === "`") {
+      op("`", 1);
+      continue;
+    }
+
+    if (c === ">" || c === "<" || (c === "&" && next === ">")) {
+      let fd = "";
+      if (inWord && /^\d+$/.test(word)) {
+        fd = word;
+        word = "";
+        inWord = false;
+      } else {
+        flush();
+      }
+
+      let v: string = c;
+      i++;
+      if (c === "&") {
+        v = src[i + 1] === ">" ? "&>>" : "&>";
+        i += v.length - 1;
+      } else if (c === ">" && (src[i] === ">" || src[i] === "|")) {
+        v = c + src[i++];
+      } else if (c === "<" && src[i] === "<") {
+        i++;
+        if (src[i] === "<") v = "<<<";
+        else if (src[i] === "-") v = "<<-";
+        else v = "<<";
+        if (v !== "<<") i++;
+        if (v !== "<<<") pendingHeredoc = v === "<<-";
+      }
+
+      // Duplication (`2>&1`, `>&2`) names its target inline.
+      if ((v === ">" || v === "<") && src[i] === "&") {
+        const m = /^[0-9-]*/.exec(src.slice(i + 1))?.[0] ?? "";
+        out.push({ t: "redir", v, fd, target: `&${m}` });
+        i += 1 + m.length;
+        continue;
+      }
+      out.push({ t: "redir", v, fd });
+      continue;
+    }
+
+    if (c === "|") {
+      // `|&` pipes stderr too: still a pipe.
+      op(next === "|" ? "||" : "|", next === "|" || next === "&" ? 2 : 1);
+      continue;
+    }
+    if (c === "&") {
+      op(next === "&" ? "&&" : "&", next === "&" ? 2 : 1);
+      continue;
+    }
+    if (c === ";") {
+      op(";", next === ";" ? 2 : 1);
+      continue;
+    }
+    if (c === "(" || c === ")") {
+      op(c, 1);
+      continue;
+    }
+
+    word += c;
+    inWord = true;
+    i++;
   }
 
-  // eval "..." / eval '...'
-  for (const m of command.matchAll(/\beval\s+(?:"([^"]+)"|'([^']+)')/g)) {
-    const inner = m[1] ?? m[2];
-    if (inner) out.push(inner);
-  }
-
-  // for LOOP with body: `for X in Y; do BODY; done` — extract BODY
-  // Also covers `while COND; do BODY; done` and `until COND; do BODY; done`
-  for (const m of command.matchAll(
-    /\b(?:for|while|until)\b[^;]*;\s*do\s+(.+?)\s*;?\s*done\b/gs,
-  )) {
-    const body = m[1];
-    if (body) out.push(body);
-  }
-
+  flush();
   return out;
 }
 
-export function detectHeavyPattern(command: string): PreBashDecision {
-  const cmd = command.trim();
-  if (!cmd) return { kind: "allow" };
-
-  // v0.29.0: check each of the original + any unwrapped inner commands.
-  // First deny wins.
-  const candidates = extractWrappedCommands(cmd);
-  if (candidates.length > 1) {
-    // Check only the unwrapped inners; the original is handled below.
-    for (let i = 1; i < candidates.length; i++) {
-      const inner = detectHeavyPatternSingle(candidates[i]);
-      if (inner.kind === "deny") return inner;
-    }
-  }
-  return detectHeavyPatternSingle(cmd);
+interface Segment {
+  words: string[];
+  redirs: Array<{ v: string; fd: string; target: string }>;
+  /** The next command of the pipeline, when stdout goes into a pipe. */
+  pipedTo: Segment | null;
+  /** Inside `$( )`, `<( )` or backticks: the output is captured, not shown. */
+  consumed: boolean;
+  /** Filled by strip(). */
+  cmd: string;
+  args: string[];
+  bypass: boolean;
 }
 
-function detectHeavyPatternSingle(command: string): PreBashDecision {
-  const cmd = command.trim();
-  if (!cmd) return { kind: "allow" };
+function parse(tokens: Token[]): Segment[] {
+  const segs: Segment[] = [];
+  const parens: boolean[] = [];
+  let backtick = false;
+  let pipeFrom: Segment | null = null;
+  let last: Segment | null = null;
+  let pendingRedir: Segment["redirs"][number] | null = null;
 
-  // 1. grep -r / grep -R without -m and with a bareword pattern.
-  //
-  // v0.53.0: the pattern matched anywhere in the command, so a script,
-  // a commit message or a comment that merely mentioned the flag was
-  // denied — the same false positive v0.30.4 fixed for `git log`. The
-  // invocation has to start the command or follow a separator.
-  if (
-    /(^|[;&|\n]\s*)grep\s+[^|]*-[rR]\b/.test(cmd) &&
-    !/\s-m\s+\d+/.test(cmd)
-  ) {
-    return {
-      kind: "deny",
-      reason:
-        "Recursive `grep -r` can dump huge output into your context. " +
-        `Use ${toolPrefix()}find_usages(symbol=...) for identifier searches ` +
-        "(semantic, grouped by definition/import/usage), or add `-m 20` to " +
-        "bound the match count. Re-run through grep with `-m` to bypass.",
-    };
+  const fresh = (): Segment => ({
+    words: [],
+    redirs: [],
+    pipedTo: null,
+    consumed: false,
+    cmd: "",
+    args: [],
+    bypass: false,
+  });
+  let cur = fresh();
+
+  const end = (): void => {
+    if (cur.words.length === 0 && cur.redirs.length === 0) return;
+    cur.consumed = backtick || parens.some(Boolean);
+    if (pipeFrom) pipeFrom.pipedTo = cur;
+    pipeFrom = null;
+    segs.push(cur);
+    last = cur;
+    cur = fresh();
+  };
+
+  for (const tok of tokens) {
+    if (tok.t === "word") {
+      if (pendingRedir) {
+        pendingRedir.target = tok.v;
+        pendingRedir = null;
+      } else {
+        cur.words.push(tok.v);
+      }
+      continue;
+    }
+
+    if (tok.t === "redir") {
+      const r = { v: tok.v, fd: tok.fd, target: tok.target ?? "" };
+      cur.redirs.push(r);
+      if (tok.target === undefined) pendingRedir = r;
+      continue;
+    }
+
+    pendingRedir = null;
+    end();
+    if (tok.v === "|") {
+      pipeFrom = last;
+      continue;
+    }
+    pipeFrom = null;
+    if (tok.v === "(") parens.push(false);
+    else if (tok.v === "$(") parens.push(true);
+    else if (tok.v === ")") parens.pop();
+    else if (tok.v === "`") backtick = !backtick;
   }
 
-  // 2. find / | find ~ | find . without bounds
-  //
-  // Claude Code 2.1.149 (May 2026) fixed the macOS-specific kernel-level
-  // file/vnode exhaustion crash from large unbounded `find` walks. The
-  // hook still denies because the *context* problem is unchanged — an
-  // unbounded walk easily dumps tens of thousands of paths into the
-  // tool result and blows past the per-turn token budget regardless of
-  // how stable the host stays.
-  if (/\bfind\s+(\/|~|\$HOME)/.test(cmd) && !/-maxdepth\s+\d+/.test(cmd)) {
-    return {
-      kind: "deny",
-      reason:
-        "Unbounded `find /` walks the whole filesystem and dumps every match into the tool result. " +
-        "Use the Glob tool for pattern matching, or add `-maxdepth N -type f -name <glob>` " +
-        "to bound the walk. Re-run with `-maxdepth` to bypass.",
-    };
-  }
+  end();
+  return segs;
+}
 
-  // 3. cat <code-file> at top level — simple read-to-stdout pattern only.
-  // v0.30.4: skip when cat is writing, not reading: `cat > file`,
-  // `cat >> file`, `cat << TAG` (heredoc). A heredoc body that happens to
-  // contain a `.sh` / `.ts` path was tripping the old rule. Pipes stay
-  // exempt as before (pipes mean user is processing, not just dumping).
-  if (
-    invokes(cmd, "cat") &&
-    CODE_EXT_RE.test(cmd) &&
-    !cmd.includes("|") &&
-    !/>/.test(cmd) &&
-    !/<</.test(cmd)
-  ) {
-    return {
-      kind: "deny",
-      reason:
-        "`cat` on a code file dumps the whole thing into context. " +
-        `Use ${toolPrefix()}smart_read(path) for a structural overview, ` +
-        "or, in Claude Code, Read(path, offset, limit) for a bounded slice. " +
-        "For head/tail access use `head -n N` or `tail -n N`.",
-    };
-  }
+const KEYWORDS = new Set(["!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time", "esac"]);
+const PREFIX_COMMANDS = new Set(["sudo", "env", "command", "exec", "nohup", "nice", "time", "timeout", "stdbuf"]);
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-  // 3b. sed / head / tail reading a code file as a raw range dump.
-  // v0.44.0 — closes the leak the cat rule left open: an agent under
-  // context pressure reaches for `sed -n '1,500p' file.ts` or
-  // `head -n 500 file.ts` to pull a big slice straight to stdout,
-  // sidestepping both the Read hook and the cat rule. Exempt the same
-  // shapes cat exempts — pipes (processing) and redirects (writing) —
-  // plus `sed -i` (in-place edit, not a read).
-  const dumpsCodeFile =
-    CODE_EXT_RE.test(cmd) && !cmd.includes("|") && !/>/.test(cmd);
+const baseName = (word: string): string => word.slice(word.lastIndexOf("/") + 1);
 
-  if (dumpsCodeFile && invokes(cmd, "sed") && !/\bsed\b[^|>]*\s-i\b/.test(cmd)) {
-    return {
-      kind: "deny",
-      reason:
-        "`sed` on a code file dumps a raw range into context. " +
-        `Use ${toolPrefix()}read_range(path, start, end) for a bounded slice, ` +
-        "read_symbol(path, name) for one function, or smart_read(path) for structure.",
-    };
-  }
+/** Resolve a segment's command word: past keywords, env assignments and wrappers like sudo/env/time. */
+function strip(seg: Segment): void {
+  const words = [...seg.words];
 
-  if (dumpsCodeFile && (invokes(cmd, "head") || invokes(cmd, "tail"))) {
-    // Match an explicit line count: `-500`, `-n 500`, `-n500`. A `-c N`
-    // byte count or the default (no flag → 10 lines) never matches, so
-    // genuinely small slices pass through untouched.
-    const m = cmd.match(/(?:^|\s)-(?:n\s*)?(\d+)\b/);
-    const n = m ? parseInt(m[1], 10) : 0;
-    if (n >= RAW_SLICE_DENY_LINES) {
-      return {
-        kind: "deny",
-        reason:
-          "`head`/`tail` with a large line count dumps a big slice into context. " +
-          `Use ${toolPrefix()}read_range(path, start, end) for a bounded slice, ` +
-          "or smart_read(path) for a structural overview.",
-      };
+  while (words.length > 0) {
+    const w = words[0];
+    if (w === "TOKEN_PILOT_BYPASS=1") seg.bypass = true;
+    if (KEYWORDS.has(w) || ASSIGNMENT.test(w)) {
+      words.shift();
+      continue;
+    }
+
+    const name = baseName(w);
+    if (!PREFIX_COMMANDS.has(name)) break;
+    words.shift();
+    while (words.length > 0 && (words[0].startsWith("-") || ASSIGNMENT.test(words[0]) || (/^\d/.test(words[0]) && (name === "nice" || name === "timeout")))) {
+      if (words[0] === "TOKEN_PILOT_BYPASS=1") seg.bypass = true;
+      words.shift();
     }
   }
 
-  // 4. git log without -n / -N / -<N> (short-form max-count) / --max-count
-  // v0.30.3: added -<N> support — `git log --oneline -5` is canonical
-  // bounded syntax and must not trip the heuristic.
-  // v0.53.0: that bound only counted when a space or end-of-string followed
-  // it, so the same command denied itself the moment it sat in a compound
-  // one (`git log --oneline -1; git status`). Separators count as the end.
-  // v0.30.4: require `git log` at the START of the command (or after a
-  // separator), not anywhere in it — otherwise `git commit -m "... git log ..."`
-  // gets wrongly flagged because "git log" appears inside the message.
-  if (
-    invokes(cmd, "git") &&
-    /(^|[;&|\n]\s*)git\s+log\b/.test(cmd) &&
-    !/-n\s*\d+|-N\s*\d+|--max-count=\d+|\s-\d+(\s|$|[;&|])/.test(cmd) &&
-    !/\|\s*head/.test(cmd)
-  ) {
-    return {
-      kind: "deny",
-      reason:
-        "Unbounded `git log` can return thousands of commits. " +
-        `Use ${toolPrefix()}smart_log for structured history, or add ` +
-        "`-n 20` / `| head -20` to bound. Re-run with a limit to bypass.",
-    };
+  if (words[0] === "export" && words.includes("TOKEN_PILOT_BYPASS=1")) seg.bypass = true;
+  seg.cmd = words.length > 0 ? baseName(words[0]) : "";
+  seg.args = words.slice(1);
+}
+
+// ─── bounded output ──────────────────────────────────────────────────
+
+const SCREEN = new Set(["/dev/stdout", "/dev/stderr", "/dev/tty"]);
+
+function stdoutRedirected(seg: Segment): boolean {
+  return seg.redirs.some((r) => {
+    const toFile = r.target !== "" && !r.target.startsWith("&") && !SCREEN.has(r.target);
+    if (r.v === "&>" || r.v === "&>>") return toFile;
+
+    return (r.v === ">" || r.v === ">>" || r.v === ">|") && (r.fd === "" || r.fd === "1") && toFile;
+  });
+}
+
+/** Commands that hand every line on: a dump piped through them is still a dump. */
+const PASS_THROUGH = new Set(["cat", "tee", "less", "more", "nl", "tac", "sort", "column"]);
+
+function passesEverything(seg: Segment): boolean {
+  if (PASS_THROUGH.has(seg.cmd)) return true;
+  // `tail -n +1` / `tail +1` starts at a line and prints the rest.
+  return seg.cmd === "tail" && seg.args.some((a, i) => /^\+\d/.test(a) || (a === "-n" && /^\+/.test(seg.args[i + 1] ?? "")) || /^-n\+/.test(a));
+}
+
+/** Nothing reaches the screen whole: captured, redirected, or piped into a filter. */
+function outputBounded(seg: Segment): boolean {
+  if (seg.consumed || stdoutRedirected(seg)) return true;
+
+  for (let next = seg.pipedTo; next; next = next.pipedTo) {
+    if (stdoutRedirected(next) || !passesEverything(next)) return true;
   }
 
-  // 5. git diff with no path argument (common mistake on large repos)
-  // v0.30.4: anchor to command start / separator so an embedded "git diff"
-  // inside a commit message or comment doesn't trip the rule.
-  if (
-    /(^|[;&|\n]\s*)git\s+diff\b/.test(cmd) &&
-    !/\bgit\s+diff\s+[^\s|]*--stat/.test(cmd) &&
-    /(^|[;&|\n]\s*)git\s+diff\s*($|[|;&])/.test(cmd)
-  ) {
-    return {
-      kind: "deny",
-      reason:
-        "Bare `git diff` on a big working tree is huge. " +
-        `Use ${toolPrefix()}smart_diff for per-symbol change summary, ` +
-        "or `git diff --stat` / `git diff <path>` to scope. Re-run scoped to bypass.",
-    };
+  return false;
+}
+
+// ─── options ─────────────────────────────────────────────────────────
+
+interface Parsed {
+  short: Map<string, string | true>;
+  long: Map<string, string | true>;
+  operands: string[];
+}
+
+/**
+ * Read a getopt-style argument list. `withValue` names the short options
+ * that take a value (`-m 5`, `-m5`, `-rm5`); `longWithValue` the long ones
+ * written with a separate value (`--max-count 5`).
+ */
+function parseOptions(args: string[], withValue: string, longWithValue: ReadonlySet<string> = new Set()): Parsed {
+  const short = new Map<string, string | true>();
+  const long = new Map<string, string | true>();
+  const operands: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      operands.push(...args.slice(i + 1));
+      break;
+    }
+
+    if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      const name = a.slice(2, eq === -1 ? undefined : eq);
+      if (eq !== -1) long.set(name, a.slice(eq + 1));
+      else if (longWithValue.has(name)) long.set(name, args[++i] ?? "");
+      else long.set(name, true);
+      continue;
+    }
+
+    if (a.startsWith("-") && a.length > 1) {
+      for (let j = 1; j < a.length; j++) {
+        const letter = a[j];
+        if (withValue.includes(letter)) {
+          short.set(letter, j + 1 < a.length ? a.slice(j + 1) : (args[++i] ?? ""));
+          break;
+        }
+        short.set(letter, true);
+      }
+      continue;
+    }
+
+    operands.push(a);
   }
 
-  // 6. Test runners — suggest test_summary. Advisory only (allow + hint):
-  //    tests are legitimate to run; we just want the token-lean summary by
-  //    default. Tool-audit 2026-04-24 showed test_summary = 0 calls across
-  //    three real projects — agents always go straight to the raw runner.
-  if (isTestRunnerCommand(cmd)) {
+  return { short, long, operands };
+}
+
+/** A path naming one file (it has an extension), not a directory to walk. */
+const looksLikeFile = (path: string): boolean =>
+  !path.endsWith("/") && /\.[A-Za-z0-9]+$/.test(baseName(path));
+
+// ─── the rules ───────────────────────────────────────────────────────
+
+const bypassHint = "Need the raw output anyway? Prefix the command with `TOKEN_PILOT_BYPASS=1 `.";
+
+function deny(reason: string): PreBashDecision {
+  return { kind: "deny", reason: `${reason} ${bypassHint}` };
+}
+
+const GREP_LONG_VALUES = new Set(["regexp", "file", "max-count", "after-context", "before-context", "context", "directories", "devices", "include", "exclude", "exclude-dir", "label", "binary-files"]);
+const RG_LONG_VALUES = new Set(["regexp", "file", "glob", "iglob", "max-count", "after-context", "before-context", "context", "type", "type-not", "threads", "max-columns", "encoding", "replace", "max-depth", "sort", "sortr", "pre", "pre-glob", "max-filesize", "engine", "colors", "type-add"]);
+const SEARCH_BOUNDS = ["max-count", "count", "count-matches", "files-with-matches", "files-without-match", "name-only", "quiet", "silent", "files"];
+
+/** Unbounded recursive search: grep -r and friends, rg, git grep. */
+function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[]): boolean {
+  const opts =
+    tool === "rg"
+      ? parseOptions(args, "efgmABCtTjMErd", RG_LONG_VALUES)
+      : parseOptions(args, tool === "grep" ? "efmABCdD" : "efmABCO", GREP_LONG_VALUES);
+
+  const recursive =
+    tool !== "grep" ||
+    opts.short.has("r") ||
+    opts.short.has("R") ||
+    opts.short.get("d") === "recurse" ||
+    opts.long.has("recursive") ||
+    opts.long.has("dereference-recursive") ||
+    opts.long.get("directories") === "recurse";
+  if (!recursive) return false;
+
+  const bounded =
+    ["m", "l", "L", "c", "q"].some((f) => opts.short.has(f)) ||
+    SEARCH_BOUNDS.some((f) => opts.long.has(f));
+  if (bounded) return false;
+
+  const patternGiven = opts.short.has("e") || opts.short.has("f") || opts.long.has("regexp") || opts.long.has("file");
+  const paths = patternGiven ? opts.operands : opts.operands.slice(1);
+
+  // Every path names a single file: nothing is walked.
+  return !(paths.length > 0 && paths.every(looksLikeFile));
+}
+
+function searchDenied(): PreBashDecision {
+  return deny(
+    "Unbounded recursive search (`grep -r`, `rg`, `git grep`) dumps every match into your context. " +
+      `For an identifier use ${toolPrefix()}find_usages(symbol=...). Otherwise bound it: ` +
+      "`-l` (file names only), `-c` (counts), a single file, or `| head -n 50`.",
+  );
+}
+
+/** Lines (or bytes) `head`/`tail` would print from each file. */
+function sliceSize(cmd: string, args: string[]): { lines: number; bytes: number; files: string[] } {
+  let lines = 10;
+  let bytes = 0;
+  const files: string[] = [];
+
+  const count = (v: string): number => {
+    if (v.startsWith("+")) return cmd === "tail" ? Infinity : Number.parseInt(v.slice(1), 10);
+    if (v.startsWith("-")) return cmd === "head" ? Infinity : Number.parseInt(v.slice(1), 10);
+    const m = /^(\d+)\s*([kKmM]?)/.exec(v);
+    if (!m) return 10;
+    const unit = m[2].toLowerCase() === "k" ? 1024 : m[2].toLowerCase() === "m" ? 1024 * 1024 : 1;
+
+    return Number.parseInt(m[1], 10) * unit;
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    let m: RegExpExecArray | null;
+    if (a === "--") {
+      files.push(...args.slice(i + 1));
+      break;
+    }
+    if ((m = /^--lines=(.*)$/.exec(a))) lines = count(m[1]);
+    else if (a === "--lines") lines = count(args[++i] ?? "");
+    else if ((m = /^--bytes=(.*)$/.exec(a))) bytes = count(m[1]);
+    else if (a === "--bytes") bytes = count(args[++i] ?? "");
+    else if (a === "-n") lines = count(args[++i] ?? "");
+    else if ((m = /^-n(.+)$/.exec(a))) lines = count(m[1]);
+    else if (a === "-c") bytes = count(args[++i] ?? "");
+    else if ((m = /^-c(.+)$/.exec(a))) bytes = count(m[1]);
+    else if ((m = /^-(\d+)$/.exec(a))) lines = Number.parseInt(m[1], 10);
+    else if (cmd === "tail" && /^\+\d+$/.test(a)) lines = Infinity;
+    else if (cmd === "tail" && a === "-s") i++;
+    else if (!a.startsWith("-")) files.push(a);
+  }
+
+  return { lines, bytes, files };
+}
+
+/** Lines a `sed` script prints from one file, or null when it is not a read we judge. */
+function sedLines(args: string[]): { lines: number; files: string[] } | null {
+  let quiet = false;
+  const scripts: string[] = [];
+  const operands: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--") {
+      operands.push(...args.slice(i + 1));
+      break;
+    }
+    if (a === "--quiet" || a === "--silent") quiet = true;
+    else if (a.startsWith("--in-place") || a.startsWith("--file")) return null;
+    else if (a === "--expression") scripts.push(args[++i] ?? "");
+    else if (a.startsWith("--expression=")) scripts.push(a.slice("--expression=".length));
+    else if (a.startsWith("--")) continue;
+    else if (a.startsWith("-") && a.length > 1) {
+      for (let j = 1; j < a.length; j++) {
+        const letter = a[j];
+        if (letter === "n") quiet = true;
+        else if (letter === "i" || letter === "f") return null; // edits in place / script from a file
+        else if (letter === "e") {
+          scripts.push(j + 1 < a.length ? a.slice(j + 1) : (args[++i] ?? ""));
+          break;
+        } else if (letter === "l") {
+          if (j + 1 === a.length) i++;
+          break;
+        }
+      }
+    } else operands.push(a);
+  }
+
+  if (scripts.length === 0 && operands.length > 0) scripts.push(operands.shift()!);
+  const files = operands.filter(isCodeFile);
+  if (scripts.length === 0 || files.length === 0) return null;
+
+  const commands = scripts.join("\n").split(/[;\n]/).map((c) => c.trim()).filter(Boolean);
+
+  if (!quiet) {
+    // Without -n sed prints every line, unless it quits early (`20q`).
+    const quit = commands.map((c) => /^(\d+)\s*[qQ]$/.exec(c)).find(Boolean);
+    return { lines: quit ? Number.parseInt(quit[1], 10) : Infinity, files };
+  }
+
+  let lines = 0;
+  for (const c of commands) {
+    if (c === "p") return { lines: Infinity, files };
+    const m = /^(\d+|\$)(?:\s*,\s*(\d+|\$|\+\d+))?\s*p$/.exec(c);
+    if (!m) continue; // regex addresses and the like: not ours to judge
+    if (!m[2] || m[1] === "$") lines += 1;
+    else if (m[2] === "$") return { lines: Infinity, files };
+    else if (m[2].startsWith("+")) lines += Number.parseInt(m[2].slice(1), 10) + 1;
+    else lines += Math.max(0, Number.parseInt(m[2], 10) - Number.parseInt(m[1], 10) + 1);
+  }
+
+  return { lines, files };
+}
+
+/** `awk` with a program that prints every line (`1`, `{print}`, `{print $0}`). */
+function awkPrintsAll(args: string[]): boolean {
+  let program: string | undefined;
+  const files: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "-f" || a.startsWith("--file")) return false;
+    if (a === "-F" || a === "-v") i++;
+    else if (a.startsWith("-")) continue;
+    else if (program === undefined) program = a;
+    else files.push(a);
+  }
+
+  return (
+    program !== undefined &&
+    files.some(isCodeFile) &&
+    /^(1|\/\/|NR>=?[01]|\{print(\$0)?;?\})$/.test(program.replace(/\s+/g, ""))
+  );
+}
+
+function sliceDenied(what: string, amount: string): PreBashDecision {
+  return deny(
+    `${what} would print ${amount} of a code file — more than the ${SLICE_DENY_LINES}-line limit. ` +
+      `Use ${toolPrefix()}smart_read(path) for its structure, ${toolPrefix()}read_symbol(path, symbol) for one ` +
+      `function, or ${toolPrefix()}read_range(path, start_line, end_line) / \`sed -n 'A,Bp'\` for up to ` +
+      `${SLICE_DENY_LINES} lines.`,
+  );
+}
+
+/** `git [global options] <subcommand> …` */
+function gitParts(args: string[]): { sub: string; rest: string[] } {
+  let i = 0;
+  while (i < args.length) {
+    const a = args[i];
+    if (["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix"].includes(a)) i += 2;
+    else if (a.startsWith("-")) i++;
+    else break;
+  }
+
+  return { sub: args[i] ?? "", rest: args.slice(i + 1) };
+}
+
+/** Only words that are clearly revisions; anything else might be a path, and a path bounds the output. */
+const REVISION =
+  /^(?:HEAD|FETCH_HEAD|ORIG_HEAD|MERGE_HEAD|@|[0-9a-f]{7,40}|main|master|develop|trunk|staging|production|(?:origin|upstream)\/[\w./-]+)(?:[~^]\d*)*(?:@\{[^}]*\})?$/;
+const isRevision = (word: string): boolean => REVISION.test(word) || word.includes("..");
+
+const DIFF_SUMMARY = /^--(?:stat|shortstat|numstat|name-only|name-status|summary|dirstat|compact-summary|raw|check|quiet|no-patch|exit-code)/;
+
+function gitLogBounded(rest: string[]): boolean {
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--") break;
+    if (/^-\d+$/.test(a) || /^-n\d+$/.test(a) || /^--max-count=\d+$/.test(a)) return true;
+    if ((a === "-n" || a === "--max-count") && /^\d+$/.test(rest[i + 1] ?? "")) return true;
+    // A range (`main..HEAD`) bounds the history.
+    if (!a.startsWith("-") && a.includes("..")) return true;
+  }
+
+  return false;
+}
+
+/** `git diff` / `git show` limited to a summary or to paths. */
+function gitPatchBounded(rest: string[]): boolean {
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--") return i + 1 < rest.length;
+    if (DIFF_SUMMARY.test(a) || a === "-s" || a === "--no-index") return true;
+    if (a.startsWith("-")) continue;
+    if (!isRevision(a)) return true;
+  }
+
+  return false;
+}
+
+function gitDecision(args: string[]): PreBashDecision {
+  const { sub, rest } = gitParts(args);
+  const p = toolPrefix();
+
+  if (sub === "grep") return recursiveSearch("git-grep", rest) ? searchDenied() : ALLOW;
+
+  if (sub === "log" && !gitLogBounded(rest)) {
+    return deny(
+      `Unbounded \`git log\` can return thousands of commits. Use ${p}smart_log for structured history, ` +
+        "or bound it: `-n 20`, a range (`main..HEAD`), or `| head -n 20`.",
+    );
+  }
+
+  if (sub === "diff" && !gitPatchBounded(rest)) {
+    return deny(
+      `\`git diff\` over the whole tree can be huge. Use ${p}smart_diff for a per-symbol summary, ` +
+        "or scope it: `--stat`, `-- <path>`, or `| head -n 100`.",
+    );
+  }
+
+  if (sub === "show") {
+    const spec = rest.find((a) => !a.startsWith("-") && a.includes(":"));
+    if (spec !== undefined) {
+      return isCodeFile(spec.slice(spec.indexOf(":") + 1))
+        ? sliceDenied("`git show <rev>:<file>`", "the whole file")
+        : ALLOW;
+    }
+    if (!gitPatchBounded(rest)) {
+      return deny(
+        `\`git show\` prints the commit's whole patch. Use ${p}smart_diff, or scope it: ` +
+          "`--stat`, `-- <path>`, or `| head -n 100`.",
+      );
+    }
+  }
+
+  return ALLOW;
+}
+
+const FIND_BOUNDS =
+  /^-(?:i?name|i?path|i?wholename|i?regex|newer\w*|[amc](?:min|time)|size|empty|user|group|perm|links|inum|samefile|prune|maxdepth|mindepth|quit|delete|exec|execdir|ok|okdir|fprint\w*|fls)$/;
+
+/** `find` over the whole disk (or outside the project) without a depth limit, or the whole repo with no filter at all. */
+function findDecision(args: string[], projectRoot: string | undefined): PreBashDecision {
+  let i = 0;
+  while (i < args.length && /^-(?:[HLP]|O\d*|D)$/.test(args[i])) i += args[i] === "-D" ? 2 : 1;
+
+  const roots: string[] = [];
+  while (i < args.length && !/^[-(!)]/.test(args[i])) roots.push(args[i++]);
+  if (roots.length === 0) roots.push(".");
+
+  const expr = args.slice(i);
+  const depthLimited = expr.includes("-maxdepth");
+  const filtered = expr.some((a) => FIND_BOUNDS.test(a));
+  const root = projectRoot?.replace(/\/+$/, "");
+
+  for (const raw of roots) {
+    const r = raw.replace(/\/+$/, "") || "/";
+    const home = r === "~" || r === "$HOME" || r === "${HOME}";
+    const outside = r.startsWith("/") && (r === "/" || (root !== undefined && r !== root && !r.startsWith(`${root}/`)));
+
+    if ((home || outside) && !depthLimited) {
+      return deny(
+        `\`find ${raw}\` walks far beyond the project and dumps every path it meets. ` +
+          "Add `-maxdepth N`, start from a directory inside the project, or pipe to `head`.",
+      );
+    }
+
+    if ((r === "." || r === root) && !filtered) {
+      return deny(
+        `\`find ${raw}\` with no filter lists every file in the repository (node_modules included). ` +
+          `Add \`-name <glob>\` or \`-maxdepth N\`, pipe to \`head\` / \`wc -l\`, or use ${toolPrefix()}project_overview.`,
+      );
+    }
+  }
+
+  return ALLOW;
+}
+
+const RUNNERS = new Set(["vitest", "jest", "mocha", "phpunit", "rspec", "pytest"]);
+
+/** The command runs a test suite (not: installs a runner, or mentions one). */
+function runsTests(cmd: string, args: string[]): boolean {
+  const words = args.filter((a) => !a.startsWith("-"));
+
+  if (RUNNERS.has(cmd)) return true;
+  if (cmd === "npx" || cmd === "pnpx" || cmd === "bunx") return RUNNERS.has(baseName(words[0] ?? ""));
+  if (cmd === "go" || cmd === "cargo") return words[0] === "test";
+  if ((cmd === "python" || cmd === "python3") && args[0] === "-m") return args[1] === "pytest";
+
+  if (cmd === "npm" || cmd === "yarn" || cmd === "pnpm" || cmd === "bun") {
+    const [verb, arg, third] = words;
+    if (verb === "dlx" || verb === "exec") return RUNNERS.has(arg ?? "");
+    if (verb === "run" || verb === "run-script") return /^test(?::|$)/.test(arg ?? "");
+    if (verb === "workspace") return third === "test";
+
+    return /^test(?::|$)/.test(verb ?? "");
+  }
+
+  return false;
+}
+
+// ─── decision ────────────────────────────────────────────────────────
+
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+const VIEWERS = new Set(["cat", "less", "more", "nl", "tac"]);
+
+function judge(seg: Segment, args: string[], opts: PreBashOptions, depth: number): PreBashDecision {
+  const { cmd } = seg;
+
+  if (runsTests(cmd, args)) {
     return {
       kind: "advise",
       reason:
@@ -272,45 +773,108 @@ function detectHeavyPatternSingle(command: string): PreBashDecision {
     };
   }
 
-  return { kind: "allow" };
+  if (outputBounded(seg)) return ALLOW;
+
+  if (SHELLS.has(cmd)) {
+    const flag = args.findIndex((a) => /^-[a-zA-Z]*c[a-zA-Z]*$/.test(a));
+    return flag === -1 ? ALLOW : analyse(args[flag + 1] ?? "", opts, depth + 1);
+  }
+  if (cmd === "eval") return analyse(args.join(" "), opts, depth + 1);
+
+  if (cmd === "grep" || cmd === "egrep" || cmd === "fgrep") {
+    return recursiveSearch("grep", args) ? searchDenied() : ALLOW;
+  }
+  if (cmd === "rg") return recursiveSearch("rg", args) ? searchDenied() : ALLOW;
+  if (cmd === "git") return gitDecision(args);
+  if (cmd === "find") return findDecision(args, opts.projectRoot);
+
+  const stdin = seg.redirs.filter((r) => r.v === "<").map((r) => r.target);
+  if (VIEWERS.has(cmd) && [...args, ...stdin].some((a) => !a.startsWith("-") && isCodeFile(a))) {
+    return deny(
+      `\`${cmd}\` on a code file dumps the whole file into context. ` +
+        `Use ${toolPrefix()}smart_read(path) for its structure, ${toolPrefix()}read_symbol(path, symbol) ` +
+        `for one function, or ${toolPrefix()}read_range(path, start_line, end_line) / \`sed -n 'A,Bp'\` / ` +
+        `\`head -n N\` for up to ${SLICE_DENY_LINES} lines.`,
+    );
+  }
+
+  if (cmd === "head" || cmd === "tail") {
+    const { lines, bytes, files } = sliceSize(cmd, args);
+    const code = files.filter(isCodeFile).length;
+    if (code > 0 && bytes > 0 && bytes * code > SLICE_DENY_BYTES) {
+      return sliceDenied(`\`${cmd} -c\``, `${bytes * code} bytes`);
+    }
+    if (code > 0 && bytes === 0 && lines * code > SLICE_DENY_LINES) {
+      return sliceDenied(`\`${cmd}\``, Number.isFinite(lines) ? `${lines * code} lines` : "the whole file");
+    }
+  }
+
+  if (cmd === "sed") {
+    const read = sedLines(args);
+    if (read && read.lines * read.files.length > SLICE_DENY_LINES) {
+      return sliceDenied("`sed`", Number.isFinite(read.lines) ? `${read.lines * read.files.length} lines` : "the whole file");
+    }
+  }
+
+  if ((cmd === "awk" || cmd === "gawk" || cmd === "mawk") && awkPrintsAll(args)) {
+    return sliceDenied("`awk`", "the whole file");
+  }
+
+  return ALLOW;
 }
 
-/**
- * Detect common test-runner invocations. Returns true for anything we'd
- * route through `test_summary`. Kept as a pure string test so it's unit-
- * testable without spinning up child processes.
- */
-export function isTestRunnerCommand(cmd: string): boolean {
-  const trimmed = cmd.trim();
-  if (!trimmed) return false;
-  // npm/yarn/pnpm run test[:suite], yarn workspace <x> test, etc.
-  if (/\b(?:npm|yarn|pnpm)\s+(?:run\s+)?test(?:[:\s]|$)/.test(trimmed)) {
-    return true;
+/** `$f` / `${f}` from an enclosing `for f in …` stands for the loop's words. */
+function expand(word: string, loopVars: Map<string, string[]>): string[] {
+  const m = /^\$\{?([A-Za-z_]\w*)\}?(.*)$/.exec(word);
+  const values = m ? loopVars.get(m[1]) : undefined;
+
+  return values ? values.map((v) => v + m![2]) : [word];
+}
+
+function analyse(command: string, opts: PreBashOptions, depth: number): PreBashDecision {
+  if (depth > 3 || command.trim() === "") return ALLOW;
+
+  const segs = parse(lex(command));
+  segs.forEach(strip);
+  if (segs.some((s) => s.bypass)) return ALLOW;
+
+  const loopVars = new Map<string, string[]>();
+  let advice: PreBashDecision | null = null;
+
+  for (const seg of segs) {
+    if (seg.cmd === "for") {
+      if (seg.args[1] === "in") loopVars.set(seg.args[0], seg.args.slice(2));
+      continue;
+    }
+
+    const args = seg.args.flatMap((a) => expand(a, loopVars));
+    const decision = judge(seg, args, opts, depth);
+    if (decision.kind === "deny") return decision;
+    if (decision.kind === "advise") advice ??= decision;
   }
-  if (/\byarn\s+workspace\s+\S+\s+test\b/.test(trimmed)) return true;
-  // Direct runner invocations (bare or via npx / pnpx / dlx wrappers)
-  if (
-    /\b(?:npx|pnpx|pnpm dlx|yarn dlx)?\s*(?:vitest|jest|mocha|phpunit|rspec|pytest)\b/.test(
-      trimmed,
-    )
-  ) {
-    return true;
+
+  return advice ?? ALLOW;
+}
+
+export function detectHeavyPattern(command: string, opts: PreBashOptions = {}): PreBashDecision {
+  try {
+    return analyse(command, opts, 0);
+  } catch {
+    return ALLOW; // a command we cannot read is not one we block
   }
-  // Go / Cargo native test drivers
-  if (/\bgo\s+test\b/.test(trimmed)) return true;
-  if (/\bcargo\s+test\b/.test(trimmed)) return true;
-  return false;
 }
 
 export function decidePreBash(
   input: PreBashInput,
   mode: EnforcementMode = "deny",
+  opts: PreBashOptions = {},
 ): PreBashDecision {
-  if (mode === "advisory") return { kind: "allow" };
-  if (input.tool_name !== "Bash") return { kind: "allow" };
+  if (mode === "advisory" || opts.bypass) return ALLOW;
+  if (input.tool_name !== "Bash") return ALLOW;
   const cmd = input.tool_input?.command;
-  if (typeof cmd !== "string") return { kind: "allow" };
-  return detectHeavyPattern(cmd);
+  if (typeof cmd !== "string") return ALLOW;
+
+  return detectHeavyPattern(cmd, opts);
 }
 
 export function renderPreBashOutput(decision: PreBashDecision): string | null {

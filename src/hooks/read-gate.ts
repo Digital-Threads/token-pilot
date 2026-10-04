@@ -5,12 +5,16 @@
  * real paths.
  */
 
+/** Code files, for every gate: Read, Edit and the shell (pre-bash). */
 export const CODE_EXTENSIONS = new Set([
   "ts",
   "tsx",
+  "mts",
+  "cts",
   "js",
   "jsx",
   "mjs",
+  "cjs",
   "py",
   "go",
   "rs",
@@ -32,6 +36,11 @@ export const CODE_EXTENSIONS = new Set([
   "lua",
   "sh",
   "bash",
+  "zsh",
+  "clj",
+  "elm",
+  "ml",
+  "fs",
   "sql",
   "r",
   "vue",
