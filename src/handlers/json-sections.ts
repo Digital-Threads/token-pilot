@@ -26,6 +26,7 @@ export function parseJsonSections(content: string): JsonSection[] {
   let depth = 0;
   let inString = false;
   let lineIdx = 0;
+  let rootClose = -1; // 1-based line where the root object closes
 
   for (lineIdx = 0; lineIdx < lines.length; lineIdx++) {
     const line = lines[lineIdx];
@@ -47,17 +48,24 @@ export function parseJsonSections(content: string): JsonSection[] {
       }
       if (!inString) {
         if (ch === '{' || ch === '[') depth++;
-        if (ch === '}' || ch === ']') depth--;
+        if (ch === '}' || ch === ']') {
+          depth--;
+          if (depth === 0 && rootClose < 0) rootClose = lineIdx + 1;
+        }
       }
     }
   }
 
   if (topKeys.length === 0) return [];
 
+  // the last key ends before the root's closing brace (or on its line when they share it)
+  const closeLine = rootClose > 0 ? rootClose : lines.length;
+  const lastEnd = lines[closeLine - 1]?.trim() === '}' ? closeLine - 1 : closeLine;
+
   const sections: JsonSection[] = [];
   for (let i = 0; i < topKeys.length; i++) {
     const start = topKeys[i].line;
-    const end = i + 1 < topKeys.length ? topKeys[i + 1].line - 1 : lines.length - 1; // -1 to exclude closing }
+    const end = i + 1 < topKeys.length ? topKeys[i + 1].line - 1 : Math.max(start, lastEnd);
     sections.push({
       heading: topKeys[i].key,
       startLine: start,
@@ -67,6 +75,12 @@ export function parseJsonSections(content: string): JsonSection[] {
   }
 
   return sections;
+}
+
+/** True for a JSON document written on one line — it has no per-key line ranges. */
+export function isMinifiedJson(content: string): boolean {
+  const t = content.trim();
+  return t.length > 0 && !t.includes('\n') && (t.startsWith('{') || t.startsWith('['));
 }
 
 export function findJsonSection(sections: JsonSection[], heading: string): JsonSection | undefined {

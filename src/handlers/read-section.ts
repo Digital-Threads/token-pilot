@@ -5,7 +5,7 @@ import { estimateTokens } from '../core/token-estimator.js';
 import { resolveSafePath } from '../core/validation.js';
 import { parseMarkdownSections, findSection, extractSectionContent, duplicateSectionNote } from './markdown-sections.js';
 import { parseYamlSections, findYamlSection, extractYamlSectionContent } from './yaml-sections.js';
-import { parseJsonSections, findJsonSection, extractJsonSectionContent } from './json-sections.js';
+import { parseJsonSections, findJsonSection, extractJsonSectionContent, isMinifiedJson } from './json-sections.js';
 import { csvRecords, parseCsvSectionSpec, extractCsvSectionContent } from './csv-sections.js';
 
 export interface ReadSectionArgs {
@@ -60,7 +60,9 @@ export async function handleReadSection(
       return {
         content: [{
           type: 'text',
-          text: `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
+          text: isMinifiedJson(content)
+            ? `${args.path} is minified JSON (one line), so it has no per-key sections. Use read_range or smart_read instead.`
+            : `Section "${args.heading}" not found in ${args.path}.\nAvailable sections: ${sections.map(s => s.heading).join(', ')}`,
         }],
       };
     }

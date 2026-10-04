@@ -67,3 +67,12 @@ describe('findJsonSection', () => {
     expect(findJsonSection(sections, 'nonexistent')).toBeUndefined();
   });
 });
+
+describe('parseJsonSections — ranges', () => {
+  it('the last key does not swallow the root closing brace (file ends with a newline)', () => {
+    const sections = parseJsonSections(SAMPLE_JSON + '\n');
+    const last = sections[sections.length - 1];
+    expect(last.heading).toBe('devDependencies');
+    expect(last.endLine).toBe(16); // "  }" — line 17 is the root "}"
+  });
+});

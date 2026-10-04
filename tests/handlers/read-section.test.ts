@@ -154,4 +154,10 @@ describe('handleReadSection', () => {
     expect(text).toContain('one');
     expect(text).toMatch(/2 sections named "Usage".*L2.*L5/);
   });
+
+  it('says why a minified JSON file has no sections', async () => {
+    await writeFile(join(tempDir, 'min.json'), '{"a":1,"b":{"c":2}}');
+    const result = await handleReadSection({ path: 'min.json', heading: 'a' }, tempDir, new ContextRegistry());
+    expect(result.content[0].text).toMatch(/minified/i);
+  });
 });

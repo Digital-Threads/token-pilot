@@ -23,19 +23,26 @@ export function parseYamlSections(content: string): YamlSection[] {
     const line = lines[i];
     // Skip comments and empty lines
     if (!line.trim() || line.trim().startsWith('#')) continue;
-    // Top-level key: starts at column 0, has format "key:" or "key: value"
-    const match = line.match(/^([a-zA-Z_][a-zA-Z0-9_.-]*):/);
+    // Top-level key at column 0: key:, "quoted key": or 'quoted key':
+    const match = line.match(/^(?:"([^"]+)"|'([^']+)'|([a-zA-Z_][a-zA-Z0-9_.-]*))\s*:(\s|$)/);
     if (match) {
-      topKeys.push({ key: match[1], line: i + 1 });
+      topKeys.push({ key: match[1] ?? match[2] ?? match[3], line: i + 1 });
     }
   }
 
   if (topKeys.length === 0) return [];
 
+  // the last section ends at its last non-blank line, not past the end of the file
+  const lastContent = (from: number, to: number): number => {
+    let e = to;
+    while (e > from && !lines[e - 1]?.trim()) e--;
+    return e;
+  };
+
   const sections: YamlSection[] = [];
   for (let i = 0; i < topKeys.length; i++) {
     const start = topKeys[i].line;
-    const end = i + 1 < topKeys.length ? topKeys[i + 1].line - 1 : lines.length;
+    const end = i + 1 < topKeys.length ? topKeys[i + 1].line - 1 : lastContent(start, lines.length);
     sections.push({
       heading: topKeys[i].key,
       startLine: start,
