@@ -236,7 +236,14 @@ export async function loadErrors(
 
 // ─── format ──────────────────────────────────────────────────────────
 
-export function formatErrorList(records: HookErrorRecord[]): string {
+/**
+ * `records` newest first, every match (not pre-cut by --tail): the total and
+ * the top codes cover them all; `tail` only limits the "Most recent" list.
+ */
+export function formatErrorList(
+  records: HookErrorRecord[],
+  opts: { tail?: number } = {},
+): string {
   if (records.length === 0) {
     return "No errors logged.";
   }
@@ -248,18 +255,21 @@ export function formatErrorList(records: HookErrorRecord[]): string {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10);
 
+  const recent = records.slice(0, opts.tail && opts.tail > 0 ? opts.tail : 20);
+  const shown = recent.length < records.length ? `, the ${recent.length} most recent shown` : "";
+
   const lines: string[] = [];
-  lines.push(`token-pilot errors — ${records.length} total`);
+  lines.push(`token-pilot errors — ${records.length} total${shown}`);
+  lines.push(`Log: ${errorLogPath()} (one log for all projects on this machine)`);
   lines.push("");
   lines.push("Top codes:");
   for (const [code, n] of top) {
     lines.push(`  ${String(n).padStart(4)}× ${code}`);
   }
   lines.push("");
-  lines.push("Most recent:");
-  const recent = records.slice(0, 20);
+  lines.push("Most recent (UTC):");
   for (const r of recent) {
-    const when = new Date(r.ts).toISOString().slice(11, 19);
+    const when = new Date(r.ts).toISOString().slice(0, 19).replace("T", " ");
     lines.push(
       `  [${when}] ${r.level.toUpperCase().padEnd(5)} ${r.hook} ${r.code} — ${r.msg}`,
     );

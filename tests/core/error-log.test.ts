@@ -141,6 +141,27 @@ describe("formatErrorList", () => {
     expect(out).toContain("ENOENT");
     expect(out).toContain("parse_error");
   });
+
+  it("prints the date with each time", () => {
+    const ts = Date.UTC(2026, 9, 4, 13, 5, 9);
+    const out = formatErrorList([{ ts, hook: "h", level: "warn", code: "c", msg: "m" }]);
+    expect(out).toContain("2026-10-04 13:05:09");
+  });
+
+  it("--tail limits the list, not the total", () => {
+    const records: HookErrorRecord[] = Array.from({ length: 7 }, (_, i) => ({
+      ts: 7 - i, hook: "h", level: "error" as const, code: i < 5 ? "ENOENT" : "other", msg: `m${i}`,
+    }));
+    const out = formatErrorList(records, { tail: 3 });
+    expect(out).toMatch(/7 total, the 3 most recent shown/);
+    expect(out).toMatch(/5× ENOENT/);
+    expect(out.match(/^\s+\[/gm)).toHaveLength(3);
+  });
+
+  it("says the log is global, shared by every project", () => {
+    const out = formatErrorList([{ ts: 1, hook: "h", level: "error", code: "c", msg: "m" }]);
+    expect(out).toMatch(/all projects/);
+  });
 });
 
 describe("appendError integration (writes to overridden cwd)", () => {

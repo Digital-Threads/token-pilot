@@ -536,13 +536,15 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         return undefined;
       };
       const tailRaw = flag("tail");
+      // Load every match: --tail limits the list, not the total.
       const records = await loadErrors({
-        tail: tailRaw ? Number(tailRaw) : undefined,
         code: flag("code"),
         hook: flag("hook"),
         level: flag("level") as "info" | "warn" | "error" | undefined,
       });
-      process.stdout.write(formatErrorList(records) + "\n");
+      process.stdout.write(
+        formatErrorList(records, { tail: tailRaw ? Number(tailRaw) : undefined }) + "\n",
+      );
       return;
     }
     case "workflow": {
