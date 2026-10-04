@@ -255,3 +255,45 @@ describe("stats reads from event-log", () => {
     expect(formatStats(events, {})).toMatch(/1000 token/);
   });
 });
+
+describe("formatStats — audit 1.0.2", () => {
+  const diag = (ts: number): HookEvent =>
+    ev({ ts, session_id: "diagnostic", event: "diagnostic", file: "", lines: 0, estTokens: 0, summaryTokens: 0, savedTokens: 0, code: "bash_denied" });
+
+  it("--session skips the diagnostic pseudo-session", () => {
+    const events: HookEvent[] = [
+      ev({ session_id: "real", ts: 100, savedTokens: 300 }),
+      diag(200),
+    ];
+    const out = formatStats(events, { session: true });
+    expect(out).toContain("session real");
+    expect(out).not.toContain("session diagnostic");
+  });
+
+  it("diagnostic records are not counted as events", () => {
+    const events: HookEvent[] = [ev({ savedTokens: 500 }), ev({ savedTokens: 300 }), diag(1), diag(2), diag(3)];
+    const out = formatStats(events, {});
+    expect(out.split("\n")[0]).toMatch(/— 2 events, ~800 tokens saved/);
+    expect(out).toMatch(/3 diagnostic records not counted/);
+  });
+
+  it("one file under several path spellings is one row", () => {
+    const events: HookEvent[] = [
+      ev({ file: "/proj/src/a.ts", savedTokens: 100 }),
+      ev({ file: "src/a.ts", savedTokens: 100 }),
+      ev({ file: "./src/a.ts", savedTokens: 100 }),
+      ev({ file: "/proj/tmp/../src/a.ts", savedTokens: 100 }),
+    ];
+    const out = formatStats(events, { projectRoot: "/proj" });
+    const rows = out.split("\n").filter((l) => l.includes("a.ts"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatch(/^\s+src\/a\.ts\s+4×\s+~400 tokens saved/);
+  });
+
+  it("--tasks counts a subagent_stop written twice (hook + mod) once", () => {
+    const stop = (ts: number): HookEvent =>
+      ev({ ts, event: "task", file: "", savedTokens: 0, agent_id: "a1", subagent_type: "general-purpose", matched_tp_agent: null, code: "subagent_stop" });
+    const out = formatStats([stop(1000), stop(1020), ev({ event: "task", file: "", savedTokens: 0, agent_id: "a2", subagent_type: "Explore", code: "subagent_stop" })], { tasks: true });
+    expect(out).toMatch(/2 Task calls/);
+  });
+});

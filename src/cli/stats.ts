@@ -12,6 +12,7 @@
  * directly without touching the filesystem.
  */
 
+import { isAbsolute, normalize, relative } from "node:path";
 import {
   loadEvents,
   loadEventsTree,
@@ -19,6 +20,8 @@ import {
 } from "../core/event-log.js";
 
 export interface StatsOptions {
+  /** Absolute paths inside it are shown (and grouped) relative to it. */
+  projectRoot?: string;
   /**
    * `true` → pick the session_id of the most recent event.
    * `string` → filter to that specific session_id.
@@ -56,11 +59,44 @@ function pad(label: string, width: number): string {
     : label + " ".repeat(width - label.length);
 }
 
+/** Hook diagnostics: no savings, often under the pseudo-session "diagnostic". */
+function isDiagnostic(e: HookEvent): boolean {
+  return e.event === "diagnostic";
+}
+
+/** The most recent real session — not "diagnostic" and not an empty id. */
 function pickMostRecentSession(events: HookEvent[]): string | null {
-  if (events.length === 0) return null;
-  let latest = events[0];
-  for (const e of events) if (e.ts > latest.ts) latest = e;
-  return latest.session_id;
+  let latest: HookEvent | null = null;
+  for (const e of events) {
+    if (isDiagnostic(e) || !e.session_id || e.session_id === "diagnostic") continue;
+    if (!latest || e.ts > latest.ts) latest = e;
+  }
+  return latest?.session_id ?? null;
+}
+
+/** One spelling per file: project-relative when inside it, no "./" or "..". */
+function fileKey(file: string, projectRoot?: string): string {
+  if (!file) return file;
+  let p = normalize(file);
+  if (projectRoot && isAbsolute(p)) {
+    const rel = relative(projectRoot, p);
+    if (rel && !rel.startsWith("..") && !isAbsolute(rel)) p = rel;
+  }
+  return p.replace(/\\/g, "/");
+}
+
+/**
+ * The command hook and the mod can both record one SubagentStop — same
+ * agent_id, milliseconds apart. Count each subagent once.
+ */
+function dedupeSubagentStops(events: HookEvent[]): HookEvent[] {
+  const seen = new Set<string>();
+  return events.filter((e) => {
+    if (e.code !== "subagent_stop" || !e.agent_id) return true;
+    if (seen.has(e.agent_id)) return false;
+    seen.add(e.agent_id);
+    return true;
+  });
 }
 
 /**
@@ -89,12 +125,21 @@ export function formatStats(events: HookEvent[], opts: StatsOptions): string {
     return "No events yet.";
   }
 
+  const sessionSuffix = sessionLabel ? ` (session ${sessionLabel})` : "";
+  const diagnostics = scope.filter(isDiagnostic).length;
+  scope = scope.filter((e) => !isDiagnostic(e));
+  if (scope.length === 0) {
+    return `No events${sessionSuffix} — only ${diagnostics} diagnostic records (see \`token-pilot errors\`).`;
+  }
+
   const lines: string[] = [];
   const total = sumSaved(scope);
-  const sessionSuffix = sessionLabel ? ` (session ${sessionLabel})` : "";
   lines.push(
     `token-pilot stats${sessionSuffix} — ${scope.length} event${scope.length === 1 ? "" : "s"}, ~${total} tokens saved`,
   );
+  if (diagnostics > 0) {
+    lines.push(`(${diagnostics} diagnostic records not counted)`);
+  }
 
   if (opts.workflows) {
     // v0.39.0 — workflow completion view. Each `event:"workflow"` row is
@@ -139,7 +184,7 @@ export function formatStats(events: HookEvent[], opts: StatsOptions): string {
 
   if (opts.tasks) {
     // v0.31.0 — Task-routing view. Scope to event:"task" records only.
-    const taskEvents = scope.filter((e) => e.event === "task");
+    const taskEvents = dedupeSubagentStops(scope.filter((e) => e.event === "task"));
     if (taskEvents.length === 0) {
       return lines[0] + "\n\nNo Task events yet.";
     }
@@ -211,7 +256,7 @@ export function formatStats(events: HookEvent[], opts: StatsOptions): string {
     }
   } else {
     // Default view: top files by savedTokens.
-    const groups = groupBy(scope, (e) => e.file);
+    const groups = groupBy(scope, (e) => fileKey(e.file, opts.projectRoot));
     const rows = [...groups.entries()]
       .map(([file, evs]) => ({
         file,
@@ -267,6 +312,7 @@ export async function handleStats(
   const workflows = parseFlag(argv, "workflows");
 
   const rendered = formatStats(events, {
+    projectRoot,
     session: session === undefined ? undefined : session,
     byAgent: byAgent === true,
     tasks: tasks === true,
