@@ -62,7 +62,31 @@ const ALLOW: PreBashDecision = { kind: "allow" };
 type Token =
   | { t: "word"; v: string }
   | { t: "op"; v: string }
-  | { t: "redir"; v: string; fd: string; target?: string };
+  | { t: "redir"; v: string; fd: string; target?: string }
+  | { t: "sub"; tokens: Token[] };
+
+/** Stands in a word for a `$( )` / backtick / `<( )` substitution: a value we cannot know. */
+const SUB = "$(…)";
+
+/** Where the substitution whose body starts at `from` ends: its `)` or closing backtick. */
+function closingIndex(src: string, from: number, backtick: boolean): number {
+  let depth = 1;
+  for (let i = from; i < src.length; i++) {
+    const c = src[i];
+    if (c === "\\") i++;
+    else if (backtick) {
+      if (c === "`") return i;
+    } else if (c === "'") {
+      i = src.indexOf("'", i + 1);
+      if (i === -1) return src.length;
+    } else if (c === '"') {
+      for (i++; i < src.length && src[i] !== '"'; i++) if (src[i] === "\\") i++;
+    } else if (c === "(") depth++;
+    else if (c === ")" && --depth === 0) return i;
+  }
+
+  return src.length;
+}
 
 /**
  * Split a command line into words, operators and redirections the way the
@@ -157,13 +181,17 @@ function lex(src: string): Token[] {
       continue;
     }
 
-    // Command and process substitution: output captured, not printed.
-    if ((c === "$" || c === "<" || c === ">") && next === "(") {
-      op("$(", 2);
-      continue;
-    }
-    if (c === "`") {
-      op("`", 1);
+    // Command and process substitution: a word of this command whose value
+    // we cannot know. The command inside runs on its own, output captured.
+    if (((c === "$" || c === "<" || c === ">") && next === "(") || c === "`") {
+      const from = c === "`" ? i + 1 : i + 2;
+      const close = closingIndex(src, from, c === "`");
+      const inner = src.slice(from, close);
+      // `$(( … ))` is arithmetic, not a command.
+      if (!(c === "$" && inner.startsWith("("))) out.push({ t: "sub", tokens: lex(inner) });
+      word += SUB;
+      inWord = true;
+      i = close + 1;
       continue;
     }
 
@@ -248,8 +276,8 @@ interface Segment {
 
 function parse(tokens: Token[]): Segment[] {
   const segs: Segment[] = [];
-  const parens: boolean[] = [];
-  let backtick = false;
+  /** Commands inside substitutions: their output is captured. */
+  const captured: Segment[] = [];
   let pipeFrom: Segment | null = null;
   let last: Segment | null = null;
   let pendingRedir: Segment["redirs"][number] | null = null;
@@ -268,7 +296,6 @@ function parse(tokens: Token[]): Segment[] {
 
   const end = (): void => {
     if (cur.words.length === 0 && cur.redirs.length === 0) return;
-    cur.consumed = backtick || parens.some(Boolean);
     if (pipeFrom) pipeFrom.pipedTo = cur;
     cur.pipedFrom = pipeFrom !== null;
     pipeFrom = null;
@@ -278,6 +305,14 @@ function parse(tokens: Token[]): Segment[] {
   };
 
   for (const tok of tokens) {
+    if (tok.t === "sub") {
+      for (const inner of parse(tok.tokens)) {
+        inner.consumed = true;
+        captured.push(inner);
+      }
+      continue;
+    }
+
     if (tok.t === "word") {
       if (pendingRedir) {
         pendingRedir.target = tok.v;
@@ -302,14 +337,10 @@ function parse(tokens: Token[]): Segment[] {
       continue;
     }
     pipeFrom = null;
-    if (tok.v === "(") parens.push(false);
-    else if (tok.v === "$(") parens.push(true);
-    else if (tok.v === ")") parens.pop();
-    else if (tok.v === "`") backtick = !backtick;
   }
 
   end();
-  return segs;
+  return [...segs, ...captured];
 }
 
 const KEYWORDS = new Set(["!", "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "time", "esac"]);
@@ -475,8 +506,8 @@ function recursiveSearch(tool: "grep" | "rg" | "git-grep", args: string[], reads
   const paths = patternGiven ? opts.operands : opts.operands.slice(1);
   if (paths.length === 0 && readsStdin) return false;
 
-  // Every path names a single file: nothing is walked.
-  return !(paths.length > 0 && paths.every(looksLikeFile));
+  // Every path names a single file (or is substituted, so unknown): nothing is walked.
+  return !(paths.length > 0 && paths.every((p) => looksLikeFile(p) || p.includes(SUB)));
 }
 
 function searchDenied(): PreBashDecision {
@@ -637,13 +668,16 @@ const isRevision = (word: string): boolean => REVISION.test(word) || word.includ
 const DIFF_SUMMARY = /^--(?:stat|shortstat|numstat|name-only|name-status|summary|dirstat|compact-summary|raw|check|quiet|no-patch|exit-code)/;
 
 function gitLogBounded(rest: string[]): boolean {
+  // A substituted word is unknown: it may well be the count or a range.
+  const count = (v: string): boolean => /^\d+$/.test(v) || v.includes(SUB);
+
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--") break;
-    if (/^-\d+$/.test(a) || /^-n\d+$/.test(a) || /^--max-count=\d+$/.test(a)) return true;
-    if ((a === "-n" || a === "--max-count") && /^\d+$/.test(rest[i + 1] ?? "")) return true;
+    if (/^-\d+$/.test(a) || (/^-n./.test(a) && count(a.slice(2))) || (a.startsWith("--max-count=") && count(a.slice(12)))) return true;
+    if ((a === "-n" || a === "--max-count") && count(rest[i + 1] ?? "")) return true;
     // A range (`main..HEAD`) bounds the history.
-    if (!a.startsWith("-") && a.includes("..")) return true;
+    if (!a.startsWith("-") && (a.includes("..") || a.includes(SUB))) return true;
   }
 
   return false;

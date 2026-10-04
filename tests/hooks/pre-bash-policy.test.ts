@@ -208,3 +208,24 @@ table("search reading a pipe", [
   ["ls | grep -r x", "deny"],
   ["git log -n 5 | git grep fix", "deny"],
 ]);
+
+// Review 1.0.2 — an unquoted `$( )` or backtick in argument position is a
+// word of the outer command, not the end of it; the inner command is judged
+// on its own, with its output captured.
+table(
+  "command substitution",
+  [
+    ["git diff $(git merge-base HEAD main) -- src/x.ts", "allow"],
+    ["git log $(git describe --tags --abbrev=0)..HEAD --oneline", "allow"],
+    ["git show `git rev-parse HEAD` --stat", "allow"],
+    ["git diff `git merge-base HEAD main` -- src/a.ts", "allow"],
+    ["find $(pwd)/src -name '*.ts'", "allow"],
+    ["git log -n $(echo 5)", "allow"],
+    ["diff <(git show HEAD:src/a.ts) <(cat src/a.ts)", "allow"],
+    ["x=$(npx vitest run)", "advise"],
+    ["cat `echo` src/a.ts", "deny"],
+    ["cat $(echo) src/a.ts | cat", "deny"],
+    ["echo $(( 1 << 2 ))\ncat src/a.ts", "deny"],
+  ],
+  { projectRoot: "/repo" },
+);
