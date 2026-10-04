@@ -13,7 +13,7 @@ tools:
   - Read
   - Write
 model: sonnet
-token_pilot_version: "1.0.1"
+token_pilot_version: "1.0.2"
 token_pilot_body_hash: c3d2ea33ecc7fc5f054e40d4e5bffb505584bdd9e2c921689de39b8385341ca0
 requiredMcpServers:
   - "token-pilot"

@@ -12,7 +12,7 @@ tools:
   - mcp__plugin_token-pilot_token-pilot__read_symbol
   - Bash
 model: sonnet
-token_pilot_version: "1.0.1"
+token_pilot_version: "1.0.2"
 token_pilot_body_hash: a9a77ecb395c3e450dc576a5dedc251403a9286ef65a3c35f6fd563890e6b9d6
 requiredMcpServers:
   - "token-pilot"

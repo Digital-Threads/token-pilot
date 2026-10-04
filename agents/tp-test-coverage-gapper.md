@@ -15,7 +15,7 @@ tools:
   - mcp__plugin_token-pilot_token-pilot__test_summary
   - Glob
   - Grep
-token_pilot_version: "1.0.1"
+token_pilot_version: "1.0.2"
 token_pilot_body_hash: 02a4d1eada766d3a088f61cbc3d47dff234cef24a821c2c0038df443b7370bee
 requiredMcpServers:
   - "token-pilot"

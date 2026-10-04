@@ -17,6 +17,11 @@ it found; each fix starts from a test that reproduced the finding.
 - `smart_diff` and `smart_log` passed `ref` to git unchecked, so a ref such as
   `--output=<path>` made git write a file anywhere. A ref that starts with `-`
   is now rejected.
+- The command hooks sent their advice as a permission `allow`, which skipped
+  Claude Code's own permission prompt: wherever they ran, a command such as
+  `npx vitest run; git push --force origin main` went through without asking.
+  Advice is now context only, and Claude Code asks as it would without
+  token-pilot. Only a deny still carries a permission decision.
 
 ### Fixed — reading tools return the code they claim to
 
@@ -26,21 +31,26 @@ it found; each fix starts from a test that reproduced the finding.
   with nested functions was cut short (`createServer` in this repo came back as
   31 of its 1,458 lines) and the next symbol's doc comment, decorators or
   overloads were swallowed. Nested functions and class members are now nested,
-  in every language.
+  in every language. JSX/TSX tags, PHP heredoc and nowdoc, strings inside
+  Kotlin, Dart and Scala `${…}` templates, and JavaScript without semicolons
+  are handled. Ranges were checked against the TypeScript compiler, Python's
+  `ast`, `go/ast` and PHP's tokenizer on thousands of symbols each, and the
+  scan stays linear on hostile input.
 - `read_symbol`, `read_symbols` and `read_for_edit` no longer answer "Symbol
   not found" after `smart_read` or `read_for_edit` cached an empty structure.
 - `Class.method` requires the class (`Beta.run` returned `Alpha.run`); a symbol
   is never taken from another file; two symbols with the same name are both
   mentioned.
 - `read_diff` works after an edit: the file watcher no longer throws away its
-  baseline.
+  baseline, and the baseline is the version read last.
 - `smart_read` honours `scope`, `show_imports` and `show_docs`; `read_symbol`
   honours `include_edit_context`; a one-line minified file is no longer
   returned whole; `smart_read_many` honours `max_tokens`, says when it cut a
   file and never marks unseen lines as already in context.
 - `read_for_edit`: callers resolve against the project (they pointed into the
-  plugin cache), tests next to the file or under `tests/` are found, an
-  untracked file says so.
+  plugin cache), a method's callers are kept only where its class is
+  mentioned and name-only matches are labelled, tests next to the file or
+  under `tests/` are found, an untracked file says so.
 - Markdown ignores headings inside code fences and reads setext headings; CSV
   rows are records (quoted multi-line fields); the last JSON key no longer
   includes the closing brace; quoted YAML keys work.
@@ -49,35 +59,43 @@ it found; each fix starts from a test that reproduced the finding.
 
 ### Fixed — search and navigation
 
-- `call_tree` was always empty; it parses the binary's text output and checks
-  each caller against a real definition.
+- `call_tree` was always empty; it parses the binary's text output and keeps
+  a caller only when its own body references the callee outside comments.
+  When none does, it says so and points to `find_usages`.
 - `find_usages` was capped at about 20 results per source whatever `limit` said,
   applied `scope` after the cap and never said it truncated. Definitions match
-  the exact name, `scope` is a path prefix, comment lines are not usages.
+  the exact name, `scope` is a path prefix, comment lines are not usages and
+  their count follows the filters.
 - `find_unused` was mostly false positives; every candidate is now checked
-  with a word search across the project and dropped if referenced anywhere.
+  with a word search across the project, in one pass over the files, and
+  dropped if referenced anywhere.
+- `explore` ranks only symbols that match the query or reference one that
+  does.
 - `related_files`, `code_audit`, `explore_area` and `explore` gave paths into
   the plugin cache, missed `type` imports and tests, and matched importers by
   name. `code_audit`'s TODO/deprecated/annotation scans always returned
   nothing. All fixed.
-- `node_modules`, `dist`, `coverage` and `.git` are left out of every result:
-  ast-index indexes `node_modules/**/*.d.ts` regardless of `.gitignore`, which
-  crowded out project results.
+- `node_modules` and `.git` (at any depth) and `dist` and `coverage` (at the
+  project root) are left out of every result: ast-index indexes
+  `node_modules/**/*.d.ts` regardless of `.gitignore`, which crowded out
+  project results.
 - `module_info` no longer invents modules from headings; `project_overview`'s
-  cache no longer feeds on itself; a stale index is updated before queries and
-  results say when files may be missing.
+  cache no longer feeds on itself; a stale index is updated before queries,
+  answers cached before the update are dropped, one update runs at a time,
+  and results say when files may be missing.
 
 ### Fixed — git, tests and session tools
 
 - `smart_diff`: lines starting with `--` or `++` were dropped; changed symbols
   are marked per symbol from the changed lines only; removed symbols are
   reported; commit and branch scopes outline the file at that revision; merge
-  commits show what they brought in; paths with spaces or non-ASCII names
-  work; one output cap with one honest note.
+  commits show what they brought in (on git older than 2.31 too); paths with
+  spaces or non-ASCII names work; one output cap with one honest note.
 - `test_summary`: vitest counts were wrong whenever a test was `todo`;
-  failures are listed once; a timeout says timeout; a non-test command no
-  longer gets a PASS; the child process no longer inherits the plugin's
-  environment, so results match the terminal.
+  failures are listed once; a timeout says timeout and ends the whole process
+  tree, Windows included; a non-test command no longer gets a PASS; the child
+  process no longer inherits the plugin's environment and runs with `CI=1`,
+  `NO_COLOR=1` and `FORCE_COLOR=0`, as the tool description says.
 - `session_budget`, `session_snapshot`, `session_analytics`, and the `stats`,
   `errors`, `doctor` and `--help` CLI reports give correct numbers and labels.
 
@@ -92,7 +110,15 @@ it found; each fix starts from a test that reproduced the finding.
 - The Bash gate reads each part of a compound command on its own. Recursive
   search in any spelling (`grep -rn`, `rg`, `git grep`) is caught unless
   bounded; `cat package.json && node x`, `sed -n '1,20p'`, `git diff | head`
-  and `find` inside the project pass.
+  and `find` inside the project pass. So do `rg` reading a pipe
+  (`ps aux | rg node`), command substitution
+  (`git diff $(git merge-base HEAD main) -- file`), grouped commands piped or
+  redirected (`{ …; } | head`, `for … done > out.txt`) and a filtered `find`
+  outside the project. `cat file | head -n 400`, beyond the slice limit, does
+  not.
+- The Grep gate no longer blocks a plain `Grep(pattern)`: Claude Code already
+  returns file names only, at most 250. Only content-mode searches for an
+  identifier are gated.
 - `TOKEN_PILOT_BYPASS=1` works in every gate; env overrides such as
   `TOKEN_PILOT_DENY_THRESHOLD` work without a `.token-pilot.json`;
   `TOKEN_PILOT_MODE=advisory` lets reads through.
@@ -100,12 +126,16 @@ it found; each fix starts from a test that reproduced the finding.
   for plugin and npm installs alike.
 - Command hooks find the project root from `CLAUDE_PROJECT_DIR` or the nearest
   `.git`, not the current directory; files outside the project are not gated.
-- The Read gate also weighs bytes, so a one-line minified bundle is gated; one
-  extension list is shared by every gate.
+- The Read gate also weighs the bytes of a whole-file read, so a one-line
+  minified bundle is gated; an `offset`/`limit` window within the threshold
+  always passes, as the deny text says. One extension list is shared by every
+  gate.
 - Each subagent dispatch is counted once, on SubagentStop. `hook-post-task` is
   no longer registered; the npm installer removes the old entry, installs the
   UserPromptSubmit reminder it always shipped but never wrote, and re-installs
-  anything an older install is missing.
+  anything an older install is missing. Uninstall and the cleanup of stale
+  paths cover every hook event.
+- The context-mode hint names the execute tool as a plugin install exposes it.
 - Codex gets Codex-specific session text.
 
 ## [1.0.1] - 2026-10-04
