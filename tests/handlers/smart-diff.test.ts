@@ -182,7 +182,7 @@ describe('mapHunksToSymbols', () => {
       },
     ]);
 
-    const hunks = [{ newStart: 15, newCount: 3, lines: ['+a', '-b', '+c'] }];
+    const hunks = [{ oldStart: 15, oldCount: 1, newStart: 15, newCount: 3, lines: ['+a', '-b', '+c'] }];
     const result = mapHunksToSymbols(hunks, structure);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('doStuff');
@@ -201,7 +201,7 @@ describe('mapHunksToSymbols', () => {
       },
     ]);
 
-    const hunks = [{ newStart: 50, newCount: 3, lines: ['+a'] }];
+    const hunks = [{ oldStart: 50, oldCount: 0, newStart: 50, newCount: 1, lines: ['+a'] }];
     const result = mapHunksToSymbols(hunks, structure);
     expect(result).toHaveLength(0);
   });
@@ -224,7 +224,8 @@ describe('mapHunksToSymbols', () => {
       },
     ]);
 
-    const hunks = [{ newStart: 18, newCount: 10, lines: ['+a'] }];
+    // ten added lines, L18-27: the last ones fall inside bar
+    const hunks = [{ oldStart: 18, oldCount: 0, newStart: 18, newCount: 10, lines: Array(10).fill('+a') }];
     const result = mapHunksToSymbols(hunks, structure);
     expect(result).toHaveLength(2);
     expect(result.map(s => s.name).sort()).toEqual(['bar', 'foo']);
@@ -249,7 +250,7 @@ describe('mapHunksToSymbols', () => {
       },
     ]);
 
-    const hunks = [{ newStart: 12, newCount: 3, lines: ['+a'] }];
+    const hunks = [{ oldStart: 12, oldCount: 0, newStart: 12, newCount: 1, lines: ['+a'] }];
     const result = mapHunksToSymbols(hunks, structure);
     // Should match both the class and the method
     expect(result.length).toBeGreaterThanOrEqual(1);
@@ -269,8 +270,8 @@ describe('mapHunksToSymbols', () => {
     ]);
 
     const hunks = [
-      { newStart: 12, newCount: 2, lines: ['+a'] },
-      { newStart: 25, newCount: 2, lines: ['+b'] },
+      { oldStart: 12, oldCount: 0, newStart: 12, newCount: 1, lines: ['+a'] },
+      { oldStart: 24, oldCount: 0, newStart: 25, newCount: 1, lines: ['+b'] },
     ];
     const result = mapHunksToSymbols(hunks, structure);
     expect(result).toHaveLength(1);
