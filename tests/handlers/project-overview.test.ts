@@ -57,6 +57,34 @@ describe('handleProjectOverview', () => {
     expect(text).toContain('MAP:');
   });
 
+  it('says when the MAP is capped and when ast-index conventions were skipped', async () => {
+    const astIndex = {
+      isAvailable: () => true,
+      isOversized: () => false,
+      isDisabled: () => false,
+      map: async () => ({
+        project_type: 'typescript',
+        file_count: 293,
+        showing: 1,
+        total_dirs: 53,
+        groups: [{ path: 'src/handlers/', file_count: 30 }],
+      }),
+      conventions: async () => ({
+        architecture: ['Hooks pattern'],
+        frameworks: {},
+        naming_patterns: [],
+        vendored_skipped: true,
+      }),
+      stats: async () => null,
+    } as any;
+
+    const text = (await handleProjectOverview({}, tempDir, astIndex)).content[0].text;
+
+    expect(text).toContain('MAP (1 of 53 directories):');
+    expect(text).toMatch(/frameworks and naming patterns.*node_modules/);
+    expect(text).not.toContain('PATTERNS:');
+  });
+
   it('shows degraded mode guidance when ast-index is disabled', async () => {
     const astIndex = {
       isAvailable: () => false,

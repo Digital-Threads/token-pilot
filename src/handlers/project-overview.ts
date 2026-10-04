@@ -93,6 +93,9 @@ export async function handleProjectOverview(
         .join(', ');
       lines.push(`PATTERNS: ${patterns}`);
     }
+    if (convData.vendored_skipped) {
+      lines.push('(ast-index frameworks and naming patterns not shown: its index includes node_modules declarations and they cannot be told apart)');
+    }
     lines.push('');
   }
 
@@ -117,7 +120,12 @@ export async function handleProjectOverview(
 
   // 7. Directory map (from ast-index)
   if (showArch && mapData) {
-    lines.push('MAP:');
+    const total = mapData.total_dirs ?? mapData.groups.length;
+    lines.push(
+      mapData.groups.length < total
+        ? `MAP (${mapData.groups.length} of ${total} directories):`
+        : 'MAP:',
+    );
     for (const group of mapData.groups) {
       const kinds = group.kinds
         ? ' — ' + Object.entries(group.kinds).map(([k, v]) => `${v} ${k}`).join(', ')

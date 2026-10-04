@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { FileStructure } from "../types.js";
 import type {
@@ -54,6 +54,35 @@ const TS_JS_EXTENSIONS = new Set(["ts", "tsx", "js", "jsx", "mjs", "cjs"]);
 const PYTHON_EXTENSIONS = new Set(["py", "pyw"]);
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Directories whose files never belong in a tool result. ast-index ≥3.4x
+ * indexes `node_modules/**\/*.d.ts` on every `rebuild` and `update` of a
+ * project with a package.json — regardless of .gitignore and of
+ * `.ast-index.yaml` `exclude` (verified on 3.50) — so the filter has to
+ * live here, on every result the client hands out.
+ */
+export const EXCLUDED_DIRS: readonly string[] = [
+  "node_modules",
+  "dist",
+  "coverage",
+  ".git",
+];
+
+/** True when any segment of `path` (relative to `projectRoot`) is excluded. */
+export function isExcludedPath(path: string, projectRoot?: string): boolean {
+  const rel =
+    projectRoot && isAbsolute(path) ? relative(projectRoot, path) : path;
+  return rel.split(/[\\/]/).some((seg) => EXCLUDED_DIRS.includes(seg));
+}
+
+/** SQL condition on `files.path` that keeps excluded directories out. */
+const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
+  (d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`,
+).join(" AND ");
+
+/** Row cap for `ast-index query` (its default is 100). */
+const QUERY_ROW_CAP = 200_000;
 
 /**
  * True when `projectRoot` is itself a git repo or worktree root. A `.git`
@@ -321,18 +350,10 @@ export class AstIndexClient {
 
   async symbol(name: string): Promise<AstIndexSymbolDetail | null> {
     try {
-      const result = await this.exec(["symbol", name, "--format", "json"]);
-      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
-      if (Array.isArray(raw) && raw.length > 0) {
-        const first = raw[0];
-        return {
-          name: first.name,
-          kind: first.kind,
-          file: first.path,
-          start_line: first.line,
-          signature: first.signature,
-        };
-      }
+      const detail = this.firstSymbol(
+        await this.exec(["symbol", name, "--format", "json"]),
+      );
+      if (detail) return detail;
     } catch {
       /* fall through to ensureIndex path */
     }
@@ -340,23 +361,36 @@ export class AstIndexClient {
     if (this.indexDisabled || this.indexOversized) return null;
     try {
       await this.ensureIndex();
-      const result = await this.exec(["symbol", name, "--format", "json"]);
-      const raw: AstIndexSymbolRaw[] = JSON.parse(result);
-      if (!Array.isArray(raw) || raw.length === 0) return null;
-      const first = raw[0];
-      return {
-        name: first.name,
-        kind: first.kind,
-        file: first.path,
-        start_line: first.line,
-        signature: first.signature,
-      };
+      return this.firstSymbol(
+        await this.exec(["symbol", name, "--format", "json"]),
+      );
     } catch (err) {
       console.error(
         `[token-pilot] ast-index symbol failed: ${err instanceof Error ? err.message : err}`,
       );
       return null;
     }
+  }
+
+  /** First `symbol --format json` entry outside excluded directories. */
+  private firstSymbol(json: string): AstIndexSymbolDetail | null {
+    const raw: AstIndexSymbolRaw[] = JSON.parse(json);
+    if (!Array.isArray(raw)) return null;
+    const first = raw.find((s) => this.keep(s.path));
+    if (!first) return null;
+
+    return {
+      name: first.name,
+      kind: first.kind,
+      file: first.path,
+      start_line: first.line,
+      signature: first.signature,
+    };
+  }
+
+  /** False for paths inside node_modules / dist / coverage / .git. */
+  private keep(path: string | undefined): boolean {
+    return !!path && !isExcludedPath(path, this.projectRoot);
   }
 
   async search(
@@ -433,7 +467,7 @@ export class AstIndexClient {
             text: m.content ?? m.text ?? m.signature ?? "",
           }),
         )
-        .filter((r) => r.file !== "" && r.text !== "");
+        .filter((r) => r.text !== "" && this.keep(r.file));
 
       // Deduplicate by file:line
       const seen = new Set<string>();
@@ -462,7 +496,7 @@ export class AstIndexClient {
       ]);
       const raw: AstIndexUsageRaw[] = JSON.parse(result);
       if (!Array.isArray(raw)) return [];
-      return raw.map((u) => ({
+      return raw.filter((u) => this.keep(u.path)).map((u) => ({
         file: u.path,
         line: u.line,
         text: u.context,
@@ -504,7 +538,7 @@ export class AstIndexClient {
             ? parsed.dominant_language
             : "",
         symbols: Array.isArray(parsed.symbols)
-          ? parsed.symbols.map((s) => ({
+          ? parsed.symbols.filter((s) => this.keep(s.path)).map((s) => ({
               name: s.name,
               kind: s.kind,
               path: s.path,
@@ -514,14 +548,14 @@ export class AstIndexClient {
             }))
           : [],
         files: Array.isArray(parsed.files)
-          ? parsed.files.map((f) => ({
+          ? parsed.files.filter((f) => this.keep(f.path)).map((f) => ({
               path: f.path,
               line: f.line,
               source: f.source,
             }))
           : [],
         neighbours: Array.isArray(parsed.neighbours)
-          ? parsed.neighbours.map((n) => ({
+          ? parsed.neighbours.filter((n) => this.keep(n.path)).map((n) => ({
               name: n.name,
               kind: n.kind,
               path: n.path,
@@ -530,10 +564,15 @@ export class AstIndexClient {
             }))
           : [],
         tests: Array.isArray(parsed.tests)
-          ? parsed.tests.map((t) => ({
-              source: t.source,
-              tests: Array.isArray(t.tests) ? t.tests : [],
-            }))
+          ? parsed.tests
+              .filter((t) => this.keep(t.source))
+              .map((t) => ({
+                source: t.source,
+                tests: Array.isArray(t.tests)
+                  ? t.tests.filter((f) => this.keep(f))
+                  : [],
+              }))
+              .filter((t) => t.tests.length > 0)
           : [],
       };
     } catch (err) {
@@ -561,11 +600,15 @@ export class AstIndexClient {
         "--format",
         "json",
       ]);
+      let list: Array<AstIndexImplementation & { path?: string }>;
       try {
-        return JSON.parse(result);
+        list = JSON.parse(result);
       } catch {
-        return parseImplementationsText(result);
+        list = parseImplementationsText(result);
       }
+      return Array.isArray(list)
+        ? list.filter((i) => this.keep(i.file ?? i.path))
+        : [];
     } catch (err) {
       console.error(
         `[token-pilot] ast-index implementations failed: ${err instanceof Error ? err.message : err}`,
@@ -605,14 +648,21 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Project files in the index (paths relative to the project root),
+   * excluded directories left out. ast-index has no `files` command; the
+   * list comes from its read-only `query` over the `files` table.
+   */
   async listFiles(): Promise<string[]> {
     try {
       await this.ensureIndex();
-      const result = await this.exec(["files"], 15000);
-      return result
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
+      const rows = await this.queryRows(
+        `SELECT path FROM files WHERE ${SQL_KEEP_PATH} ORDER BY path`,
+      );
+
+      return rows
+        .map((r) => String(r.path ?? ""))
+        .filter((p) => this.keep(p));
     } catch (err) {
       console.error(
         `[token-pilot] ast-index files failed: ${err instanceof Error ? err.message : err}`,
@@ -632,7 +682,14 @@ export class AstIndexClient {
         "--format",
         "json",
       ]);
-      return JSON.parse(result);
+      const parsed: Partial<AstIndexRefsResponse> = JSON.parse(result);
+      const keep = (e: { path: string }) => this.keep(e.path);
+
+      return {
+        definitions: (parsed.definitions ?? []).filter(keep),
+        imports: (parsed.imports ?? []).filter(keep),
+        usages: (parsed.usages ?? []).filter(keep),
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index refs failed: ${err instanceof Error ? err.message : err}`,
@@ -641,17 +698,33 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Directory map without excluded directories. Every group is fetched so
+   * the cap (default 50, the binary's own) applies after the filter;
+   * `showing` / `total_dirs` describe the filtered map and `file_count`
+   * counts project files only.
+   */
   async map(options?: {
     module?: string;
     limit?: number;
   }): Promise<AstIndexMapResponse | null> {
     await this.ensureIndex();
     try {
-      const args = ["map", "--format", "json"];
+      const limit = options?.limit ?? 50;
+      const args = ["map", "--format", "json", "--limit", "1000"];
       if (options?.module) args.push("--module", options.module);
-      if (options?.limit) args.push("--limit", String(options.limit));
-      const result = await this.exec(args, 15000);
-      return JSON.parse(result);
+      const raw: AstIndexMapResponse = JSON.parse(await this.exec(args, 15000));
+      const rawGroups = Array.isArray(raw.groups) ? raw.groups : [];
+      const groups = rawGroups.filter((g) => this.keep(g.path));
+      const unseen = Math.max(0, (raw.total_dirs ?? 0) - rawGroups.length);
+
+      return {
+        ...raw,
+        file_count: (await this.projectFileCount()) ?? raw.file_count,
+        groups: groups.slice(0, limit),
+        showing: Math.min(limit, groups.length),
+        total_dirs: groups.length + unseen,
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index map failed: ${err instanceof Error ? err.message : err}`,
@@ -660,11 +733,29 @@ export class AstIndexClient {
     }
   }
 
+  /**
+   * Project conventions. ast-index computes frameworks and naming patterns
+   * over every indexed file, node_modules declarations included, and cannot
+   * be scoped — so when vendored files are in the index those two are
+   * dropped (`vendored_skipped`) instead of reporting a dependency's
+   * classes as the project's.
+   */
   async conventions(): Promise<AstIndexConventionsResponse | null> {
     await this.ensureIndex();
     try {
       const result = await this.exec(["conventions", "--format", "json"]);
-      return JSON.parse(result);
+      const conv: AstIndexConventionsResponse = JSON.parse(result);
+      const vendored = await this.queryRows(
+        `SELECT count(*) AS n FROM files WHERE NOT (${SQL_KEEP_PATH})`,
+      ).catch(() => []);
+      if (!(Number(vendored[0]?.n) > 0)) return conv;
+
+      return {
+        architecture: conv.architecture ?? [],
+        frameworks: {},
+        naming_patterns: [],
+        vendored_skipped: true,
+      };
     } catch (err) {
       console.error(
         `[token-pilot] ast-index conventions failed: ${err instanceof Error ? err.message : err}`,
@@ -748,8 +839,10 @@ export class AstIndexClient {
       if (options?.exportOnly) args.push("--export-only");
       if (options?.limit) args.push("--limit", String(options.limit));
       const result = await this.exec(args, 15000);
-      const parsed = JSON.parse(result);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: AstIndexUnusedSymbol[] = JSON.parse(result);
+      return Array.isArray(parsed)
+        ? parsed.filter((s) => this.keep(s.path))
+        : [];
     } catch (err) {
       console.error(
         `[token-pilot] ast-index unused-symbols failed: ${err instanceof Error ? err.message : err}`,
@@ -1020,6 +1113,30 @@ export class AstIndexClient {
       );
       return [];
     }
+  }
+
+  /** Number of project files in the index (excluded dirs left out). */
+  async projectFileCount(): Promise<number | null> {
+    try {
+      const rows = await this.queryRows(
+        `SELECT count(*) AS n FROM files WHERE ${SQL_KEEP_PATH}`,
+      );
+      const n = Number(rows[0]?.n);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Rows of a read-only `ast-index query` (SELECT only). */
+  private async queryRows(sql: string): Promise<Array<Record<string, unknown>>> {
+    const out = await this.exec(
+      ["query", sql, "--limit", String(QUERY_ROW_CAP), "--format", "json"],
+      15000,
+    );
+    const parsed = JSON.parse(out);
+
+    return Array.isArray(parsed?.rows) ? parsed.rows : [];
   }
 
   // --- Utility methods ---

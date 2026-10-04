@@ -124,6 +124,8 @@ export interface AstIndexConventionsResponse {
   architecture: string[];
   frameworks: Record<string, Array<{ name: string; count: number }>>;
   naming_patterns: Array<{ suffix: string; count: number }>;
+  /** Set by the client: frameworks/naming_patterns dropped (vendored files indexed). */
+  vendored_skipped?: boolean;
 }
 
 /** ast-index callers --format json */

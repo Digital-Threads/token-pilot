@@ -377,8 +377,8 @@ describe("AstIndexClient", () => {
           return "Hierarchy for 'Demo':\nParents:\n  Base (extends)\n";
         case "stats":
           return "Files: 5\nSymbols: 9";
-        case "files":
-          return "/repo/a.ts\n/repo/b.ts\n";
+        case "query":
+          return JSON.stringify({ rows: [{ path: "a.ts" }, { path: "b.ts" }] });
         case "refs":
           return JSON.stringify({
             definitions: [{ path: "/repo/a.ts", line: 1 }],
@@ -458,7 +458,7 @@ describe("AstIndexClient", () => {
     expect((await client.implementations("Demo"))[0].name).toBe("DemoImpl");
     expect((await client.hierarchy("Demo"))?.parents?.[0].name).toBe("Base");
     expect(await client.stats()).toContain("Files: 5");
-    expect(await client.listFiles()).toEqual(["/repo/a.ts", "/repo/b.ts"]);
+    expect(await client.listFiles()).toEqual(["a.ts", "b.ts"]);
     expect((await client.refs("Demo")).definitions.length).toBe(1);
     expect((await client.map())?.project_type).toBe("ts");
     expect((await client.conventions())?.architecture).toEqual(["layered"]);
