@@ -70,26 +70,27 @@ const execFileAsync = promisify(execFile);
  * indexes `node_modules/**\/*.d.ts` on every `rebuild` and `update` of a
  * project with a package.json — regardless of .gitignore and of
  * `.ast-index.yaml` `exclude` (verified on 3.50) — so the filter has to
- * live here, on every result the client hands out.
+ * live here, on every result the client hands out. node_modules and .git
+ * are excluded at any depth; dist and coverage only at the project root
+ * (build output) — `internal/coverage` in Go is source.
  */
-export const EXCLUDED_DIRS: readonly string[] = [
-  "node_modules",
-  "dist",
-  "coverage",
-  ".git",
-];
+const EXCLUDED_ANYWHERE: readonly string[] = ["node_modules", ".git"];
+const EXCLUDED_AT_ROOT: readonly string[] = ["dist", "coverage"];
 
-/** True when any segment of `path` (relative to `projectRoot`) is excluded. */
+/** True when `path` (relative to `projectRoot`) lies in an excluded directory. */
 export function isExcludedPath(path: string, projectRoot?: string): boolean {
   const rel =
     projectRoot && isAbsolute(path) ? relative(projectRoot, path) : path;
-  return rel.split(/[\\/]/).some((seg) => EXCLUDED_DIRS.includes(seg));
+  const segs = rel.replace(/^\.[\\/]/, "").split(/[\\/]/);
+
+  return segs.some((seg) => EXCLUDED_ANYWHERE.includes(seg)) || EXCLUDED_AT_ROOT.includes(segs[0]);
 }
 
 /** SQL condition on `files.path` that keeps excluded directories out. */
-const SQL_KEEP_PATH = EXCLUDED_DIRS.map(
-  (d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`,
-).join(" AND ");
+const SQL_KEEP_PATH = [
+  ...EXCLUDED_ANYWHERE.map((d) => `path NOT LIKE '${d}/%' AND path NOT LIKE '%/${d}/%'`),
+  ...EXCLUDED_AT_ROOT.map((d) => `path NOT LIKE '${d}/%'`),
+].join(" AND ");
 
 /** Row cap for `ast-index query` (its default is 100). */
 const QUERY_ROW_CAP = 200_000;

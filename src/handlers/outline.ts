@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, basename, relative } from 'node:path';
-import { EXCLUDED_DIRS, type AstIndexClient } from '../ast-index/client.js';
+import { isExcludedPath, type AstIndexClient } from '../ast-index/client.js';
 import type { SymbolInfo } from '../types.js';
 import { resolveSafePath } from '../core/validation.js';
 import type { OutlineArgs } from '../core/validation.js';
@@ -80,7 +80,7 @@ export async function outlineDir(
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      (EXCLUDED_DIRS.includes(entry.name) ? skipped : subdirs).push(entry.name);
+      (isExcludedPath(resolve(absPath, entry.name), projectRoot) ? skipped : subdirs).push(entry.name);
     } else if (entry.isFile()) {
       const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
       if (CODE_EXTENSIONS.has(ext)) {
@@ -123,7 +123,7 @@ export async function outlineDir(
       // Non-recursive: show file counts only
       for (const sub of subdirs) {
         const subPath = resolve(absPath, sub);
-        const fileCount = await countCodeFiles(subPath);
+        const fileCount = await countCodeFiles(subPath, projectRoot);
         sections.push(`${indent}  ${sub}/ (${fileCount} code files)`);
       }
       sections.push('');
@@ -259,7 +259,7 @@ function extractHttpRoute(decorators: string[], parentRoute: string): string | n
  * Recursively count code files in a directory.
  * Max depth 5 to avoid runaway scans.
  */
-async function countCodeFiles(dirPath: string, depth = 0): Promise<number> {
+async function countCodeFiles(dirPath: string, projectRoot: string, depth = 0): Promise<number> {
   if (depth > 5) return 0;
   try {
     const entries = await readdir(dirPath, { withFileTypes: true });
@@ -268,8 +268,8 @@ async function countCodeFiles(dirPath: string, depth = 0): Promise<number> {
       if (entry.isFile()) {
         const ext = entry.name.split('.').pop()?.toLowerCase() ?? '';
         if (CODE_EXTENSIONS.has(ext)) count++;
-      } else if (entry.isDirectory() && !EXCLUDED_DIRS.includes(entry.name)) {
-        count += await countCodeFiles(resolve(dirPath, entry.name), depth + 1);
+      } else if (entry.isDirectory() && !isExcludedPath(resolve(dirPath, entry.name), projectRoot)) {
+        count += await countCodeFiles(resolve(dirPath, entry.name), projectRoot, depth + 1);
       }
     }
     return count;

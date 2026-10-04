@@ -34,6 +34,27 @@ describe("isExcludedPath", () => {
     // A project that itself lives under a "dist" directory is not excluded.
     expect(isExcludedPath("/home/u/dist/proj/src/a.ts", "/home/u/dist/proj")).toBe(false);
   });
+
+  it("dist and coverage are build output only at the project root; a source dir of that name stays", () => {
+    expect(isExcludedPath("internal/coverage/cover.go")).toBe(false);
+    expect(isExcludedPath("pkg/dist/plan.ts")).toBe(false);
+    expect(isExcludedPath("/repo/internal/coverage/cover.go", "/repo")).toBe(false);
+    expect(isExcludedPath("./dist/index.js")).toBe(true);
+    expect(isExcludedPath("/repo/coverage/lcov.info", "/repo")).toBe(true);
+    expect(isExcludedPath("packages/a/node_modules/x.d.ts")).toBe(true);
+    expect(isExcludedPath("vendor/x/.git/HEAD")).toBe(true);
+  });
+
+  it("listFiles keeps a nested coverage/ or dist/ directory in the index query", async () => {
+    const client = clientWith(() => JSON.stringify({ rows: [{ path: "internal/coverage/cover.go" }] }));
+
+    expect(await client.listFiles()).toEqual(["internal/coverage/cover.go"]);
+    const sql: string = client.exec.mock.calls[0][0][1];
+    expect(sql).toContain("'%/node_modules/%'");
+    expect(sql).not.toContain("'%/coverage/%'");
+    expect(sql).not.toContain("'%/dist/%'");
+    expect(sql).toContain("'coverage/%'");
+  });
 });
 
 describe("AstIndexClient drops excluded directories from results", () => {
