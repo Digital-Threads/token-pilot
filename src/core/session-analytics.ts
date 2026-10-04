@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from 'node:path';
 import { formatDuration } from './format-duration.js';
 import type { ContextModeStatus } from '../integration/context-mode-detector.js';
 import type { Intent } from './intent-classifier.js';
@@ -22,6 +23,18 @@ export interface ToolCall {
 
 export type { Intent, DecisionTrace };
 
+/** Tools whose `path` is one file — the others record a symbol, folder, query or command. */
+const FILE_TOOLS = new Set([
+  'smart_read', 'read_symbol', 'read_symbols', 'read_range', 'read_section',
+  'read_diff', 'read_for_edit', 'related_files',
+]);
+
+/** "~111 saved (9%)" or "~89 more than the baseline (-7%)" — one net number, one sign. */
+function savedText(net: number, wouldBe: number): string {
+  const pct = wouldBe > 0 ? Math.round((net / wouldBe) * 100) : 0;
+  return net >= 0 ? `~${net} saved (${pct}%)` : `~${-net} more than the baseline (${pct}%)`;
+}
+
 /**
  * Tracks token savings and tool usage across a session.
  * When context-mode is detected, includes unified reporting.
@@ -44,6 +57,16 @@ export class SessionAnalytics {
     this.calls.push(call);
   }
 
+  /** One spelling per file: project-relative, no leading "./". */
+  private fileKey(path: string): string {
+    let p = path;
+    if (this.projectRoot && isAbsolute(p)) {
+      const rel = relative(this.projectRoot, p);
+      if (rel && !rel.startsWith('..') && !isAbsolute(rel)) p = rel;
+    }
+    return p.replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+  }
+
   /**
    * Generate session report. Compact by default (~5 lines), verbose=true for full breakdown.
    */
@@ -59,7 +82,9 @@ export class SessionAnalytics {
       const e = byTool.get(c.tool) ?? { count: 0, tokens: 0, saved: 0, wouldBe: 0 };
       e.count++;
       e.tokens += c.tokensReturned;
-      e.saved += Math.max(0, c.tokensWouldBe - c.tokensReturned);
+      // Net, like the percent next to it: a call that cost more than its
+      // baseline counts against the tool.
+      e.saved += c.tokensWouldBe - c.tokensReturned;
       e.wouldBe += c.tokensWouldBe;
       byTool.set(c.tool, e);
     }
@@ -67,9 +92,9 @@ export class SessionAnalytics {
 
     const byFile = new Map<string, number>();
     for (const c of this.calls) {
-      if (c.path) {
-        byFile.set(c.path, (byFile.get(c.path) ?? 0) + Math.max(0, c.tokensWouldBe - c.tokensReturned));
-      }
+      if (!c.path || !FILE_TOOLS.has(c.tool)) continue;
+      const file = this.fileKey(c.path);
+      byFile.set(file, (byFile.get(file) ?? 0) + Math.max(0, c.tokensWouldBe - c.tokensReturned));
     }
 
     const cacheHits = this.calls.filter(c => c.sessionCacheHit);
@@ -78,7 +103,8 @@ export class SessionAnalytics {
     const tokensSaved = totalWouldBe - totalReturned;
 
     const lines: string[] = [
-      `SESSION ANALYTICS (${duration})`,
+      // Calls are counted per server process, not per Claude Code session.
+      `SESSION ANALYTICS — this MCP server process, ${duration}`,
       `Calls: ${this.calls.length}  ·  Tokens returned: ~${totalReturned}  ·  Saved: ~${tokensSaved} (${saved}%)`,
     ];
 
@@ -127,8 +153,7 @@ export class SessionAnalytics {
       lines.push('');
       lines.push('By tool:');
       for (const [tool, stats] of sortedTools) {
-        const reduction = stats.wouldBe > 0 ? Math.round((1 - stats.tokens / stats.wouldBe) * 100) : 0;
-        lines.push(`  ${tool}: ${stats.count} calls, ~${stats.tokens} tokens returned, ~${stats.saved} saved (${reduction}%)`);
+        lines.push(`  ${tool}: ${stats.count} calls, ~${stats.tokens} tokens returned, ${savedText(stats.saved, stats.wouldBe)}`);
       }
     }
 

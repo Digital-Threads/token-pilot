@@ -184,4 +184,44 @@ describe('SessionAnalytics', () => {
       expect(report).toContain('Token Pilot handles: code files');
     });
   });
+
+  describe('audit 1.0.2', () => {
+    it('per-tool saved and percent agree in sign and size', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'outline', path: 'src', tokensReturned: 1200, tokensWouldBe: 1000, timestamp: Date.now() });
+      analytics.record({ tool: 'outline', path: 'src', tokensReturned: 100, tokensWouldBe: 211, timestamp: Date.now() });
+
+      const line = analytics.report(true).split('\n').find(l => l.trim().startsWith('outline:')) ?? '';
+      expect(line).not.toContain('~111 saved');
+      expect(line).toContain('~89 more than the baseline (-7%)');
+    });
+
+    it('Top files lists files only — not symbols, folders or commands', () => {
+      const analytics = new SessionAnalytics();
+      analytics.record({ tool: 'smart_read', path: 'src/a.ts', tokensReturned: 10, tokensWouldBe: 100, timestamp: Date.now() });
+      analytics.record({ tool: 'find_usages', path: 'handleSmartRead', tokensReturned: 10, tokensWouldBe: 5000, timestamp: Date.now() });
+      analytics.record({ tool: 'explore_area', path: 'src/handlers', tokensReturned: 10, tokensWouldBe: 5000, timestamp: Date.now() });
+      analytics.record({ tool: 'test_summary', path: 'npx vitest run', tokensReturned: 10, tokensWouldBe: 5000, timestamp: Date.now() });
+
+      const report = analytics.report(true);
+      const top = report.split('\n').find(l => l.startsWith('Top files:')) ?? '';
+      expect(top).toContain('src/a.ts');
+      expect(report).not.toMatch(/handleSmartRead|src\/handlers|npx vitest/);
+    });
+
+    it('one file under absolute and relative spellings is one entry', () => {
+      const analytics = new SessionAnalytics();
+      analytics.setProjectRoot('/proj');
+      analytics.record({ tool: 'smart_read', path: '/proj/src/a.ts', tokensReturned: 10, tokensWouldBe: 100, timestamp: Date.now() });
+      analytics.record({ tool: 'read_symbol', path: 'src/a.ts', tokensReturned: 10, tokensWouldBe: 100, timestamp: Date.now() });
+      analytics.record({ tool: 'read_range', path: './src/a.ts', tokensReturned: 10, tokensWouldBe: 100, timestamp: Date.now() });
+
+      const top = analytics.report().split('\n').find(l => l.startsWith('Top files:')) ?? '';
+      expect(top).toBe('Top files: src/a.ts ~270');
+    });
+
+    it('says the totals cover this server process only', () => {
+      expect(new SessionAnalytics().report()).toMatch(/this MCP server process/);
+    });
+  });
 });
