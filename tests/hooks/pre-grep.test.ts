@@ -82,10 +82,10 @@ describe("decidePreGrep", () => {
     );
   });
 
-  it("symbol-like pattern → deny with suggestion", () => {
+  it("symbol-like pattern in content mode → deny with suggestion", () => {
     const d = decidePreGrep({
       tool_name: "Grep",
-      tool_input: { pattern: "getUserById" },
+      tool_input: { pattern: "getUserById", output_mode: "content" },
     });
     expect(d.kind).toBe("deny");
     if (d.kind === "deny") {
@@ -120,7 +120,7 @@ describe("decidePreGrep", () => {
 
   it("deny mode (default): symbol-like pattern → deny", () => {
     const d = decidePreGrep(
-      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      { tool_name: "Grep", tool_input: { pattern: "UserService", output_mode: "content" } },
       "deny",
     );
     expect(d.kind).toBe("deny");
@@ -128,7 +128,7 @@ describe("decidePreGrep", () => {
 
   it("strict mode: symbol-like pattern → deny (same as deny)", () => {
     const d = decidePreGrep(
-      { tool_name: "Grep", tool_input: { pattern: "UserService" } },
+      { tool_name: "Grep", tool_input: { pattern: "UserService", output_mode: "content" } },
       "strict",
     );
     expect(d.kind).toBe("deny");

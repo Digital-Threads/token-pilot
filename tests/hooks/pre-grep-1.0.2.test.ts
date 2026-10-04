@@ -30,16 +30,23 @@ describe("Grep gate — what is not an identifier lookup", () => {
     expect(grep({ pattern: "useState", head_limit: 20 })).toBe("allow");
   });
 
-  it("still routes a code identifier to find_usages", () => {
-    expect(grep({ pattern: "decidePreBash" })).toBe("deny");
-    expect(grep({ pattern: "PreBashDecision", glob: "*.ts" })).toBe("deny");
-    expect(grep({ pattern: "get_user_by_id" })).toBe("deny");
+  // Claude Code's Grep defaults output_mode to "files_with_matches" (and
+  // head_limit to 250) when the call leaves them out: file names only.
+  it("allows an identifier search with no output_mode: it lists files", () => {
+    expect(grep({ pattern: "decidePreBash" })).toBe("allow");
+    expect(grep({ pattern: "get_user_by_id", glob: "*.ts" })).toBe("allow");
+  });
+
+  it("still routes a code identifier in content mode to find_usages", () => {
+    expect(grep({ pattern: "decidePreBash", output_mode: "content" })).toBe("deny");
+    expect(grep({ pattern: "PreBashDecision", glob: "*.ts", output_mode: "content" })).toBe("deny");
+    expect(grep({ pattern: "get_user_by_id", output_mode: "content" })).toBe("deny");
   });
 });
 
 describe("Grep gate texts", () => {
   it("does not advise a -E flag the Grep tool does not have", () => {
-    const d = decidePreGrep({ tool_name: "Grep", tool_input: { pattern: "decidePreBash" } });
+    const d = decidePreGrep({ tool_name: "Grep", tool_input: { pattern: "decidePreBash", output_mode: "content" } });
     expect(d.kind).toBe("deny");
     if (d.kind === "deny") expect(d.reason).not.toContain("-E");
   });

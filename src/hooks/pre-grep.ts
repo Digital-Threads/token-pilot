@@ -149,10 +149,11 @@ export function decidePreGrep(
   if (!isSymbolLikePattern(pattern)) return { kind: "allow" };
 
   // Bounded output (file names, counts, a head limit) or a search of
-  // non-code files: Grep is the right tool.
+  // non-code files: Grep is the right tool. Claude Code's Grep defaults to
+  // "files_with_matches" when output_mode is left out, so only "content"
+  // prints matching lines.
   const ti = input.tool_input;
-  const outputMode = ti?.output_mode;
-  if (outputMode === "files_with_matches" || outputMode === "count") return { kind: "allow" };
+  if (ti?.output_mode !== "content") return { kind: "allow" };
   if (typeof ti?.head_limit === "number" && ti.head_limit > 0) return { kind: "allow" };
   if (nonCodeScope(ti)) return { kind: "allow" };
 
