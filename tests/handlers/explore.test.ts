@@ -170,12 +170,33 @@ describe("handleExplore", () => {
       expect(text).toContain("  :6 astIndex [property]");
     });
 
-    it("ast-index 3.56: says how many outline entries the binary left out", async () => {
+    it("ast-index 3.56: shows 8 outline entries and counts the rest with those the binary left out", async () => {
       const json = JSON.parse(fixture("explore-class-3.56.json"));
       json.files[0].outline_hidden = 3;
       const text = await run(JSON.stringify(json));
 
-      expect(text).toContain("  … 3 more");
+      expect(text).toContain("  :92-94 pick [function]");
+      expect(text).not.toContain("pathMatches [function]");
+      expect(text).toContain("  … 4 more");
+    });
+
+    // Real `explore SymbolResolver --format json --rwr` (6 files): 3.56 sends
+    // whole function bodies (up to 60 lines), 3.50 mostly a short head.
+    it("the 3.56 answer renders no bigger than the 3.50 one", async () => {
+      const v350 = await run(fixture("explore-rwr-3.50.json"));
+      const v356 = await run(fixture("explore-rwr-3.56.json"));
+
+      expect(v356.length).toBeLessThanOrEqual(v350.length);
+    });
+
+    it("cuts a long source and says how many lines were left out", async () => {
+      const text = await run(fixture("explore-rwr-3.56.json"));
+      const handleReadSymbol = text.split("src/handlers/read-symbol.ts:21\n```\n")[1].split("```")[0];
+
+      expect(handleReadSymbol.split("\n")[0]).toBe("   21\texport async function handleReadSymbol(");
+      expect(handleReadSymbol).toContain("   28\t  advisoryReminders = true,\n");
+      expect(handleReadSymbol).not.toContain("   29\t");
+      expect(handleReadSymbol).toContain("  … 52 more lines\n");
     });
   });
 });
