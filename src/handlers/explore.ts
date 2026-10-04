@@ -169,7 +169,7 @@ export async function handleExplore(
  * Ranked symbols worth showing. Next to the query's own hits ast-index ranks
  * graph callers, named after the nearest symbol above a call site — often a
  * nested helper that never calls the hit. A symbol whose name does not match
- * the query stays only when its own body (comments aside) references one
+ * the query stays only when its own code (comments and strings aside) references one
  * that does. Without any name match there is nothing to check against.
  */
 async function relevantSymbols(

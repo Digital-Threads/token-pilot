@@ -1,0 +1,5 @@
+Call tree for 'outline':
+  outline
+    ← realCaller (src/tools.ts:5)
+    ← TOOL_LIST (src/tools.ts:9)
+    ← validateShow (src/tools.ts:13)

@@ -1,0 +1,4 @@
+Call tree for 'outline':
+  outline
+    ← outline (recursive)
+    ← Error (src/tools.ts:14)

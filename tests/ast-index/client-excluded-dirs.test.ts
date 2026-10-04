@@ -5,7 +5,7 @@
  * node_modules, dist, coverage and .git out of every result it returns.
  */
 import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -235,6 +235,64 @@ describe("AstIndexClient drops excluded directories from results", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  // Real `call-tree outline --depth 2` output for the source below: 3.50
+  // names grep artefacts, 3.56 names the declarations around every mention
+  // of the name — strings included.
+  describe.each(["3.50", "3.56"])("callTree on ast-index %s output", (version) => {
+    it("drops callers that name the callee only inside a string", async () => {
+      const root = mkdtempSync(join(tmpdir(), "tp-calltree-str-"));
+      try {
+        mkdirSync(join(root, "src"));
+        writeFileSync(join(root, "src", "tools.ts"), [
+          "export function outline(path: string): string[] {",
+          "  return [path];",
+          "}",
+          "",
+          "export function realCaller(): string[] {",
+          "  return outline(\"src\");",
+          "}",
+          "",
+          "export const TOOL_LIST = `",
+          "  outline(dir) — symbols of every file in a directory",
+          "`;",
+          "",
+          "export function validateShow(show: string): void {",
+          "  if (![\"full\", \"outline\"].includes(show)) throw new Error('\"show\" must be one of: full, outline.');",
+          "}",
+          "",
+        ].join("\n"));
+        const fixture = readFileSync(
+          join(__dirname, "../fixtures/ast-index", `call-tree-strings-${version}.txt`),
+          "utf-8",
+        );
+        const client = new AstIndexClient(root) as any;
+        client.binaryPath = "/bin/ast-index";
+        client.ensureIndex = async () => {};
+        client.exec = vi.fn(async (args: string[]) =>
+          args[0] === "query"
+            ? JSON.stringify({
+                rows: [
+                  { path: "src/tools.ts", line: 1, name: "outline" },
+                  { path: "src/tools.ts", line: 5, name: "realCaller" },
+                  { path: "src/tools.ts", line: 9, name: "TOOL_LIST" },
+                  { path: "src/tools.ts", line: 13, name: "validateShow" },
+                ],
+              })
+            : fixture,
+        );
+
+        const tree = await client.callTree("outline", 2);
+        const names = tree?.callers?.map((c: any) => c.name);
+
+        expect(names).not.toContain("TOOL_LIST");
+        expect(names).not.toContain("validateShow");
+        if (version === "3.56") expect(names).toEqual(["realCaller"]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   it("callTree marks a level that hit the per-level cap before vendored callers are dropped", async () => {
