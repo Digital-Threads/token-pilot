@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { isAbsolute, resolve, relative } from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve, relative } from "node:path";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 
 /**
  * v0.33.0 (B9) — coerce an `unknown` argument value to an integer.
@@ -72,9 +72,23 @@ function listWorktrees(projectRoot: string): string[] {
   }
 }
 
+/**
+ * The real path of `p`, or of its nearest existing ancestor joined with the
+ * rest: `git worktree list` prints real paths, and a session can reach the
+ * same directories through a symlink.
+ */
+function realPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    const parent = dirname(p);
+    return parent === p ? p : join(realPath(parent), basename(p));
+  }
+}
+
 function isInsideOtherWorktree(projectRoot: string, absPath: string): boolean {
   const contains = (root: string, path: string): boolean => {
-    const r = relative(root, path);
+    const r = relative(realPath(root), realPath(path));
     return !r.startsWith("..") && !isAbsolute(r);
   };
 
