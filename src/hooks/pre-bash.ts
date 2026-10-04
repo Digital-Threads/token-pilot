@@ -760,7 +760,11 @@ function gitDecision(args: string[]): PreBashDecision {
 const FIND_BOUNDS =
   /^-(?:i?name|i?path|i?wholename|i?regex|newer\w*|[amc](?:min|time)|size|empty|user|group|perm|links|inum|samefile|prune|maxdepth|mindepth|quit|delete|exec|execdir|ok|okdir|fprint\w*|fls)$/;
 
-/** `find` over the whole disk (or outside the project) without a depth limit, or the whole repo with no filter at all. */
+/**
+ * `find` over the whole disk or home without a depth limit, elsewhere outside
+ * the project with neither a filter nor a depth limit, or the whole repo with
+ * no filter at all.
+ */
 function findDecision(args: string[], projectRoot: string | undefined): PreBashDecision {
   let i = 0;
   while (i < args.length && /^-(?:[HLP]|O\d*|D)$/.test(args[i])) i += args[i] === "-D" ? 2 : 1;
@@ -776,13 +780,15 @@ function findDecision(args: string[], projectRoot: string | undefined): PreBashD
 
   for (const raw of roots) {
     const r = raw.replace(/\/+$/, "") || "/";
-    const home = r === "~" || r === "$HOME" || r === "${HOME}";
-    const outside = r.startsWith("/") && (r === "/" || (root !== undefined && r !== root && !r.startsWith(`${root}/`)));
+    // The whole disk or the whole home directory: even a filtered walk lists too much.
+    const whole = r === "/" || r === "~" || r === "$HOME" || r === "${HOME}";
+    const home = /^(?:~|\$HOME|\$\{HOME\})(?:\/|$)/.test(r);
+    const outside = home || (r.startsWith("/") && (r === "/" || (root !== undefined && r !== root && !r.startsWith(`${root}/`))));
 
-    if ((home || outside) && !depthLimited) {
+    if (outside && !depthLimited && (whole || !filtered)) {
       return deny(
-        `\`find ${raw}\` walks far beyond the project and dumps every path it meets. ` +
-          "Add `-maxdepth N`, start from a directory inside the project, or pipe to `head`.",
+        `\`find ${raw}\` walks outside the project and lists every path it meets. ` +
+          `Add \`-maxdepth N\`${whole ? "" : " or a filter (`-name <glob>`)"}, start from a directory inside the project, or pipe to \`head\`.`,
       );
     }
 
