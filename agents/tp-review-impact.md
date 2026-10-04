@@ -14,7 +14,7 @@ tools:
   - mcp__plugin_token-pilot_token-pilot__module_info
   - Bash
 model: sonnet
-token_pilot_version: "1.0.0"
+token_pilot_version: "1.0.1"
 token_pilot_body_hash: f61b8570d8a04393a0dc9e38fccbf30ab2ecdb1a05c819dd3a69730e2bf8a24c
 requiredMcpServers:
   - "token-pilot"

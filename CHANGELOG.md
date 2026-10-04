@@ -5,6 +5,23 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-10-04
+
+### Fixed — the module named token-pilot's tools by their npm names in Agent advice
+
+When the module turned an Agent dispatch away, or advised on one, the note on
+which tools to use named `mcp__token-pilot__smart_read`. A plugin install has
+them as `mcp__plugin_token-pilot_token-pilot__…`, so a subagent following the
+note looked for a tool that does not exist. The note was built when its file
+was loaded, before the module marks itself a plugin install; it is now built
+for each dispatch. Found in a live session after the 1.0.0 update. The command
+hooks were not affected.
+
+### Internal
+
+- `hono` 4.13.13 in the lockfile (GHSA-hxh3-vqpv-xpqv). token-pilot uses the
+  stdio transport and never renders `hono/jsx`, so 1.0.0 is not exposed.
+
 ## [1.0.0] - 2026-10-04
 
 ### Changed — on Claude Code 2.1.275+, the hooks run inside Claude Code as a mod
