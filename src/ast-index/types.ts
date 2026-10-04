@@ -92,6 +92,8 @@ export interface AstIndexRefsResponse {
   definitions: AstIndexRefEntry[];
   imports: AstIndexRefEntry[];
   usages: AstIndexRefEntry[];
+  /** Set by the client: a section reached the requested limit. */
+  truncated?: boolean;
 }
 
 export interface AstIndexRefEntry {

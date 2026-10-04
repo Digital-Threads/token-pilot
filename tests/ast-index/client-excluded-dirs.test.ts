@@ -54,6 +54,24 @@ describe("AstIndexClient drops excluded directories from results", () => {
     expect(refs.usages.map((u: any) => u.path)).toEqual(["src/b.ts"]);
   });
 
+  it("refs and search flag a section that reached the requested limit", async () => {
+    const two = [
+      { name: "f", path: "src/a.ts", line: 1, content: "f()" },
+      { name: "f", path: "node_modules/b.d.ts", line: 2, content: "f()" },
+    ];
+    const client = clientWith((args) =>
+      args[0] === "refs"
+        ? JSON.stringify({ definitions: [], imports: [], usages: two })
+        : JSON.stringify({ content_matches: two, symbols: [] }),
+    );
+
+    expect((await client.refs("f", 2)).truncated).toBe(true);
+    expect((await client.refs("f", 3)).truncated).toBeUndefined();
+    expect((await client.search("f", { maxResults: 2 })).truncated).toBe(true);
+    expect((await client.search("f", { maxResults: 3 })).truncated).toBeUndefined();
+    expect(client.exec.mock.calls[2][0]).toEqual(expect.arrayContaining(["--limit", "2"]));
+  });
+
   it("search and usages", async () => {
     const client = clientWith((args) =>
       args[0] === "search"

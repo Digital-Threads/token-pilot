@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { AstIndexClient } from '../ast-index/client.js';
 import type { FindUsagesArgs } from '../core/validation.js';
 import { assessConfidence, formatConfidence } from '../core/confidence.js';
@@ -139,15 +139,94 @@ async function renderSectionWithContext(
   return lines;
 }
 
+/** Results asked from ast-index per section — the validator's max `limit`. */
+const FETCH_LIMIT = 500;
+
+/** Short language names accepted by `lang`. */
+const LANG_ALIASES: Record<string, string> = {
+  js: 'javascript',
+  ts: 'typescript',
+  py: 'python',
+  rs: 'rust',
+  rb: 'ruby',
+  cs: 'csharp',
+  kt: 'kotlin',
+  golang: 'go',
+};
+
+/** A whole-line comment: `//`, `/*`, `*`, `# ` or `<!--`. */
+function isCommentLine(text: string): boolean {
+  return /^(\/\/|\/\*|\*\/?(\s|$)|#(\s|$)|<!--)/.test(text.trim());
+}
+
+/** `export { x } from '…'` / `export * from '…'` — a re-export is an import. */
+const REEXPORT = /^\s*export\s+(type\s+)?(\{[^}]*\}|\*(\s+as\s+[\w$]+)?)\s*from\b/;
+
+/** A bare list member (`user,`, `type User,`, `user as u,`). */
+const LIST_MEMBER = /^(type\s+)?[\w$]+(\s+as\s+[\w$]+)?,?$/;
+
+/** `./src/a/` → `src/a`; an absolute path under the root becomes relative. */
+function normalizeScope(scope: string, projectRoot?: string): string {
+  let s = scope.replace(/\\/g, '/');
+  if (projectRoot && isAbsolute(s)) s = relative(projectRoot, s).replace(/\\/g, '/');
+  return s.replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+}
+
+function inScope(file: string, scope: string): boolean {
+  return scope === '' || scope === '.' || file === scope || file.startsWith(scope + '/');
+}
+
+async function readLines(
+  file: string,
+  projectRoot: string,
+  fileCache: Map<string, string[] | null>,
+): Promise<string[] | null> {
+  if (fileCache.has(file)) return fileCache.get(file)!;
+  let lines: string[] | null = null;
+  try {
+    const abs = resolve(projectRoot, file);
+    if ((await stat(abs)).size <= MAX_CONTEXT_FILE_SIZE) {
+      lines = (await readFile(abs, 'utf-8')).split('\n');
+    }
+  } catch {
+    // unreadable
+  }
+  fileCache.set(file, lines);
+  return lines;
+}
+
+/**
+ * True when line `line` (1-based) is a member of a multi-line
+ * `import {…}` / `export {…} from` list or a Python `from x import (…)`.
+ */
+async function insideImportList(
+  file: string,
+  line: number,
+  projectRoot: string,
+  fileCache: Map<string, string[] | null>,
+): Promise<boolean> {
+  const lines = await readLines(file, projectRoot, fileCache);
+  if (!lines) return false;
+
+  for (let i = line - 2; i >= Math.max(0, line - 51); i--) {
+    const l = lines[i];
+    if (l.includes('{')) return /^\s*(import|export)\b/.test(l);
+    if (l.includes('(')) return /^\s*from\s+\S+\s+import\b/.test(l);
+    if (l.includes('}') || l.includes(')') || l.trim().endsWith(';')) return false;
+  }
+
+  return false;
+}
+
 /**
  * Find all usages of a symbol across the project.
  *
  * Strategy: combine ast-index `refs` (structured: definitions + usages)
  * with `search` (text: catches imports and self-references that refs misses).
  * Filter search results to exact word matches only (no substring matches).
- * Deduplicate by file:line.
- *
- * v1.1: added scope, kind, limit, lang post-filters.
+ * Deduplicate by file:line. Every filter (scope, lang, kind) runs before the
+ * per-category `limit`, and the output says what the limit or ast-index's
+ * own cap left out.
  */
 export async function handleFindUsages(
   args: FindUsagesArgs,
@@ -170,62 +249,68 @@ export async function handleFindUsages(
     };
   }
 
-  // Run refs + search in parallel
   const [refs, searchResults] = await Promise.all([
-    astIndex.refs(args.symbol),
-    astIndex.search(args.symbol),
+    astIndex.refs(args.symbol, FETCH_LIMIT),
+    astIndex.search(args.symbol, { maxResults: FETCH_LIMIT }),
   ]);
+  const binaryCapped = !!refs.truncated || !!searchResults.truncated;
 
-  // Build dedup set from refs
+  // refs matches names by prefix (`handleFind` → handleFindUsages): exact only.
+  const exact = (e: { name?: string }) => !e.name || e.name === args.symbol;
+  const refDefs = refs.definitions.filter(exact);
+  const refImports = refs.imports.filter(exact);
+  const refUsages = refs.usages.filter(exact);
+
   const seen = new Set<string>();
-  for (const d of refs.definitions) seen.add(`${d.path}:${d.line}`);
-  for (const i of refs.imports) seen.add(`${i.path}:${i.line}`);
-  for (const u of refs.usages) seen.add(`${u.path}:${u.line}`);
+  for (const e of [...refDefs, ...refImports, ...refUsages]) seen.add(`${e.path}:${e.line}`);
 
-  // Filter search results: exact word match only, not already in refs
+  // Search results: exact word match only, not already in refs
   const wordBoundary = new RegExp(`(?<![a-zA-Z0-9_])${escapeRegex(args.symbol)}(?![a-zA-Z0-9_])`);
   const additional: Array<{ file: string; line: number; text: string }> = [];
-
   for (const r of searchResults) {
     const key = `${r.file}:${r.line}`;
-    if (seen.has(key)) continue;
-    if (!wordBoundary.test(r.text)) continue;
+    if (seen.has(key) || !wordBoundary.test(r.text)) continue;
     seen.add(key);
     additional.push(r);
   }
 
-  // Categorize additional results
-  const additionalImports = additional.filter(r =>
-    /\bimport\b/.test(r.text),
-  );
-  const additionalOther = additional.filter(r =>
-    !/\bimport\b/.test(r.text),
-  );
+  let definitions = refDefs.map(d => ({ file: d.path, line: d.line, text: (d.signature ?? d.name).trim() }));
+  let allImports = refImports.map(i => ({ file: i.path, line: i.line, text: (i.context ?? i.name).trim() }));
+  let allUsages: Array<{ file: string; line: number; text: string }> = [];
+  const symbolResolved = definitions.length > 0;
 
-  // Build mutable result arrays
-  let definitions = refs.definitions.map(d => ({ file: d.path, line: d.line, text: (d.signature ?? d.name).trim() }));
-  let allImports = [
-    ...refs.imports.map(i => ({ file: i.path, line: i.line, text: (i.context ?? i.name).trim() })),
-    ...additionalImports.map(r => ({ file: r.file, line: r.line, text: r.text })),
+  // Classify the rest: comments are counted, not listed; re-exports and
+  // members of multi-line import lists are imports.
+  const fileCache = new Map<string, string[] | null>();
+  let comments = 0;
+  const candidates = [
+    ...refUsages.map(u => ({ file: u.path, line: u.line, text: (u.context ?? u.name).trim() })),
+    ...additional,
   ];
-  let allUsages = [
-    ...refs.usages.map(u => ({ file: u.path, line: u.line, text: (u.context ?? u.name).trim() })),
-    ...additionalOther,
-  ];
-
-  // ─── Post-filters (v1.1) ───
-
-  // 1. Scope filter — by path prefix
-  if (args.scope) {
-    const scopePrefix = args.scope;
-    definitions = definitions.filter(d => d.file.includes(scopePrefix));
-    allImports = allImports.filter(i => i.file.includes(scopePrefix));
-    allUsages = allUsages.filter(u => u.file.includes(scopePrefix));
+  for (const r of candidates) {
+    if (isCommentLine(r.text)) {
+      comments++;
+      continue;
+    }
+    const isImport =
+      /\bimport\b/.test(r.text) ||
+      REEXPORT.test(r.text) ||
+      (!!projectRoot && LIST_MEMBER.test(r.text.trim()) &&
+        await insideImportList(r.file, r.line, projectRoot, fileCache));
+    (isImport ? allImports : allUsages).push(r);
   }
 
-  // 2. Lang filter — best-effort by file extension
+  // ─── Filters — all before the limit ───
+
+  if (args.scope) {
+    const scope = normalizeScope(args.scope, projectRoot);
+    definitions = definitions.filter(d => inScope(d.file, scope));
+    allImports = allImports.filter(i => inScope(i.file, scope));
+    allUsages = allUsages.filter(u => inScope(u.file, scope));
+  }
+
   if (args.lang) {
-    const langLower = args.lang.toLowerCase();
+    const langLower = LANG_ALIASES[args.lang.toLowerCase()] ?? args.lang.toLowerCase();
     const exts = LANG_EXT_MAP[langLower] ?? [`.${langLower}`];
     const matchesLang = (file: string) => exts.some(e => file.endsWith(e));
     definitions = definitions.filter(d => matchesLang(d.file));
@@ -233,7 +318,6 @@ export async function handleFindUsages(
     allUsages = allUsages.filter(u => matchesLang(u.file));
   }
 
-  // 3. Kind filter — select sections
   const kind = args.kind ?? 'all';
   if (kind !== 'all') {
     switch (kind) {
@@ -243,11 +327,28 @@ export async function handleFindUsages(
     }
   }
 
-  // 4. Limit — per category
+  // ─── Limit — per category, after every filter ───
+
   const limit = args.limit ?? 50;
-  definitions = definitions.slice(0, limit);
-  allImports = allImports.slice(0, limit);
-  allUsages = allUsages.slice(0, limit);
+  const cut: string[] = [];
+  const cap = <T>(items: T[], label: string): T[] => {
+    if (items.length > limit) cut.push(`${limit} of ${items.length} ${label}`);
+    return items.slice(0, limit);
+  };
+  definitions = cap(definitions, 'definitions');
+  allImports = cap(allImports, 'imports');
+  allUsages = cap(allUsages, 'usages');
+
+  const notes: string[] = [];
+  if (cut.length > 0) {
+    notes.push(`TRUNCATED: showing ${cut.join(', ')} (limit=${limit}) — narrow with scope= or raise limit (max 500).`);
+  }
+  if (binaryCapped) {
+    notes.push(`ast-index returned its cap of ${FETCH_LIMIT} results for a section — more may exist.`);
+  }
+  if (comments > 0) {
+    notes.push(`${comments} mention${comments === 1 ? '' : 's'} in comments not listed.`);
+  }
 
   // ─── Output ───
 
@@ -258,6 +359,7 @@ export async function handleFindUsages(
     if (args.scope) hints.push(`  (filtered by scope: "${args.scope}")`);
     if (args.lang) hints.push(`  (filtered by lang: "${args.lang}")`);
     if (args.kind && args.kind !== 'all') hints.push(`  (filtered by kind: "${args.kind}")`);
+    hints.push(...notes);
     if (!astIndex.isAvailable()) {
       hints.push('WARNING: ast-index is not available.');
     }
@@ -266,6 +368,8 @@ export async function handleFindUsages(
       meta: { files: [], definitions: 0, imports: 0, usages: 0, total: 0 },
     };
   }
+
+  const narrowHint = `find_usages("${args.symbol}", scope="specific_dir/")`;
 
   // ─── List mode — compact file:line output ───
   if (args.mode === 'list') {
@@ -288,7 +392,8 @@ export async function handleFindUsages(
     }
 
     listLines.push('');
-    listLines.push(`HINT: Use find_usages("${args.symbol}", path="specific_dir/") to narrow, or read_symbol() on specific matches.`);
+    listLines.push(...notes);
+    listLines.push(`HINT: Use ${narrowHint} to narrow, or read_symbol() on specific matches.`);
 
     return {
       content: [{ type: 'text', text: listLines.join('\n') }],
@@ -316,10 +421,9 @@ export async function handleFindUsages(
 
   if (args.context_lines !== undefined && args.context_lines > 0 && projectRoot) {
     // Shared file cache across sections — sequential to avoid concurrent Map writes
-    const contextFileCache = new Map<string, string[] | null>();
-    const defSection = await renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot, contextFileCache);
-    const impSection = await renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot, contextFileCache);
-    const useSection = await renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot, contextFileCache);
+    const defSection = await renderSectionWithContext('DEFINITIONS', definitions, args.context_lines, projectRoot, fileCache);
+    const impSection = await renderSectionWithContext('IMPORTS', allImports, args.context_lines, projectRoot, fileCache);
+    const useSection = await renderSectionWithContext('USAGES', allUsages, args.context_lines, projectRoot, fileCache);
     lines.push(...defSection);
     lines.push(...impSection);
     lines.push(...useSection);
@@ -329,19 +433,25 @@ export async function handleFindUsages(
     lines.push(...renderSection('USAGES', allUsages));
   }
 
+  lines.push(...notes);
   lines.push('HINT: Use read_symbol() or read_range() to load specific results.');
 
   if (totalCount > 20) {
     lines.push('');
-    lines.push(`NARROW: ${totalCount} matches found. Use find_usages("${args.symbol}", path="specific_dir/") to filter by location.`);
+    lines.push(`NARROW: ${totalCount} matches found. Use ${narrowHint} to filter by location.`);
   }
 
-  // Confidence metadata
+  // Confidence metadata — resolution is judged before the kind filter.
+  const truncated = cut.length > 0 || binaryCapped;
   const confidenceMeta = assessConfidence({
     refsFound: totalCount > 0,
     astAvailable: astIndex.isAvailable(),
-    symbolResolved: definitions.length > 0,
+    symbolResolved,
+    truncated,
   });
+  if (truncated) {
+    confidenceMeta.suggestedNextStep = 'narrow with scope= or raise limit (max 500)';
+  }
   lines.push(formatConfidence(confidenceMeta));
 
   const files = Array.from(new Set([

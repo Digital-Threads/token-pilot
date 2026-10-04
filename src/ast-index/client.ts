@@ -409,7 +409,7 @@ export class AstIndexClient {
       maxResults?: number;
       fuzzy?: boolean;
     },
-  ): Promise<AstIndexSearchResult[]> {
+  ): Promise<AstIndexSearchResult[] & { truncated?: boolean }> {
     await this.ensureIndex();
     const args = ["search", query, "--format", "json"];
     if (options?.inFile) args.push("--in-file", options.inFile);
@@ -479,12 +479,19 @@ export class AstIndexClient {
 
       // Deduplicate by file:line
       const seen = new Set<string>();
-      return mapped.filter((r) => {
+      const unique = mapped.filter((r) => {
         const key = `${r.file}:${r.line}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
+      // The binary caps each list at --limit (default 20).
+      const cap = options?.maxResults ?? 20;
+      const truncated = [parsed.content_matches, parsed.symbols].some(
+        (l) => Array.isArray(l) && l.length >= cap,
+      );
+
+      return truncated ? Object.assign(unique, { truncated }) : unique;
     } catch (err) {
       console.error(
         `[token-pilot] ast-index search failed: ${err instanceof Error ? err.message : err}`,
@@ -692,11 +699,14 @@ export class AstIndexClient {
       ]);
       const parsed: Partial<AstIndexRefsResponse> = JSON.parse(result);
       const keep = (e: { path: string }) => this.keep(e.path);
+      const sections = [parsed.definitions, parsed.imports, parsed.usages];
+      const truncated = sections.some((s) => (s?.length ?? 0) >= limit);
 
       return {
         definitions: (parsed.definitions ?? []).filter(keep),
         imports: (parsed.imports ?? []).filter(keep),
         usages: (parsed.usages ?? []).filter(keep),
+        ...(truncated ? { truncated } : {}),
       };
     } catch (err) {
       console.error(
