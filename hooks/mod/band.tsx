@@ -2,7 +2,8 @@
  * The savings line as a band above the prompt input: one line, drawn by the
  * mod, in place of a second copy beside the user's `statusLine`. The numbers
  * come from hooks/tp-statusline.sh — the single savings calculator — run
- * after each main-loop turn, when they can have changed.
+ * after each main-loop turn, when they can have changed, and when /clear or
+ * /resume starts another session.
  *
  * That script prints nothing in a statusLine for a session the mod serves
  * (TOKEN_PILOT_MOD / TOKEN_PILOT_MOD_SESSION), so the line shows once. Not
@@ -21,13 +22,13 @@ const ANSI = /\u001b\[[0-9;]*m/g
 
 const line = atom({ plugin: 'token-pilot', key: 'band' } as const, null)
 
-async function refresh($: EngineInterface): Promise<void> {
+async function refresh($: EngineInterface, session: string): Promise<void> {
   if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return
 
   // The statusLine payload's shape, which the script parses.
   const { rateLimits } = await $.session.usage()
   const payload = JSON.stringify({
-    session_id: await $.session.id(),
+    session_id: session,
     cwd: await $.session.cwd(),
     rate_limits: Object.fromEntries(rateLimits.map(limit => [limit.kind, { used_percentage: limit.percentUsed }])),
   })
@@ -50,9 +51,19 @@ export function registerBand(on: On): void {
     return next(e)
   }).catch(caught)
 
+  // Past the first startup the statusLine has gone quiet already: redraw the
+  // line for the new session at once, or the band keeps the last one's figures.
+  // The payload's session_id: $.session.id() still answers the session being left.
+  on('classic.SessionStart', { source: ['clear', 'resume', 'compact', 'fork'] }, async ($, e, next) => {
+    const done = await next(e)
+    await refresh($, e.session_id).catch(() => {})
+
+    return done
+  }).catch(caught)
+
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
-    if (e.agentId === undefined) await refresh($).catch(() => {})
+    if (e.agentId === undefined) await refresh($, await $.session.id()).catch(() => {})
 
     return done
   }).catch(caught)

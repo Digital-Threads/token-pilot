@@ -42,6 +42,7 @@ const base = (on: any, env: Record<string, string> = {}) => {
   })
   on('turn.complete', async () => ({ text: 'ok' }))
   on('session.start', async () => ({ cwd: '/repo' }))
+  on('classic.SessionStart', async () => ({}))
   // What the engine draws when the plugin passes.
   on('ui.render', async ($: any, e: any) => {
     const { Text } = $.ui.resolve(e)
@@ -128,4 +129,25 @@ test('TOKEN_PILOT_NO_MOD=1 leaves the line to the statusLine', async ($, on) => 
   const ui = await ($ as any).ui.mount(band('terminal'))
   expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
   await ui.unmount()
+})
+
+test('after /clear, /resume, compact or a fork, draws the new session’s line at once', async ($, on) => {
+  const { runs } = base(on)
+  const sources = ['clear', 'resume', 'compact', 'fork']
+
+  // $.session.id() still answers the session being left while SessionStart runs.
+  for (const source of sources) await ($ as any).classic.SessionStart({ source, session_id: `new-${source}` })
+
+  expect(runs.map(run => JSON.parse(run.init.stdin).session_id)).toEqual(sources.map(s => `new-${s}`))
+  const ui = await ($ as any).ui.mount(band('terminal'))
+  expect((await ui.find({ type: 'Text', text: LINE }))?.text).toBe(LINE)
+  await ui.unmount()
+})
+
+test('on the first startup, leaves the line to the statusLine until the first turn', async ($, on) => {
+  const { runs } = base(on)
+
+  await ($ as any).classic.SessionStart({ source: 'startup', session_id: 's1' })
+
+  expect(runs).toEqual([])
 })
