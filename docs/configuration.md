@@ -86,6 +86,8 @@ Claude Code supports a custom `statusLine` command that renders on every keystro
 
 Both scripts are hardened (bounded stdin read, whitelist sanitisation, no symlinks). Safe to keep enabled long-term.
 
+On Claude Code 2.1.275+ the plugin draws the same line itself, in a band above the prompt (see [hooks.md](hooks.md)). The status bar then shows no `[TP]` badge for that session, so the line is not shown twice; other badges of `statusline-chain.sh` stay. With `TOKEN_PILOT_NO_MOD=1`, or on an older Claude Code, the badge shows as before.
+
 ### Install (manual, one-time)
 
 Add to `~/.claude/settings.json`:

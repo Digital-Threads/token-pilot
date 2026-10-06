@@ -24,7 +24,8 @@ function runScript(
 ): string {
   const out = execFileSync("bash", [script], {
     input: input ?? "",
-    env: { ...process.env, ...env },
+    // A run inside a Claude Code session with the mod on inherits its hand-off.
+    env: { ...process.env, TOKEN_PILOT_MOD: "", TOKEN_PILOT_MOD_SESSION: "", ...env },
     encoding: "utf-8",
     timeout: 5000,
   });
@@ -317,5 +318,40 @@ describe("statusline-chain.sh", () => {
   it("handles empty stdin cleanly", () => {
     const out = strip(runScript(CHAIN_SCRIPT, ""));
     expect(out.length).toBeGreaterThan(0);
+  });
+});
+
+// The Claude Code mod (hooks/mod/band.tsx) draws the line above the prompt
+// for the sessions it serves and hands their ids to child processes, the
+// statusLine command included.
+describe("statusline beside the Claude Code mod", () => {
+  const MOD = { TOKEN_PILOT_MOD: "hook-read,hook-edit", TOKEN_PILOT_MOD_SESSION: "s-old,s-mod" };
+  const payload = (session: string) => JSON.stringify({ session_id: session, cwd: "/tmp" });
+
+  it("prints nothing for a session the mod draws the band for", () => {
+    expect(runScript(TP_SCRIPT, payload("s-mod"), MOD)).toBe("");
+    expect(runScript(TP_SCRIPT, payload("s-old"), MOD)).toBe("");
+  });
+
+  it("prints as before for any other session (a nested or older claude)", () => {
+    expect(strip(runScript(TP_SCRIPT, payload("s-other"), MOD))).toBe("[TP]");
+    expect(strip(runScript(TP_SCRIPT, payload("s-mo"), MOD))).toBe("[TP]");
+    expect(strip(runScript(TP_SCRIPT, JSON.stringify({ cwd: "/tmp" }), MOD))).toBe("[TP]");
+  });
+
+  it("prints as before when the mod is off (TOKEN_PILOT_NO_MOD empties TOKEN_PILOT_MOD)", () => {
+    expect(strip(runScript(TP_SCRIPT, payload("s-mod"), { ...MOD, TOKEN_PILOT_MOD: "" }))).toBe("[TP]");
+  });
+
+  it("keeps the other badges of a composite statusline", async () => {
+    // A fake caveman badge where the chain looks for one.
+    const home = join(tmpdir(), `tp-statusline-${process.pid}-${Date.now()}-home`);
+    const hooks = join(home, ".claude", "plugins", "cache", "caveman", "caveman", "1.0.0", "hooks");
+    await mkdir(hooks, { recursive: true });
+    await writeFile(join(hooks, "caveman-statusline.sh"), "printf '[CAVEMAN]'\n");
+
+    expect(strip(runScript(CHAIN_SCRIPT, payload("s-mod"), { ...MOD, HOME: home }))).toBe("[CAVEMAN]");
+    expect(strip(runScript(CHAIN_SCRIPT, payload("s-other"), { ...MOD, HOME: home }))).toBe("[CAVEMAN] [TP]");
+    await rm(home, { recursive: true, force: true });
   });
 });
