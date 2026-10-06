@@ -18,7 +18,7 @@ import { EDIT_ACTIONS, registerEdit } from './edit.js'
 import { READ_ACTIONS, registerRead } from './read.js'
 import { AGENT_ACTIONS, registerAgent } from './agent.js'
 import { SESSION_ACTIONS, registerSession } from './session.js'
-import { registerStatus } from './status.js'
+import { registerBand } from './band.js'
 import { STATS_COMMAND, registerStats } from './stats.js'
 
 /**
@@ -79,6 +79,6 @@ export const register: Register = on => {
   registerRead(on)
   registerAgent(on)
   registerSession(on)
-  registerStatus(on)
+  registerBand(on)
   registerStats(on)
 }

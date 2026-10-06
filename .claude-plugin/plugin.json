@@ -9,6 +9,7 @@
   "homepage": "https://github.com/Digital-Threads/token-pilot#readme",
   "repository": "https://github.com/Digital-Threads/token-pilot",
   "license": "MIT",
+  "types": "./types/index.d.ts",
   "keywords": [
     "mcp",
     "token",

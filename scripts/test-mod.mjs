@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 
 const stage = mkdtempSync(join(tmpdir(), "tp-mod-"));
 try {
-  for (const dir of [".claude-plugin", "hooks", "src"]) {
+  for (const dir of [".claude-plugin", "hooks", "src", "types"]) {
     cpSync(dir, join(stage, dir), { recursive: true });
   }
 
