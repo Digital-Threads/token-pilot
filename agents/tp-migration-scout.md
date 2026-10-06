@@ -17,7 +17,7 @@ tools:
   - Grep
   - Glob
 model: sonnet
-token_pilot_version: "1.0.3"
+token_pilot_version: "1.0.4"
 token_pilot_body_hash: 803f29087c516d7609036e7932876904d05aa38b3d0e5d52831497ec4bc0d25d
 requiredMcpServers:
   - "token-pilot"

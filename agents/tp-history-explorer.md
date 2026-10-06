@@ -15,7 +15,7 @@ tools:
   - Bash
   - Read
 model: haiku
-token_pilot_version: "1.0.3"
+token_pilot_version: "1.0.4"
 token_pilot_body_hash: 90d6b77e94dad6e624f8b8e3c4f2b14b2112860a571fd0f889a58ee247fcbde8
 requiredMcpServers:
   - "token-pilot"

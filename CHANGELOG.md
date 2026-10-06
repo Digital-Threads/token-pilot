@@ -5,6 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-10-06
+
+### Changed
+
+- Under the Claude Code module, the savings line is now drawn as a band
+  above the prompt, with the 5h and 7d rate limits. The pinned status line
+  under the prompt is gone.
+- A `statusLine` running `tp-statusline.sh` prints nothing for a session the
+  module draws the band for, so the savings show once. Without the module
+  (Claude Code older than 2.1.275, or `TOKEN_PILOT_NO_MOD=1`) the
+  `statusLine` works as before. In `statusline-chain` only the token-pilot
+  part steps aside. Until the first reply of a new session the line still
+  shows under the prompt, because Claude Code draws the `statusLine` before
+  the module has loaded.
+
+### Fixed
+
+- A savings line pinned once was never cleared. A session that had pinned
+  it kept a second, stale line next to the user's `statusLine`.
+- After `/clear`, `/resume`, compaction or a fork, the line showed the
+  previous session's figures until the next reply.
+
 ## [1.0.3] - 2026-10-04
 
 ast-index 3.56.0 changed several outputs that token-pilot reads. With 3.56
