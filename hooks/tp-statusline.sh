@@ -112,6 +112,19 @@ if [ -n "$INPUT" ]; then
 fi
 
 SESSION_ID=$(printf '%s' "$SESSION_ID" | tr -cd 'a-zA-Z0-9-_')
+
+# The Claude Code mod (hooks/mod/band.tsx) draws this line in a band above
+# the prompt for the sessions it serves, and hands them to every process the
+# session starts, this statusLine included: their ids in
+# TOKEN_PILOT_MOD_SESSION, and a non-empty TOKEN_PILOT_MOD (TOKEN_PILOT_NO_MOD=1
+# empties it). Print nothing there, so the line shows once. Any other session —
+# a nested or older claude that inherited the list — prints as before.
+if [ -n "${TOKEN_PILOT_MOD:-}" ] && [ -n "$SESSION_ID" ]; then
+	case ",${TOKEN_PILOT_MOD_SESSION:-}," in
+	*",$SESSION_ID,"*) exit 0 ;;
+	esac
+fi
+
 # CWD: allow path chars only — no ; $ ` quotes, etc.
 CWD=$(printf '%s' "$CWD" | tr -cd 'a-zA-Z0-9/._-')
 
