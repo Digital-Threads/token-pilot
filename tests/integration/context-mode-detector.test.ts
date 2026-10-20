@@ -13,19 +13,24 @@ describe('detectContextMode', () => {
   let homeDir: string;
   let savedHome: string | undefined;
   let savedUserProfile: string | undefined;
+  let savedConfigDir: string | undefined;
 
   beforeEach(async () => {
     testDir = resolve(tmpdir(), `tp-cm-test-${Date.now()}`);
     await mkdir(testDir, { recursive: true });
-    // detectContextMode falls back to ~/.mcp.json (HOME/USERPROFILE). Point
-    // those at a clean temp home with no .mcp.json so a real one on the dev
-    // machine can't make the "no detection" cases report detected=true.
+    // detectContextMode falls back to ~/.mcp.json (HOME/USERPROFILE) and to
+    // the plugins enabled in the user's settings (CLAUDE_CONFIG_DIR, else
+    // ~/.claude). Point HOME at a clean temp home and drop CLAUDE_CONFIG_DIR,
+    // so the dev machine's real config can't make the "no detection" cases
+    // report detected=true.
     homeDir = resolve(tmpdir(), `tp-cm-home-${Date.now()}`);
     await mkdir(homeDir, { recursive: true });
     savedHome = process.env.HOME;
     savedUserProfile = process.env.USERPROFILE;
+    savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
     process.env.HOME = homeDir;
     delete process.env.USERPROFILE;
+    delete process.env.CLAUDE_CONFIG_DIR;
   });
 
   afterEach(async () => {
@@ -35,6 +40,8 @@ describe('detectContextMode', () => {
     else process.env.HOME = savedHome;
     if (savedUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = savedUserProfile;
+    if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
   });
 
   it('returns detected=false when no .mcp.json exists', async () => {
@@ -123,16 +130,6 @@ describe('detectContextMode', () => {
   });
 
   describe('Claude Code plugin installs (no .mcp.json)', () => {
-    let savedConfigDir: string | undefined;
-    beforeEach(() => {
-      savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-      delete process.env.CLAUDE_CONFIG_DIR;
-    });
-    afterEach(() => {
-      if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
-      else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    });
-
     const settings = async (dir: string, enabledPlugins: Record<string, boolean>, file = 'settings.json') => {
       await mkdir(resolve(dir, '.claude'), { recursive: true });
       await writeFile(resolve(dir, '.claude', file), JSON.stringify({ enabledPlugins }));

@@ -131,8 +131,25 @@ async function warnDuplicates($: EngineInterface): Promise<void> {
 let section: { session: string; text: Promise<string | null> } | null = null
 let warned = false
 
+// prompt.compose runs as each main-loop turn starts, unless an outer plugin
+// passes it on past this one (Claude Code's sec-default does, for Team and
+// Enterprise organizations). No signal says so: a turn that started without
+// it does. Then the section never reaches the prompt, and the command hooks
+// keep the guidance (register.ts hands SESSION_ACTIONS back to them).
+let composed = false
+let turnStarted = false
+
+export const composePassedOver = (): boolean => turnStarted && !composed
+
 export function registerSession(on: On): void {
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) turnStarted = true
+
+    return next(e)
+  }).catch(caught)
+
   on('prompt.compose', async ($, e, next) => {
+    composed = true
     const out = await next(e)
     noteTools(e.tools)
     if (!e.tools.some(tool => tool.startsWith(PREFIX))) return out

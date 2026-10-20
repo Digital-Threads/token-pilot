@@ -17,8 +17,8 @@ import { MCP_ACTIONS, createEditPrep, registerMcp } from './mcp.js'
 import { EDIT_ACTIONS, registerEdit } from './edit.js'
 import { READ_ACTIONS, registerRead } from './read.js'
 import { AGENT_ACTIONS, registerAgent } from './agent.js'
-import { SESSION_ACTIONS, registerSession } from './session.js'
-import { registerBand } from './band.js'
+import { SESSION_ACTIONS, composePassedOver, registerSession } from './session.js'
+import { followSession, registerBand } from './band.js'
 import { STATS_COMMAND, registerStats } from './stats.js'
 
 /**
@@ -30,6 +30,9 @@ const SERVED: string[] = [...BASH_ACTIONS, ...GREP_ACTIONS, ...MCP_ACTIONS, ...E
 
 const MAX_SESSIONS = 8
 
+// Whether the last hand-off left the session guidance to the command hooks.
+let guidanceHandedBack = false
+
 async function handOff($: EngineInterface, id: string): Promise<void> {
   // Workflow runs keep agent routing on the command hooks, which attach the
   // workflow budget note (see agent.ts).
@@ -38,7 +41,13 @@ async function handOff($: EngineInterface, id: string): Promise<void> {
       (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ??
       (await $.env.get('LOOM_WORKFLOW_ID')),
   )
-  const served = inWorkflow ? SERVED : [...SERVED, ...AGENT_ACTIONS]
+  // Where prompt.compose never reaches session.ts, its section never reaches
+  // the prompt: the SessionStart text and the per-prompt anchor stay with the
+  // command hooks, as without the mod.
+  guidanceHandedBack = composePassedOver()
+  const served = (inWorkflow ? SERVED : [...SERVED, ...AGENT_ACTIONS]).filter(
+    action => !guidanceHandedBack || !SESSION_ACTIONS.includes(action),
+  )
   // Escape hatch: TOKEN_PILOT_NO_MOD=1 keeps every hook on the command path
   // (the handlers check it too), exactly as on a Claude Code without mods.
   const noMod = (await $.env.get('TOKEN_PILOT_NO_MOD')) === '1'
@@ -49,6 +58,17 @@ async function handOff($: EngineInterface, id: string): Promise<void> {
   // listed here. Earlier ones stay: after /clear their background agents run on.
   const earlier = ((await $.env.get('TOKEN_PILOT_MOD_SESSION')) ?? '').split(',').filter(s => s && s !== id)
   await $.env.set('TOKEN_PILOT_MOD_SESSION', [id, ...earlier].slice(0, MAX_SESSIONS).join(','))
+}
+
+/**
+ * Hand off again when the session running is not listed, or prompt.compose
+ * turned out to be passed over since the last hand-off: one env read otherwise.
+ */
+async function keepHandOff($: EngineInterface): Promise<void> {
+  const id = await $.session.id()
+  const listed = ((await $.env.get('TOKEN_PILOT_MOD_SESSION')) ?? '').split(',')
+
+  if (!listed.includes(id) || composePassedOver() !== guidanceHandedBack) await handOff($, id)
 }
 
 export const register: Register = on => {
@@ -67,6 +87,27 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await handOff($, await $.session.id())
     await $.command.register(STATS_COMMAND)
+    return next(e)
+  }).catch(caught)
+
+  // An outer plugin may pass classic.SessionStart on past this one (Claude
+  // Code's sec-default does for Team and Enterprise organizations), so hand
+  // off again where every plugin is reached. /clear, /resume and a fork switch
+  // sessions inside the command, and $.session.id() answers the new one once
+  // it returns: before the statusLine runs for it. Then the band follows.
+  on('command.run', async ($, e, next) => {
+    const done = await next(e)
+    await keepHandOff($)
+    await followSession($).catch(() => {})
+
+    return done
+  }).catch(caught)
+
+  // Any other way the session changed: before the UserPromptSubmit command
+  // hook, and so before every tool call of the turn.
+  on('prompt.submit', async ($, e, next) => {
+    await keepHandOff($)
+
     return next(e)
   }).catch(caught)
 

@@ -11,14 +11,14 @@ const band = (surface: 'terminal' | 'desktop', hasSurvey = false) => ({
   props: { hasSurvey, isWorking: false, maxRows: 10, bodyColumns: 30, scroll: { offset: 0, bodyRows: 9 }, view: {} },
 })
 
-const base = (on: any, env: Record<string, string> = {}) => {
+const base = (on: any, env: Record<string, string> = {}, id = { current: 's1' }) => {
   const runs: any[] = []
   const pins: unknown[] = []
 
   on('env.get', async (_$: any, e: any) => ({ value: env[e.name] }))
   on('env.set', async () => ({ value: undefined }))
   on('command.register', async () => ({ value: undefined }))
-  on('session.id', async () => ({ value: 's1' }))
+  on('session.id', async () => ({ value: id.current }))
   on('session.cwd', async () => ({ value: '/repo' }))
   on('session.usage', async () => ({
     value: {
@@ -139,6 +139,29 @@ test('after /clear, /resume, compact or a fork, draws the new session’s line a
   for (const source of sources) await ($ as any).classic.SessionStart({ source, session_id: `new-${source}` })
 
   expect(runs.map(run => JSON.parse(run.init.stdin).session_id)).toEqual(sources.map(s => `new-${s}`))
+  const ui = await ($ as any).ui.mount(band('terminal'))
+  expect((await ui.find({ type: 'Text', text: LINE }))?.text).toBe(LINE)
+  await ui.unmount()
+})
+
+test('with no classic.SessionStart, draws the new session’s line once /clear or /resume returns', async ($, on) => {
+  const id = { current: 's1' }
+  const { runs } = base(on, {}, id)
+  const COMMAND = { args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } }
+  // The session switches inside the command, as /clear and /resume do.
+  on('command.run', async (_$: any, e: any) => {
+    if (e.command === 'clear') id.current = 's2'
+    if (e.command === 'resume') id.current = 's1'
+    return { text: '' }
+  })
+
+  await ($ as any).session.start(START)
+  await ($ as any).command.run({ ...COMMAND, command: 'clear' })
+  await ($ as any).command.run({ ...COMMAND, command: 'resume' })
+  // A command that keeps the session redraws nothing.
+  await ($ as any).command.run({ ...COMMAND, command: 'model' })
+
+  expect(runs.map(run => JSON.parse(run.init.stdin).session_id)).toEqual(['s2', 's1'])
   const ui = await ($ as any).ui.mount(band('terminal'))
   expect((await ui.find({ type: 'Text', text: LINE }))?.text).toBe(LINE)
   await ui.unmount()
