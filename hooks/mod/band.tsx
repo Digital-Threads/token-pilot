@@ -22,7 +22,11 @@ const ANSI = /\u001b\[[0-9;]*m/g
 
 const line = atom({ plugin: 'token-pilot', key: 'band' } as const, null)
 
+// The session the line is for: drawn, or until the first reply awaited.
+let lineSession: string | undefined
+
 async function refresh($: EngineInterface, session: string): Promise<void> {
+  lineSession = session
   if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return
 
   // The statusLine payload's shape, which the script parses.
@@ -43,10 +47,21 @@ async function refresh($: EngineInterface, session: string): Promise<void> {
   await update($, line, () => text || null)
 }
 
+/**
+ * Redraw the line when the session running is not the one it is for: after
+ * /clear or /resume, where classic.SessionStart may never reach this plugin.
+ */
+export async function followSession($: EngineInterface): Promise<void> {
+  const session = await $.session.id()
+
+  if (session !== lineSession) await refresh($, session)
+}
+
 export function registerBand(on: On): void {
   on('session.start', { isInteractive: true }, async ($, e, next) => {
     // A reload or an update of the plugin keeps the pin 1.0.3 and earlier set.
     $.ui.status(undefined)
+    lineSession = await $.session.id()
 
     return next(e)
   }).catch(caught)
@@ -54,6 +69,7 @@ export function registerBand(on: On): void {
   // Past the first startup the statusLine has gone quiet already: redraw the
   // line for the new session at once, or the band keeps the last one's figures.
   // The payload's session_id: $.session.id() still answers the session being left.
+  // The fast path: where an outer plugin passes this event on, followSession does it.
   on('classic.SessionStart', { source: ['clear', 'resume', 'compact', 'fork'] }, async ($, e, next) => {
     const done = await next(e)
     await refresh($, e.session_id).catch(() => {})
