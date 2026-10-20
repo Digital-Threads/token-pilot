@@ -133,6 +133,52 @@ test('lists the session before a prompt reaches the command hooks, however it ch
   expect(listings).toEqual(['session-1', 'session-2,session-1'])
 })
 
+// What the UserPromptSubmit command hooks see in TOKEN_PILOT_MOD on each prompt.
+const promptsSeeing = (on: any, env: Record<string, string>) => {
+  const seen: string[] = []
+  on('prompt.submit', async (_$: any, e: any) => {
+    seen.push(env.TOKEN_PILOT_MOD ?? '')
+    return { text: e.text }
+  })
+  on('turn.start', async (_$: any, e: any) => ({ turnId: e.turnId }))
+
+  return seen
+}
+
+const GUIDANCE = ['hook-session-start', 'hook-bootstrap', 'hook-user-prompt']
+
+test('when prompt.compose is passed over, the command hooks keep the guidance from the next prompt on', async ($, on) => {
+  const { env } = withoutSessionStart(on, { current: 'session-1' })
+  const seen = promptsSeeing(on, env)
+
+  await ($ as any).session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await ($ as any).prompt.submit({ text: 'one' })
+  // The turn starts, and no prompt.compose reaches this plugin.
+  await ($ as any).turn.start({ text: 'one', turnId: 't1' })
+  await ($ as any).prompt.submit({ text: 'two' })
+
+  for (const action of GUIDANCE) expect(seen[0]).toContain(action)
+  for (const action of GUIDANCE) expect(seen[1].split(',')).not.toContain(action)
+  expect(seen[1]).toContain('hook-pre-bash')
+})
+
+test('where prompt.compose runs, the guidance stays with it and the command hooks stay aside', async ($, on) => {
+  const { env, listings } = withoutSessionStart(on, { current: 'session-1' })
+  const seen = promptsSeeing(on, env)
+  on('session.root', async () => ({ value: '/repo' }))
+  on('fs.read', async () => ({ deny: 'no such file' }))
+  on('fs.list', async () => ({ value: [] }))
+  on('prompt.compose', async () => ({ sections: [] }))
+
+  await ($ as any).session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await ($ as any).turn.start({ text: 'one', turnId: 't1' })
+  await ($ as any).prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], outputStyle: null, traits: [], tools: [] })
+  await ($ as any).prompt.submit({ text: 'two' })
+
+  for (const action of GUIDANCE) expect(seen[0]).toContain(action)
+  expect(listings).toEqual(['session-1'])
+})
+
 test('TOKEN_PILOT_NO_MOD=1 hands nothing off, so every command hook runs', async ($, on) => {
   const flag = await flagAfterStart($, on, { TOKEN_PILOT_NO_MOD: '1' })
 
