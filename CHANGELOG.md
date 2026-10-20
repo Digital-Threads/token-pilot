@@ -5,6 +5,28 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-10-20
+
+Claude Code 2.1.304 bundles a security plugin, `cc-plugin-sec-default`, that
+sits first for Team and Enterprise organizations. It passes `classic.*` and
+`prompt.compose` events on past other plugins, and Claude Code then shows
+"token-pilot: its classic.SessionStart hook was skipped". The module no
+longer depends on those events.
+
+### Fixed
+
+- The module tells the command hooks to stand aside again after every
+  command (including `/clear` and `/resume`) and before every prompt. Before,
+  this happened only on `classic.SessionStart`. Under the security plugin,
+  after `/clear` the command hooks gated a second time and the `statusLine`
+  showed a second savings line.
+- The savings band follows the running session on its own. Before, it kept
+  the previous session's figures after `/clear` and was empty after
+  `/resume`.
+- When `prompt.compose` is passed over, the session guidance and the
+  per-prompt reminder go back to the command hooks, so Claude still gets
+  them. Where `prompt.compose` works, nothing changes.
+
 ## [1.0.4] - 2026-10-06
 
 ### Changed
