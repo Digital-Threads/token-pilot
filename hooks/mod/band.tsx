@@ -51,7 +51,7 @@ async function refresh($: EngineInterface, session: string): Promise<void> {
  * Redraw the line when the session running is not the one it is for: after
  * /clear or /resume, where classic.SessionStart may never reach this plugin.
  */
-export async function followSession($: EngineInterface): Promise<void> {
+async function followSession($: EngineInterface): Promise<void> {
   const session = await $.session.id()
 
   if (session !== lineSession) await refresh($, session)
@@ -80,6 +80,17 @@ export function registerBand(on: On): void {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined) await refresh($, await $.session.id()).catch(() => {})
+
+    return done
+  }).catch(caught)
+
+  // /clear, /resume and /branch switch sessions inside the command, and
+  // $.session.id() answers the new one once it returns. register.ts has the
+  // unmatched command.run hook; this one names the commands, and the engine
+  // follows $ only within one file, so the band follows here.
+  on('command.run', { command: ['clear', 'resume', 'branch', 'compact'] }, async ($, e, next) => {
+    const done = await next(e)
+    await followSession($).catch(() => {})
 
     return done
   }).catch(caught)

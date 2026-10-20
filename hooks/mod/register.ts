@@ -18,7 +18,7 @@ import { EDIT_ACTIONS, registerEdit } from './edit.js'
 import { READ_ACTIONS, registerRead } from './read.js'
 import { AGENT_ACTIONS, registerAgent } from './agent.js'
 import { SESSION_ACTIONS, composePassedOver, registerSession } from './session.js'
-import { followSession, registerBand } from './band.js'
+import { registerBand } from './band.js'
 import { STATS_COMMAND, registerStats } from './stats.js'
 
 /**
@@ -94,11 +94,10 @@ export const register: Register = on => {
   // Code's sec-default does for Team and Enterprise organizations), so hand
   // off again where every plugin is reached. /clear, /resume and a fork switch
   // sessions inside the command, and $.session.id() answers the new one once
-  // it returns: before the statusLine runs for it. Then the band follows.
+  // it returns: before the statusLine runs for it. band.tsx follows it there too.
   on('command.run', async ($, e, next) => {
     const done = await next(e)
     await keepHandOff($)
-    await followSession($).catch(() => {})
 
     return done
   }).catch(caught)
