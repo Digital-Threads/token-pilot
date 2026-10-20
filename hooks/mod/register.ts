@@ -51,6 +51,14 @@ async function handOff($: EngineInterface, id: string): Promise<void> {
   await $.env.set('TOKEN_PILOT_MOD_SESSION', [id, ...earlier].slice(0, MAX_SESSIONS).join(','))
 }
 
+/** Hand off for the session now running unless it is listed already: one env read when it is. */
+async function keepHandOff($: EngineInterface): Promise<void> {
+  const id = await $.session.id()
+  const listed = ((await $.env.get('TOKEN_PILOT_MOD_SESSION')) ?? '').split(',')
+
+  if (!listed.includes(id)) await handOff($, id)
+}
+
 export const register: Register = on => {
   setPluginInstall(true)
 
@@ -67,6 +75,26 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await handOff($, await $.session.id())
     await $.command.register(STATS_COMMAND)
+    return next(e)
+  }).catch(caught)
+
+  // An outer plugin may pass classic.SessionStart on past this one (Claude
+  // Code's sec-default does for Team and Enterprise organizations), so hand
+  // off again where every plugin is reached. /clear, /resume and a fork switch
+  // sessions inside the command, and $.session.id() answers the new one once
+  // it returns: before the statusLine runs for it.
+  on('command.run', async ($, e, next) => {
+    const done = await next(e)
+    await keepHandOff($)
+
+    return done
+  }).catch(caught)
+
+  // Any other way the session changed: before the UserPromptSubmit command
+  // hook, and so before every tool call of the turn.
+  on('prompt.submit', async ($, e, next) => {
+    await keepHandOff($)
+
     return next(e)
   }).catch(caught)
 
