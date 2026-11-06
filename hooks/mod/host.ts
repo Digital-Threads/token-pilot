@@ -11,6 +11,7 @@ import type { EngineInterface, HookFailure } from 'claude-code'
 import { resolveConfig } from '../../src/config/resolve.js'
 import { dirname, isAbsolute, join, normalize, relative } from '../../src/core/portable-path.js'
 import type { TokenPilotConfig } from '../../src/types.js'
+import { offersTokenPilot } from '../../src/hooks/tool-availability.js'
 
 export const PREFIX = 'mcp__plugin_token-pilot_token-pilot__'
 
@@ -167,13 +168,35 @@ export async function caught<E, R>(
 }
 
 let contextModeTool: string | undefined
+let offered: boolean | undefined
+let serverOff = false
 
 /**
  * Note the session's tools as prompt.compose last saw them. The Bash advice
- * can then name context-mode's execute tool exactly as this install has it.
+ * can then name context-mode's execute tool exactly as this install has it,
+ * and the gates know whether token-pilot's own tools are there.
  */
 export function noteTools(tools: readonly string[]): void {
   contextModeTool = tools.find(tool => tool.includes('context-mode') && /__(ctx_)?execute$/.test(tool)) ?? contextModeTool
+  offered = offersTokenPilot(tools)
+}
+
+/** /mcp has token-pilot's server off for this project (read from .claude.json at hand-off). */
+export function noteServerOff(off: boolean): void {
+  serverOff = off
+}
+
+/**
+ * Whether token-pilot's tools are in this session: as prompt.compose last
+ * offered them, else by .claude.json. 'unknown' where prompt.compose never
+ * ran (an outer plugin passed it on) and nothing turned the server off.
+ * The gates step aside on 'missing': a refusal would send the model to
+ * tools it does not have.
+ */
+export function tokenPilotTools(): 'offered' | 'missing' | 'unknown' {
+  if (offered !== undefined) return offered ? 'offered' : 'missing'
+
+  return serverOff ? 'missing' : 'unknown'
 }
 
 export function contextModeToolName(): string | undefined {

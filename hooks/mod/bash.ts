@@ -9,13 +9,14 @@ import { decidePreBash } from '../../src/hooks/pre-bash.js'
 import { decidePostBashAdvice } from '../../src/hooks/post-bash.js'
 import { parseEnforcementMode } from '../../src/server/enforcement-mode.js'
 import { diagnosticEvent, ROTATION_THRESHOLD_BYTES, tagEvent } from '../../src/core/hook-event.js'
-import { appendLog, caught, contextModeToolName, withContext } from './host.js'
+import { appendLog, caught, contextModeToolName, tokenPilotTools, withContext } from './host.js'
 
 export const BASH_ACTIONS = ['hook-pre-bash', 'hook-post-bash']
 
 export function registerBash(on: On): void {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return next(e)
+    if (tokenPilotTools() === 'missing') return next(e)
 
     const command = String(e.command ?? '')
     const mode = parseEnforcementMode(await $.env.get('TOKEN_PILOT_MODE'))

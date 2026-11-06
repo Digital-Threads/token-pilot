@@ -10,7 +10,8 @@
 
 import type { EngineInterface, Register } from 'claude-code'
 import { setPluginInstall } from '../../src/core/tool-names.js'
-import { caught } from './host.js'
+import { claudeJsonPath, mcpDisabledInConfig } from '../../src/hooks/tool-availability.js'
+import { caught, noteServerOff } from './host.js'
 import { BASH_ACTIONS, registerBash } from './bash.js'
 import { GREP_ACTIONS, registerGrep } from './grep.js'
 import { MCP_ACTIONS, createEditPrep, registerMcp } from './mcp.js'
@@ -33,7 +34,25 @@ const MAX_SESSIONS = 8
 // Whether the last hand-off left the session guidance to the command hooks.
 let guidanceHandedBack = false
 
+/** Whether /mcp has token-pilot's server off for this project, for when prompt.compose never says. */
+async function checkServerOff($: EngineInterface): Promise<void> {
+  const path = claudeJsonPath({
+    CLAUDE_CONFIG_DIR: await $.env.get('CLAUDE_CONFIG_DIR'),
+    HOME: await $.env.get('HOME'),
+    USERPROFILE: await $.env.get('USERPROFILE'),
+  })
+  if (!path) return
+
+  try {
+    noteServerOff(mcpDisabledInConfig(JSON.parse(String(await $.fs.read(path))), await $.session.root()))
+  } catch {
+    /* unreadable: the gates stay as they are */
+  }
+}
+
 async function handOff($: EngineInterface, id: string): Promise<void> {
+  await checkServerOff($)
+
   // Workflow runs keep agent routing on the command hooks, which attach the
   // workflow budget note (see agent.ts).
   const inWorkflow = Boolean(

@@ -15,7 +15,7 @@ import { buildAgentIndexFromFiles, type AgentIndex } from '../../src/core/agent-
 import { decidePreTask, subagentNeedsToolGuide, subagentToolGuide } from '../../src/hooks/pre-task.js'
 import { parseEnforcementMode } from '../../src/server/enforcement-mode.js'
 import { join } from '../../src/core/portable-path.js'
-import { caught, withContext } from './host.js'
+import { caught, tokenPilotTools, withContext } from './host.js'
 
 export const AGENT_ACTIONS = ['hook-pre-task']
 
@@ -51,6 +51,8 @@ export function registerAgent(on: On): void {
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return next(e)
     if (await inWorkflow($)) return next(e)
+    // tp-* agents work through token-pilot's tools: none to route to without them.
+    if (tokenPilotTools() === 'missing') return next(e)
 
     files ??= await readAgentFiles($, join($.plugin.root, 'agents'))
     index ??= buildAgentIndexFromFiles(files)

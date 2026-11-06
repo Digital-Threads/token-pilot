@@ -6,7 +6,7 @@
 import type { On } from 'claude-code'
 import { decidePreGrep } from '../../src/hooks/pre-grep.js'
 import { parseEnforcementMode } from '../../src/server/enforcement-mode.js'
-import { caught, withContext } from './host.js'
+import { caught, tokenPilotTools, withContext } from './host.js'
 
 export const GREP_ACTIONS = ['hook-pre-grep']
 
@@ -16,6 +16,7 @@ export function registerGrep(on: On): void {
   // that still have one without naming a tool this build's types lack.
   on('tool.call', { tool: /^Grep$/ }, async ($, e, next) => {
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return next(e)
+    if (tokenPilotTools() === 'missing') return next(e)
 
     const mode = parseEnforcementMode(await $.env.get('TOKEN_PILOT_MODE'))
     const decision = decidePreGrep({ tool_name: 'Grep', tool_input: { ...e } } as never, mode)

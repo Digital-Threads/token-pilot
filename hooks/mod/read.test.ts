@@ -63,12 +63,22 @@ test('a non-code file passes untouched', async ($, on) => {
   expect(res.result.file.content).toBe('RAW')
 })
 
-test('when smart_read fails, the model gets a pointer, not silence', async ($, on) => {
-  base(on)
+/** The session offers our tools, as prompt.compose tells the mod. */
+const offerOurTools = ($: any) =>
+  $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], outputStyle: null, traits: [], tools: [`${P}smart_read`] })
+
+const composeStubs = {
+  'prompt.compose': async () => ({ sections: [] }),
+  'fs.list': async () => ({ value: [] }),
+}
+
+test('our tools offered and smart_read fails: the model gets a pointer, not silence', async ($, on) => {
+  base(on, BIG, composeStubs)
   on('tool.call', async (_$: any, e: any) =>
     e.tool === `${P}smart_read` ? ({ deny: 'no server' } as any) : (readResult(e.file_path, 'RAW') as any),
   )
 
+  await offerOurTools($)
   const res: any = await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts' } as any)
 
   expect(res.deny).toContain('smart_read')
@@ -132,13 +142,14 @@ test('a file over the 4 MiB read limit is still gated, by its line count', async
   expect(res.result.file.content).toContain('function f()')
 })
 
-test('when the smart_read call itself fails, the model still gets the pointer', async ($, on) => {
-  base(on)
+test('our tools offered and the smart_read call itself fails: the model still gets the pointer', async ($, on) => {
+  base(on, BIG, composeStubs)
   on('tool.call', async (_$: any, e: any) => {
     if (e.tool === `${P}smart_read`) throw new Error('server gone')
     return readResult(e.file_path, 'RAW') as any
   })
 
+  await offerOurTools($)
   const res: any = await $.tool.call({ tool: 'Read', file_path: '/repo/src/a.ts' } as any)
 
   expect(res.deny).toContain('smart_read')

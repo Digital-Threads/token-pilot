@@ -100,9 +100,10 @@ import {
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
-import { decideReadGate, isCodeFile } from "./hooks/read-gate.js";
+import { decideReadGate, isCodeFile, spanCannotExceed } from "./hooks/read-gate.js";
 import { decideMcpPath, renderMcpPathOutput } from "./hooks/mcp-path.js";
 import { findCheckout, hookProjectRoot } from "./hooks/find-checkout.js";
+import { claudeJsonPath, mcpDisabledInConfig } from "./hooks/tool-availability.js";
 import { getAgentIndex } from "./hooks/post-task.js";
 import {
   decidePreEdit,
@@ -130,6 +131,21 @@ export function getVersion(): string {
   }
 }
 
+/**
+ * token-pilot's MCP server is off for this project (/mcp): the gates step
+ * aside, since a refusal would send the model to tools it does not have.
+ */
+function mcpServerOff(): boolean {
+  const path = claudeJsonPath(process.env);
+  if (!path) return false;
+
+  try {
+    return mcpDisabledInConfig(JSON.parse(readFileSync(path, "utf-8")), hookProjectRoot());
+  } catch {
+    return false;
+  }
+}
+
 export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
   // Guard against mis-typed commands like `install-aents` silently
   // becoming a projectRoot=install-aents server launch. See TP-v0.22.3.
@@ -147,6 +163,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // try/catch for known I/O failures; the wrapper is the safety
       // net for everything else.
       await runHookEntryPoint({ hook: "hook-read" }, async () => {
+        if (mcpServerOff()) return;
         const cfg = await loadConfig(hookProjectRoot());
         await handleHookRead(
           cliArgs[1],
@@ -163,11 +180,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "hook-edit":
       await runHookEntryPoint({ hook: "hook-edit" }, async () => {
+        if (mcpServerOff()) return;
         handleHookEdit();
       });
       return;
     case "hook-post-bash": {
       await runHookEntryPoint({ hook: "hook-post-bash" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const contextModeTool = contextModeExecuteTool(hookProjectRoot());
@@ -185,6 +204,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // v0.28.0 — passive pre-intercept for heavy Bash commands.
       // v0.34.0 — runHookEntryPoint covers throw paths.
       await runHookEntryPoint({ hook: "hook-pre-bash" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreBash(
@@ -223,6 +243,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // v0.28.0 — passive pre-intercept for symbol-like Grep patterns.
       // v0.34.0 — runHookEntryPoint covers throw paths.
       await runHookEntryPoint({ hook: "hook-pre-grep" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreGrep(
@@ -271,7 +292,8 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
             });
           }
 
-          const decision = decidePreTask(input, {
+          // tp-* agents work through token-pilot's tools: none to route to without them.
+          const decision = mcpServerOff() ? ({ kind: "allow" } as const) : decidePreTask(input, {
             mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
             agentIndex,
             force,
@@ -1062,6 +1084,10 @@ async function runHookReadDispatchImpl(
     }
     return null;
   }
+
+  // A range the agent chose within the base threshold passes: the adaptive
+  // threshold tightens whole-file reads, not deliberate small ones.
+  if (spanCannotExceed(offsetVal, limitVal, denyThreshold)) return null;
 
   // Resolve effective threshold once (cheap if adaptive is off).
   const effectiveThreshold = adaptive.adaptiveThreshold
