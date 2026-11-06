@@ -248,9 +248,8 @@ describe("index stdin hooks", () => {
     expect(writeSpy).not.toHaveBeenCalled();
   });
 
-  it("edit hook: advises (no block) on un-prepared Edit in default deny mode", async () => {
-    // v0.30.4 — default deny mode yields an additionalContext hint, not a
-    // hard permissionDecision=deny. Hard block is reserved for strict mode.
+  it("edit hook: says nothing on an un-prepared Edit in default deny mode", async () => {
+    // read_for_edit is advice in its tool description; only strict mode acts.
     const fixtureRoot = await mkdtemp(join(tmpdir(), "token-pilot-edit-hook-"));
     // The file must lie inside the project: outside it the gate stands aside.
     const originalRoot = process.env.CLAUDE_PROJECT_DIR;
@@ -266,12 +265,7 @@ describe("index stdin hooks", () => {
       );
       const mod = await loadIndexWithReadFile(read);
       expect(() => mod.handleHookEdit()).toThrow("EXIT:0");
-      expect(writeSpy).toHaveBeenCalledTimes(1);
-      const payload = String(writeSpy.mock.calls[0][0]);
-      // No permissionDecision: an "allow" would skip the user's permission prompt.
-      expect(payload).not.toContain("permissionDecision");
-      expect(payload).toContain("additionalContext");
-      expect(payload).toContain("read_for_edit");
+      expect(writeSpy).not.toHaveBeenCalled();
     } finally {
       if (originalRoot === undefined) delete process.env.CLAUDE_PROJECT_DIR;
       else process.env.CLAUDE_PROJECT_DIR = originalRoot;

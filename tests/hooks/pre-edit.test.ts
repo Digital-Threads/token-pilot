@@ -31,24 +31,14 @@ function editInput(filePath: string, tool = "Edit"): PreEditInput {
 describe("decidePreEdit", () => {
   // ── Positive: tools we actually enforce ─────────────────────────────
 
-  // v0.30.4 — deny-mode default now emits a non-blocking advisory, not a
-  // hard block. Real-world friction (MCP flakes, agents forgetting prep)
-  // made hard-block a worse failure than a missed nudge.
-  it("advises (no block) on Edit without prep in default deny mode", () => {
-    const decision = decidePreEdit(editInput("/p/src/app.ts"), ctx());
-    expect(decision.kind).toBe("advise");
-    if (decision.kind === "advise") {
-      expect(decision.message).toContain("read_for_edit");
-      expect(decision.message).toContain("/p/src/app.ts");
-    }
+  // read_for_edit is advice in its own tool description; an Edit after Read
+  // works, so the default mode adds nothing after the Edit either.
+  it("lets an Edit without prep through silently in the default mode", () => {
+    expect(decidePreEdit(editInput("/p/src/app.ts"), ctx()).kind).toBe("allow");
   });
 
-  it("advises (no block) on MultiEdit without prep in default deny mode", () => {
-    const decision = decidePreEdit(
-      editInput("/p/src/app.ts", "MultiEdit"),
-      ctx(),
-    );
-    expect(decision.kind).toBe("advise");
+  it("lets a MultiEdit without prep through silently in the default mode", () => {
+    expect(decidePreEdit(editInput("/p/src/app.ts", "MultiEdit"), ctx()).kind).toBe("allow");
   });
 
   it("strict mode hard-denies Edit without prep (opt-in)", () => {
@@ -131,18 +121,6 @@ describe("decidePreEdit", () => {
 
   // ── Advisory mode ──────────────────────────────────────────────────
 
-  it("advisory mode: allow + hint when not prepared", () => {
-    const decision = decidePreEdit(
-      editInput("/p/src/app.ts"),
-      ctx({ mode: "advisory" }),
-    );
-    expect(decision.kind).toBe("advise");
-    if (decision.kind === "advise") {
-      expect(decision.message).toContain("read_for_edit");
-      expect(decision.message).toContain("Consider");
-    }
-  });
-
   it("advisory mode: clean allow when already prepared (no noise)", () => {
     const decision = decidePreEdit(
       editInput("/p/src/app.ts"),
@@ -153,14 +131,13 @@ describe("decidePreEdit", () => {
 
   // ── Strict mode treated identically to deny at the decision layer ───
 
-  // v0.30.4 — strict is now the ONLY mode that hard-denies Edit without
-  // prep. advisory + deny both fall through to a non-blocking advisory.
-  it("strict hard-denies; deny and advisory both soft-advise", () => {
+  // strict is the only mode that acts on an Edit without prep.
+  it("strict hard-denies; deny and advisory both allow", () => {
     const adv = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "advisory" }));
     const deny = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "deny" }));
     const strict = decidePreEdit(editInput("/p/x.ts"), ctx({ mode: "strict" }));
-    expect(adv.kind).toBe("advise");
-    expect(deny.kind).toBe("advise");
+    expect(adv.kind).toBe("allow");
+    expect(deny.kind).toBe("allow");
     expect(strict.kind).toBe("deny");
   });
 });
@@ -180,10 +157,4 @@ describe("renderPreEditOutput", () => {
   });
 
   // A permissionDecision of "allow" would skip the user's permission prompt.
-  it("renders advise as additionalContext only, no permissionDecision", () => {
-    const out = renderPreEditOutput({ kind: "advise", message: "hint" });
-    const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBeUndefined();
-    expect(parsed.hookSpecificOutput.additionalContext).toBe("hint");
-  });
 });

@@ -1,7 +1,8 @@
 /**
- * 1.0.2 audit, item 20 — the Edit gate advised read_for_edit right after the
- * agent wrote the file itself. A Write gives the agent every byte; it counts
- * as prepared, on the command-hook path as in the mod.
+ * 1.0.2 audit, item 20 — the Edit gate asked for read_for_edit right after
+ * the agent wrote the file itself. A Write gives the agent every byte; it
+ * counts as prepared, on the command-hook path as in the mod. Only strict
+ * mode acts on an unprepared Edit, so the tests run there.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -14,8 +15,8 @@ const DIST_ENTRY = resolve(__dirname, "..", "..", "dist", "index.js");
 let project: string;
 
 function hookEdit(tool: string, file: string): string {
-  const env = { ...process.env, CLAUDE_PROJECT_DIR: project };
-  for (const k of ["TOKEN_PILOT_BYPASS", "TOKEN_PILOT_MODE", "TOKEN_PILOT_MOD"]) delete env[k];
+  const env = { ...process.env, CLAUDE_PROJECT_DIR: project, TOKEN_PILOT_MODE: "strict" };
+  for (const k of ["TOKEN_PILOT_BYPASS", "TOKEN_PILOT_MOD"]) delete env[k];
 
   return spawnSync("node", [DIST_ENTRY, "hook-edit"], {
     cwd: project,
@@ -35,7 +36,7 @@ afterEach(() => {
 });
 
 describe("hook-edit after the agent's own Write", () => {
-  it("advises on an Edit of a file nobody prepared", () => {
+  it("refuses an Edit of a file nobody prepared", () => {
     const file = join(project, "a.ts");
     writeFileSync(file, "export const a = 1;\n");
 
