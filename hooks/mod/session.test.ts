@@ -95,4 +95,5 @@ test('reads user agents where Claude Code does: CLAUDE_CONFIG_DIR/agents', async
   await new Promise(resolve => setTimeout(resolve, 20))
 
   expect(toasts.join('\n')).toContain('1 tp-*.md in /home/u/profile/agents')
+  expect(toasts.join('\n')).toContain('CLAUDE_CONFIG_DIR=/home/u/profile npx token-pilot uninstall-agents --scope=user')
 })

@@ -6,7 +6,7 @@
  * mod share it.
  */
 
-import { join } from "../core/portable-path.js";
+import { isAbsolute, join, normalize } from "../core/portable-path.js";
 
 const TOOL_PREFIXES = ["mcp__plugin_token-pilot_token-pilot__", "mcp__token-pilot__"];
 
@@ -18,15 +18,43 @@ export function offersTokenPilot(tools: readonly string[]): boolean {
   return tools.some((tool) => TOOL_PREFIXES.some((prefix) => tool.startsWith(prefix)));
 }
 
-/** Claude Code's per-project `disabledMcpServers` has token-pilot's server off. */
-export function mcpDisabledInConfig(claudeJson: unknown, projectRoot: string): boolean {
+/** A path as Claude Code writes a `projects` key: `/` separators, no trailing slash. */
+function projectKey(path: string): string {
+  return path.replace(/\\/g, "/").replace(/(.)\/+$/, "$1");
+}
+
+/**
+ * Claude Code's per-project `disabledMcpServers` has token-pilot's server
+ * off. `roots` are the candidate keys — the session's folder, its checkout
+ * and, for a linked worktree, the main checkout, which is where Claude Code
+ * keeps the entry for every worktree of a repository.
+ */
+export function mcpDisabledInConfig(claudeJson: unknown, roots: readonly string[]): boolean {
   const projects = (claudeJson as { projects?: unknown } | null)?.projects;
   if (!projects || typeof projects !== "object") return false;
 
-  const list = (projects as Record<string, { disabledMcpServers?: unknown } | undefined>)[projectRoot]
-    ?.disabledMcpServers;
+  const wanted = new Set(roots.map(projectKey));
 
-  return Array.isArray(list) && list.some((name) => SERVER_NAMES.has(String(name)));
+  return Object.entries(projects as Record<string, { disabledMcpServers?: unknown } | null>).some(
+    ([key, entry]) =>
+      wanted.has(projectKey(key)) &&
+      Array.isArray(entry?.disabledMcpServers) &&
+      entry.disabledMcpServers.some((name) => SERVER_NAMES.has(String(name))),
+  );
+}
+
+/**
+ * The main checkout a linked worktree belongs to, from the worktree's `.git`
+ * file (`gitdir: <main>/.git/worktrees/<name>`); null for any other `.git` file.
+ */
+export function mainCheckoutOf(checkout: string, gitFile: string): string | null {
+  const line = /^gitdir:\s*(.+?)\s*$/m.exec(gitFile);
+  if (!line) return null;
+
+  const gitdir = isAbsolute(line[1]) ? line[1] : normalize(join(checkout, line[1]));
+  const main = /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/.exec(gitdir);
+
+  return main ? main[1] : null;
 }
 
 /** Where Claude Code keeps per-project MCP state: `.claude.json` in its config dir, else in home. */

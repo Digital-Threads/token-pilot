@@ -10,8 +10,9 @@
 
 import type { EngineInterface, Register } from 'claude-code'
 import { setPluginInstall } from '../../src/core/tool-names.js'
-import { claudeJsonPath, mcpDisabledInConfig } from '../../src/hooks/tool-availability.js'
-import { caught, noteServerOff } from './host.js'
+import { claudeJsonPath, mainCheckoutOf, mcpDisabledInConfig } from '../../src/hooks/tool-availability.js'
+import { join } from '../../src/core/portable-path.js'
+import { caught, findCheckout, noteServerOff } from './host.js'
 import { BASH_ACTIONS, registerBash } from './bash.js'
 import { GREP_ACTIONS, registerGrep } from './grep.js'
 import { MCP_ACTIONS, createEditPrep, registerMcp } from './mcp.js'
@@ -45,7 +46,20 @@ async function checkServerOff($: EngineInterface): Promise<void> {
   if (!path) return
 
   try {
-    noteServerOff(mcpDisabledInConfig(JSON.parse(String(await $.fs.read(path))), await $.session.root()))
+    // Claude Code keeps one entry per repository, under its main checkout.
+    const root = await $.session.root()
+    const roots = [root]
+    try {
+      const checkout = await findCheckout(p => $.fs.exists(p), root)
+      const gitFile = checkout ? await $.fs.read(join(checkout, '.git')).then(String, () => null) : null
+      if (checkout) roots.push(checkout)
+      const main = checkout && gitFile !== null ? mainCheckoutOf(checkout, gitFile) : null
+      if (main) roots.push(main)
+    } catch {
+      /* no checkout to add: the session folder alone */
+    }
+
+    noteServerOff(mcpDisabledInConfig(JSON.parse(String(await $.fs.read(path))), roots))
   } catch {
     /* unreadable: the gates stay as they are */
   }
@@ -56,9 +70,11 @@ async function handOff($: EngineInterface, id: string): Promise<void> {
 
   // hook-pre-task only carries a workflow's budget note: outside a workflow
   // the mod takes it and there is nothing to run.
+  // The same variables, the same way, as activeWorkflowId in src/core/workflow.ts.
   const inWorkflow = Boolean(
-    (await $.env.get('TOKEN_PILOT_WORKFLOW_ID')) ??
-      (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ??
+    (await $.env.get('TOKEN_PILOT_WORKFLOW_ID')) ||
+      (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ||
+      (await $.env.get('CLAUDE_WORKFLOW_ID')) ||
       (await $.env.get('LOOM_WORKFLOW_ID')),
   )
   // Where prompt.compose never reaches session.ts, its section never reaches

@@ -71,6 +71,30 @@ describe("command hooks with the MCP server off", () => {
   });
 });
 
+// Claude Code keeps one entry for a repository, under its main checkout.
+describe("command hooks in a worktree of a repository with the server off", () => {
+  it("a whole-file Read passes", () => {
+    const worktree = join(project, ".worktrees", "wt");
+    mkdirSync(join(project, ".git", "worktrees", "wt"), { recursive: true });
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(worktree, ".git"), `gitdir: ${join(project, ".git", "worktrees", "wt")}\n`);
+    const file = join(worktree, "big.ts");
+    writeFileSync(file, Array.from({ length: 600 }, (_, i) => `export const w${i} = ${i};`).join("\n"));
+    writeFileSync(join(configDir, ".claude.json"), JSON.stringify({ projects: { [project]: { disabledMcpServers: ["token-pilot"] } } }));
+
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: worktree, CLAUDE_CONFIG_DIR: configDir };
+    for (const k of ["TOKEN_PILOT_BYPASS", "TOKEN_PILOT_MODE", "TOKEN_PILOT_MOD", "TOKEN_PILOT_MOD_SESSION"]) delete env[k];
+    const out = spawnSync("node", [DIST_ENTRY, "hook-read"], {
+      cwd: worktree,
+      input: JSON.stringify({ tool_name: "Read", tool_input: { file_path: file } }),
+      encoding: "utf-8",
+      env,
+    }).stdout;
+
+    expect(out).toBe("");
+  });
+});
+
 describe("command hooks with the MCP server on", () => {
   it("a whole-file Read of a big code file is still refused", () => {
     expect(hook("hook-read", read, ["context-mode"])).toContain('"permissionDecision":"deny"');

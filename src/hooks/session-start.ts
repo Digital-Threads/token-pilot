@@ -31,8 +31,8 @@ export interface HandleSessionStartOptions {
   sessionStartConfig: SessionStartConfig;
   /** The plugin's root (CLAUDE_PLUGIN_ROOT), set when running as the plugin. */
   pluginRoot?: string;
-  /** Where Claude Code reads user agents: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`. */
-  userAgentsDir?: string;
+  /** CLAUDE_CONFIG_DIR: Claude Code then reads user agents from its `agents`, not `~/.claude/agents`. */
+  claudeConfigDir?: string;
   /**
    * Which client this hook is serving. Codex validates the returned
    * `hookSpecificOutput` and fails the hook on a key it does not know,
@@ -83,12 +83,14 @@ async function personNotes(opts: HandleSessionStartOptions): Promise<string[]> {
     }
   }
 
-  const userDir = opts.userAgentsDir ?? join(opts.homeDir, ".claude", "agents");
+  const userDir = opts.claudeConfigDir
+    ? join(opts.claudeConfigDir, "agents")
+    : join(opts.homeDir, ".claude", "agents");
   const projectDir = join(opts.projectRoot, ".claude", "agents");
   const legacy = legacyAgentsWarning([
     { dir: userDir, count: await countLegacyAgents(userDir), scope: "user" },
     { dir: projectDir, count: await countLegacyAgents(projectDir), scope: "project" },
-  ]);
+  ], opts.claudeConfigDir);
   if (legacy) notes.push(legacy);
 
   return notes;

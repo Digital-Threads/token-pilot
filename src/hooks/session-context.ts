@@ -111,15 +111,28 @@ export function isLegacyAgent(body: string): boolean {
 /** One note for the person about leftover agent copies, or null when there are none. */
 export function legacyAgentsWarning(
   found: ReadonlyArray<{ dir: string; count: number; scope: "user" | "project" }>,
+  claudeConfigDir?: string,
 ): string | null {
   const dirs = found.filter((f) => f.count > 0);
   if (dirs.length === 0) return null;
 
+  // The person runs the command in a terminal that may not carry
+  // CLAUDE_CONFIG_DIR; it has to name the folder this session reads.
+  const prefix = (scope: string) => (scope === "user" && claudeConfigDir ? `CLAUDE_CONFIG_DIR=${claudeConfigDir} ` : "");
   const where = dirs.map((f) => `${f.count} tp-*.md in ${f.dir}`).join(", ");
-  const remove = dirs.map((f) => `npx token-pilot uninstall-agents --scope=${f.scope}`).join(" and ");
+  const remove = dirs
+    .map((f) => `${prefix(f.scope)}npx token-pilot uninstall-agents --scope=${f.scope}`)
+    .join(" and ");
 
   return (
     `[token-pilot] ${where}: copies an older version installed. token-pilot no longer ships subagents, ` +
     `and each copy adds its description to every session. Remove them with ${remove}.`
   );
+}
+
+/** SessionStart output for the bootstrap hints: they are the person's to act on. */
+export function bootstrapOutput(hints: readonly string[]): string | null {
+  if (hints.length === 0) return null;
+
+  return JSON.stringify({ systemMessage: `[token-pilot] bootstrap notes:\n  - ${hints.join("\n  - ")}` });
 }

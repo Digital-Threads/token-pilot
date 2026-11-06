@@ -6,7 +6,7 @@ Token Pilot installs these PreToolUse hooks in Claude Code:
 2. **Grep / Bash hooks** — block heavy recursive patterns (`grep -r`, `find /`, `cat <file.ts>`, unbounded `git log`, bare `git diff`) and redirect to token-pilot MCP equivalents.
 3. **Edit hook** — only in `strict` mode: refuses an `Edit` of a code file that was not prepared with `read_for_edit`. In the other modes an `Edit` goes through with no hint.
 
-The Read, Bash, Grep, Edit (strict) and Agent gates step aside when token-pilot's MCP tools are not in the session, so the model is never refused and pointed at tools it does not have. In Claude Code the mod learns this from the tool list the model is offered. The command hooks read Claude Code's `.claude.json` (in `CLAUDE_CONFIG_DIR`, else your home folder) and treat `projects[<project>].disabledMcpServers` containing `token-pilot` or `plugin:token-pilot:token-pilot` as "tools missing". The advice after a Bash call is skipped too.
+The Read, Bash, Grep, Edit (strict) and Agent gates step aside when token-pilot's MCP tools are not in the session, so the model is never refused and pointed at tools it does not have. In Claude Code the mod learns this from the tool list the model is offered. The command hooks read Claude Code's `.claude.json` (in `CLAUDE_CONFIG_DIR`, else your home folder) and treat `projects[<project>].disabledMcpServers` (the project being the session folder, its git checkout or, for a worktree, the main checkout, which is where Claude Code keeps the entry) containing `token-pilot` or `plugin:token-pilot:token-pilot` as "tools missing". The advice after a Bash call is skipped too.
 
 ## TOKEN_PILOT_MODE — Enforcement Mode
 

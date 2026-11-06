@@ -54,14 +54,10 @@ bd close <id>         # Complete work
 
 ```bash
 npm install            # install deps
-npm run build          # tsc + scripts/build-agents.mjs (composes 25 tp-* agents)
+npm run build          # tsc
 npx vitest run         # full unit suite (~1300 tests)
 npx tsc --noEmit       # type-check only
 ```
-
-The build step regenerates `agents/tp-*.md` from `templates/agents/`.
-Never hand-edit files in `agents/` — edit the template + shared
-fragments (`_shared-preamble.md`, `_response-contract.md`) and rebuild.
 
 ## Architecture Overview
 
@@ -71,11 +67,10 @@ fragments (`_shared-preamble.md`, `_response-contract.md`) and rebuild.
 - `src/server.ts` — MCP dispatcher (`createServer`). Every tool case
   goes through the `SessionCache` for cross-call dedup.
 - `src/hooks/` — pure decide-functions per hook (pre-bash, pre-grep,
-  pre-task, pre-edit, post-bash, post-task, session-start) + the
+  pre-edit, post-bash, post-task, session-start) + the
   `runHookEntryPoint` safe-runner.
 - `src/ast-index/` — wrapper around the bundled `ast-index` binary.
-- `src/core/` — event-log, error-log, validation, agent-matcher.
-- `templates/agents/` → `scripts/build-agents.mjs` → `agents/`.
+- `src/core/` — event-log, error-log, validation.
 
 ## Conventions & Patterns
 

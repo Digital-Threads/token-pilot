@@ -22,6 +22,8 @@ export interface UninstallOptions {
   scope: Scope;
   projectRoot: string;
   homeDir: string;
+  /** CLAUDE_CONFIG_DIR: where Claude Code reads user agents when it is set. */
+  configDir?: string;
 }
 
 export interface UninstallResult {
@@ -31,8 +33,8 @@ export interface UninstallResult {
 }
 
 function targetDirFor(opts: UninstallOptions): string {
-  const root = opts.scope === "user" ? opts.homeDir : opts.projectRoot;
-  return join(root, ".claude", "agents");
+  if (opts.scope === "project") return join(opts.projectRoot, ".claude", "agents");
+  return opts.configDir ? join(opts.configDir, "agents") : join(opts.homeDir, ".claude", "agents");
 }
 
 function hasTpHashMarker(meta: Record<string, unknown>): boolean {
@@ -130,6 +132,7 @@ export async function handleUninstallAgents(
     scope: scopeArg,
     projectRoot: opts?.projectRoot ?? process.cwd(),
     homeDir: opts?.homeDir ?? homedir(),
+    configDir: process.env.CLAUDE_CONFIG_DIR || undefined,
   });
 
   if (result.removed.length > 0) {

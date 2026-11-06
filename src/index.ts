@@ -67,6 +67,7 @@ import { checkForTypo } from "./cli/typo-guard.js";
 import { processPostTask } from "./hooks/post-task.js";
 import { contextModeExecuteTool } from "./integration/context-mode-detector.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
+import { unblessAgents } from "./cli/unbless-agents.js";
 import {
   appendEvent,
   applyRetention,
@@ -76,6 +77,7 @@ import {
   buildPromptReminder,
   formatPromptReminderOutput,
 } from "./hooks/user-prompt.js";
+import { bootstrapOutput } from "./hooks/session-context.js";
 import { handleStats } from "./cli/stats.js";
 import { handleToolAudit } from "./cli/tool-audit.js";
 import { TOOL_DEFINITIONS } from "./server/tool-definitions.js";
@@ -95,7 +97,7 @@ import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
 import { decideReadGate, isCodeFile, spanCannotExceed } from "./hooks/read-gate.js";
 import { decideMcpPath, renderMcpPathOutput } from "./hooks/mcp-path.js";
 import { findCheckout, hookProjectRoot } from "./hooks/find-checkout.js";
-import { claudeJsonPath, mcpDisabledInConfig } from "./hooks/tool-availability.js";
+import { claudeJsonPath, mainCheckoutOf, mcpDisabledInConfig } from "./hooks/tool-availability.js";
 import {
   decidePreEdit,
   renderPreEditOutput,
@@ -127,11 +129,23 @@ export function getVersion(): string {
  * aside, since a refusal would send the model to tools it does not have.
  */
 function mcpServerOff(): boolean {
+  // Claude Code sets CLAUDE_PROJECT_DIR for its hooks; Codex runs the same
+  // hooks without it, and Claude Code's config says nothing about Codex.
   const path = claudeJsonPath(process.env);
-  if (!path) return false;
+  if (!path || !process.env.CLAUDE_PROJECT_DIR) return false;
 
   try {
-    return mcpDisabledInConfig(JSON.parse(readFileSync(path, "utf-8")), hookProjectRoot());
+    const root = hookProjectRoot();
+    const checkout = findCheckout(root);
+    let main: string | null = null;
+    try {
+      if (checkout) main = mainCheckoutOf(checkout, readFileSync(join(checkout, ".git"), "utf-8"));
+    } catch {
+      /* .git is a directory: the main checkout itself */
+    }
+    const roots = [root, checkout, main].filter((r): r is string => Boolean(r));
+
+    return mcpDisabledInConfig(JSON.parse(readFileSync(path, "utf-8")), roots);
   } catch {
     return false;
   }
@@ -332,17 +346,8 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         } catch {
           /* skip silently */
         }
-        if (hints.length > 0) {
-          const message = `[token-pilot] bootstrap notes:\n  - ${hints.join("\n  - ")}`;
-          process.stdout.write(
-            JSON.stringify({
-              hookSpecificOutput: {
-                hookEventName: "SessionStart",
-                additionalContext: message,
-              },
-            }),
-          );
-        }
+        const output = bootstrapOutput(hints);
+        if (output) process.stdout.write(output);
       });
       return;
     }
@@ -424,9 +429,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           projectRoot: hookProjectRoot(),
           homeDir: homedir(),
           pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
-          userAgentsDir: process.env.CLAUDE_CONFIG_DIR
-            ? resolve(process.env.CLAUDE_CONFIG_DIR, "agents")
-            : undefined,
+          claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || undefined,
           sessionStartConfig: cfg.sessionStart,
           client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
@@ -553,13 +556,27 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       return;
     case "install-agents":
     case "bless-agents":
-    case "unbless-agents":
       process.stderr.write(
         `token-pilot no longer ships subagents: each MCP tool's description says when to use it.\n` +
-          `Remove copies an older version installed: npx token-pilot uninstall-agents --scope=user|project\n`,
+          `Remove copies an older version installed: npx token-pilot uninstall-agents --scope=user|project,\n` +
+          `and agents bless-agents copied into this project: npx token-pilot unbless-agents --all\n`,
       );
       process.exit(1);
       return;
+    case "unbless-agents": {
+      // Kept to remove copies an older bless-agents made.
+      const args = cliArgs.slice(1);
+      const all = args.includes("--all");
+      const names = args.filter((a) => !a.startsWith("--"));
+      if (!all && names.length === 0) {
+        process.stderr.write(
+          "Usage: token-pilot unbless-agents <name>... | --all\n",
+        );
+        process.exit(1);
+      }
+      await unblessAgents({ projectRoot: process.cwd(), names, all });
+      return;
+    }
     case "uninstall-agents": {
       const code = await handleUninstallAgents(cliArgs.slice(1));
       process.exit(code);

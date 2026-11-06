@@ -87,6 +87,38 @@ test('/mcp turned our server off and prompt.compose never ran: Read passes untou
   expect(ran).toEqual(['Read'])
 })
 
+test('/mcp turned our server off for the repository and the session runs in its worktree: Read passes untouched', async ($, on) => {
+  const ran: string[] = []
+  const wt = '/repo/.worktrees/wt'
+  on('env.get', async (_$: any, e: any) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }))
+  on('env.set', async () => ({ value: undefined }))
+  on('session.id', async () => ({ value: 's1' }))
+  on('session.root', async () => ({ value: wt }))
+  on('session.cwd', async () => ({ value: wt }))
+  on('fs.exists', async (_$: any, e: any) => ({ value: String(e.path ?? e) === `${wt}/.git` }))
+  on('fs.read', async (_$: any, e: any) => {
+    const path = String(e.path ?? e)
+    if (path === `${wt}/.git`) return { value: 'gitdir: /repo/.git/worktrees/wt\n' }
+    if (path === '/home/u/.claude.json') return { value: JSON.stringify({ projects: { '/repo': { disabledMcpServers: ['token-pilot'] } } }) }
+
+    return path.endsWith('.ts') ? { value: BIG } : { deny: 'no such file' }
+  })
+  on('fs.stat', async (_$: any, e: any) => ({ value: { realPath: e.path, size: BIG.length } }))
+  on('fs.list', async () => ({ value: [] }))
+  on('process.run', async () => ({
+    value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+  on('prompt.compose', async () => ({ sections: [] }))
+  on('classic.SessionStart', async () => ({}))
+  tools(on, ran)
+
+  await ($ as any).classic.SessionStart({ source: 'startup', session_id: 's1' })
+  const res: any = await $.tool.call({ tool: 'Read', file_path: `${wt}/src/a.ts` } as any)
+
+  expect(res.deny).toBe(undefined)
+  expect(ran).toEqual(['Read'])
+})
+
 test('our tools offered: a whole-file Read of a big code file still comes back as the outline', async ($, on) => {
   const ran: string[] = []
   base(on)

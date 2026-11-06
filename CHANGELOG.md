@@ -30,8 +30,11 @@ were not in the session.
 - The 25 `tp-*` subagents, the routing of Agent dispatches to them and the
   tool guide added to subagent prompts. They ran in under 1% of dispatches in
   the maintainer's sessions, while their descriptions cost context in every
-  session. `install-agents`, `bless-agents` and `unbless-agents` now explain
-  this and exit; `uninstall-agents` removes copies an older version installed.
+  session. `install-agents` and `bless-agents` now explain this and exit;
+  `uninstall-agents` removes copies an older version installed (from
+  `$CLAUDE_CONFIG_DIR/agents` when that is set), and `unbless-agents` the
+  copies `bless-agents` made. Each session start lists leftover copies and
+  the command that removes them.
   The `agents` config keys, `TOKEN_PILOT_FORCE_SUBAGENTS`,
   `TOKEN_PILOT_NO_AGENT_REMINDER` and the startup reminder are gone.
 

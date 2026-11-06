@@ -141,6 +141,7 @@ incremental.
 token-pilot                              # start MCP server
 token-pilot init                         # create/merge .mcp.json
 token-pilot uninstall-agents --scope=user|project   # remove tp-* copies an older version installed
+token-pilot unbless-agents --all             # remove copies bless-agents made in this project
 token-pilot install-hook                 # install PreToolUse hooks
 token-pilot uninstall-hook
 token-pilot stats                        # totals + top files from hook-events.jsonl

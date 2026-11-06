@@ -10,6 +10,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { handleSessionStart } from "../../src/hooks/session-start.js";
+import { bootstrapOutput } from "../../src/hooks/session-context.js";
 
 const config = { enabled: true, showStats: false };
 
@@ -37,7 +38,7 @@ describe("handleSessionStart — Claude Code", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  const start = (extra: { pluginRoot?: string; userAgentsDir?: string } = {}) =>
+  const start = (extra: { pluginRoot?: string; claudeConfigDir?: string } = {}) =>
     handleSessionStart({ projectRoot: project, homeDir: home, sessionStartConfig: config, ...extra });
 
   it("returns null when enabled=false", async () => {
@@ -87,14 +88,16 @@ describe("handleSessionStart — Claude Code", () => {
     expect(out.hookSpecificOutput.additionalContext).toBeUndefined();
   });
 
-  it("reads the user agents from the folder Claude Code uses", async () => {
-    const configAgents = join(dir, "profile", "agents");
+  it("reads the user agents from the folder Claude Code uses, and says how to clean that one", async () => {
+    const configDir = join(dir, "profile");
+    const configAgents = join(configDir, "agents");
     await mkdir(configAgents, { recursive: true });
     await writeFile(join(configAgents, "tp-run.md"), LEGACY_AGENT);
 
-    const out = JSON.parse((await start({ userAgentsDir: configAgents }))!);
+    const out = JSON.parse((await start({ claudeConfigDir: configDir }))!);
 
     expect(out.systemMessage).toContain(`1 tp-*.md in ${configAgents}`);
+    expect(out.systemMessage).toContain(`CLAUDE_CONFIG_DIR=${configDir} npx token-pilot uninstall-agents --scope=user`);
   });
 
   it("leaves an agent the person wrote alone, even under a tp- name", async () => {
@@ -125,5 +128,19 @@ describe("handleSessionStart — Codex", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+// The bootstrap hints (ast-index missing) are for the person to act on.
+describe("bootstrapOutput", () => {
+  it("shows the hints to the person, not the model", () => {
+    const out = JSON.parse(bootstrapOutput(["ast-index binary missing — run `npx token-pilot install-ast-index`"])!);
+
+    expect(out.systemMessage).toContain("install-ast-index");
+    expect(out).not.toHaveProperty("hookSpecificOutput");
+  });
+
+  it("says nothing without hints", () => {
+    expect(bootstrapOutput([])).toBeNull();
   });
 });

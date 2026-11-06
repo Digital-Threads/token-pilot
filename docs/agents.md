@@ -13,11 +13,15 @@ An older token-pilot may have copied `tp-*.md` files into your agents folder.
 Remove them with one or both of:
 
 ```bash
-npx token-pilot uninstall-agents --scope=user      # ~/.claude/agents
+npx token-pilot uninstall-agents --scope=user      # $CLAUDE_CONFIG_DIR/agents, else ~/.claude/agents
 npx token-pilot uninstall-agents --scope=project   # ./.claude/agents
 ```
 
 Only files that carry `token_pilot_body_hash` are removed. Your own agents stay.
+Each session start lists the copies it finds and the exact command to remove them.
 
-`install-agents`, `bless-agents` and `unbless-agents` still exist as commands, but
-they only print a short message and exit with code 1.
+Copies `bless-agents` made in a project are removed with
+`npx token-pilot unbless-agents --all`.
+
+`install-agents` and `bless-agents` still exist as commands, but they only print
+a short message and exit with code 1.

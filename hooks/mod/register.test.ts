@@ -63,6 +63,12 @@ test('hands the served command hooks off before they run', async ($, on) => {
   expect(flag).not.toContain('hook-post-task')
 })
 
+test('knows a workflow run by the same variables as the command hook', async ($, on) => {
+  const flag = await flagAfterStart($, on, { TOKEN_PILOT_WORKFLOW_ID: '', CLAUDE_WORKFLOW_ID: 'wf-2' })
+
+  expect(flag).not.toContain('hook-pre-task')
+})
+
 test('leaves the workflow budget note to the command hooks in a workflow run', async ($, on) => {
   const flag = await flagAfterStart($, on, { TOKEN_PILOT_WORKFLOW_ID: 'wf-1' })
 

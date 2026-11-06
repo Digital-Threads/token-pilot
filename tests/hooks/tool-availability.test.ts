@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import {
   claudeJsonPath,
+  mainCheckoutOf,
   mcpDisabledInConfig,
   offersTokenPilot,
 } from "../../src/hooks/tool-availability.ts";
@@ -28,24 +29,57 @@ describe("mcpDisabledInConfig", () => {
   const config = (disabled: unknown) => ({ projects: { "/repo": { disabledMcpServers: disabled } } });
 
   it("is true when /mcp turned the server off by its own name", () => {
-    expect(mcpDisabledInConfig(config(["context-mode", "token-pilot"]), "/repo")).toBe(true);
+    expect(mcpDisabledInConfig(config(["context-mode", "token-pilot"]), ["/repo"])).toBe(true);
   });
 
   it("is true when /mcp turned the plugin's server off", () => {
-    expect(mcpDisabledInConfig(config(["plugin:token-pilot:token-pilot"]), "/repo")).toBe(true);
+    expect(mcpDisabledInConfig(config(["plugin:token-pilot:token-pilot"]), ["/repo"])).toBe(true);
   });
 
   it("is false for another project", () => {
-    expect(mcpDisabledInConfig(config(["token-pilot"]), "/other")).toBe(false);
+    expect(mcpDisabledInConfig(config(["token-pilot"]), ["/other"])).toBe(false);
   });
 
   it("is false when other servers are off", () => {
-    expect(mcpDisabledInConfig(config(["context-mode", "plugin:mempalace:mempalace"]), "/repo")).toBe(false);
+    expect(mcpDisabledInConfig(config(["context-mode", "plugin:mempalace:mempalace"]), ["/repo"])).toBe(false);
   });
 
   it("is false for a config it cannot read", () => {
-    expect(mcpDisabledInConfig(null, "/repo")).toBe(false);
-    expect(mcpDisabledInConfig({ projects: { "/repo": { disabledMcpServers: "token-pilot" } } }, "/repo")).toBe(false);
+    expect(mcpDisabledInConfig(null, ["/repo"])).toBe(false);
+    expect(mcpDisabledInConfig({ projects: { "/repo": { disabledMcpServers: "token-pilot" } } }, ["/repo"])).toBe(false);
+  });
+});
+
+// Claude Code keys `projects` by the main checkout, with `/` separators:
+// a worktree, a subfolder or a Windows path must still find its entry.
+describe("mcpDisabledInConfig — the key Claude Code uses", () => {
+  const off = (key: string) => ({ projects: { [key]: { disabledMcpServers: ["token-pilot"] } } });
+
+  it("finds the entry under any of the candidate roots", () => {
+    expect(mcpDisabledInConfig(off("/repo"), ["/repo/.worktrees/wt", "/repo"])).toBe(true);
+  });
+
+  it("matches across separators and a trailing slash", () => {
+    expect(mcpDisabledInConfig(off("C:/Users/u/proj"), ["C:\\Users\\u\\proj\\"])).toBe(true);
+  });
+});
+
+describe("mainCheckoutOf", () => {
+  it("follows a worktree's .git file to the main checkout", () => {
+    expect(mainCheckoutOf("/repo/.worktrees/wt", "gitdir: /repo/.git/worktrees/wt\n")).toBe("/repo");
+  });
+
+  it("resolves a relative gitdir against the worktree", () => {
+    expect(mainCheckoutOf("/repo/.worktrees/wt", "gitdir: ../../.git/worktrees/wt\n")).toBe("/repo");
+  });
+
+  it("reads a Windows gitdir", () => {
+    expect(mainCheckoutOf("C:/r/wt", "gitdir: C:/r/main/.git/worktrees/wt")).toBe("C:/r/main");
+  });
+
+  it("is null for a .git file that is not a worktree's", () => {
+    expect(mainCheckoutOf("/repo/sub", "gitdir: /repo/.git/modules/sub")).toBeNull();
+    expect(mainCheckoutOf("/repo", "not a gitdir line")).toBeNull();
   });
 });
 

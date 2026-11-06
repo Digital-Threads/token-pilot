@@ -107,7 +107,7 @@ async function warnPerson($: EngineInterface): Promise<void> {
     legacyAgentsWarning([
       { dir: userDir, count: await countLegacyAgents($, userDir), scope: 'user' },
       { dir: projectDir, count: await countLegacyAgents($, projectDir), scope: 'project' },
-    ]),
+    ], configDir || undefined),
   ]) {
     if (note) $.ui.toast(note)
   }
