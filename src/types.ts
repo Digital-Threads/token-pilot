@@ -185,16 +185,6 @@ export interface TokenPilotConfig {
   sessionStart: {
     enabled: boolean;
     showStats: boolean;
-    maxReminderTokens: number;
-  };
-  agents: {
-    /** Scope of last `install-agents` run, null until first install. */
-    scope: "user" | "project" | null;
-    /**
-     * Emit a one-time stderr reminder at MCP startup if no tp-* agents
-     * are installed. Can also be suppressed by env TOKEN_PILOT_NO_AGENT_REMINDER=1.
-     */
-    reminder: boolean;
   };
   ignore: string[];
 }

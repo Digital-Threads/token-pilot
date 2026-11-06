@@ -16,9 +16,10 @@
  *   1. Non-code files            → allow (config, markdown, etc.)
  *   2. Write on non-existent file → allow (new-file creation is fine)
  *   3. TOKEN_PILOT_BYPASS=1      → allow (escape hatch)
- *   4. advisory mode             → allow + additionalContext hint
- *   5. File already prepared     → allow
- *   6. Otherwise                 → deny with actionable message
+ *   4. File already prepared     → allow
+ *   5. TOKEN_PILOT_MODE=strict   → deny with actionable message
+ *   6. Otherwise                 → allow, silently: read_for_edit is advice
+ *      in its own tool description, and an Edit after Read works
  *
  * The decide function is pure — no I/O, no process.env reads — so it is
  * trivially unit-testable. All side effects (existsSync, state read,
@@ -38,7 +39,6 @@ export interface PreEditInput {
 
 export type PreEditDecision =
   | { kind: "allow" }
-  | { kind: "advise"; message: string }
   | { kind: "deny"; reason: string };
 
 export interface PreEditContext {
@@ -114,40 +114,23 @@ export function decidePreEdit(
       `snippets diverges from disk (whitespace, line-number prefixes) and Edit ` +
       `silently mismatches. ` +
       `If read_for_edit is unavailable, ask the user: they can restart Claude Code ` +
-      `with TOKEN_PILOT_MODE=deny (warn only) or TOKEN_PILOT_BYPASS=1.`;
+      `with TOKEN_PILOT_MODE=deny (no check) or TOKEN_PILOT_BYPASS=1.`;
     return { kind: "deny", reason };
   }
 
-  // advisory + deny (default) both yield a non-blocking hint. The agent
-  // still runs the Edit; the additionalContext teaches the pattern next
-  // time without stranding the user mid-session.
-  return {
-    kind: "advise",
-    message:
-      `File "${filePath}" was not prepared with read_for_edit. ` +
-      `Consider calling ${suggestion} first — the exact old_string it returns is what Edit actually needs. ` +
-      `Edit built from smart_read / Read snippets frequently mismatches on whitespace.`,
-  };
+  // The default and advisory modes let it through: read_for_edit is advice
+  // in its own tool description, and an Edit after Read works.
+  return { kind: "allow" };
 }
 
 /**
  * Render the Claude Code hook JSON response.
  *
  * - allow   → no output (hook passes through with no side-effect)
- * - advise  → additionalContext hint only: a permissionDecision of "allow"
- *             would skip the user's permission prompt for the Edit
  * - deny    → permissionDecision=deny + reason
  */
 export function renderPreEditOutput(decision: PreEditDecision): string | null {
   if (decision.kind === "allow") return null;
-  if (decision.kind === "advise") {
-    return JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: decision.message,
-      },
-    });
-  }
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

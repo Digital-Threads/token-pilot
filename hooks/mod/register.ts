@@ -10,13 +10,14 @@
 
 import type { EngineInterface, Register } from 'claude-code'
 import { setPluginInstall } from '../../src/core/tool-names.js'
-import { caught } from './host.js'
+import { claudeJsonPath, mainCheckoutOf, mcpDisabledInConfig } from '../../src/hooks/tool-availability.js'
+import { join } from '../../src/core/portable-path.js'
+import { caught, findCheckout, noteServerOff } from './host.js'
 import { BASH_ACTIONS, registerBash } from './bash.js'
 import { GREP_ACTIONS, registerGrep } from './grep.js'
 import { MCP_ACTIONS, createEditPrep, registerMcp } from './mcp.js'
 import { EDIT_ACTIONS, registerEdit } from './edit.js'
 import { READ_ACTIONS, registerRead } from './read.js'
-import { AGENT_ACTIONS, registerAgent } from './agent.js'
 import { SESSION_ACTIONS, composePassedOver, registerSession } from './session.js'
 import { registerBand } from './band.js'
 import { STATS_COMMAND, registerStats } from './stats.js'
@@ -28,22 +29,56 @@ import { STATS_COMMAND, registerStats } from './stats.js'
  */
 const SERVED: string[] = [...BASH_ACTIONS, ...GREP_ACTIONS, ...MCP_ACTIONS, ...EDIT_ACTIONS, ...READ_ACTIONS, ...SESSION_ACTIONS]
 
+const AGENT_ACTIONS = ['hook-pre-task']
+
 const MAX_SESSIONS = 8
 
 // Whether the last hand-off left the session guidance to the command hooks.
 let guidanceHandedBack = false
 
+/** Whether /mcp has token-pilot's server off for this project, for when prompt.compose never says. */
+async function checkServerOff($: EngineInterface): Promise<void> {
+  const path = claudeJsonPath({
+    CLAUDE_CONFIG_DIR: await $.env.get('CLAUDE_CONFIG_DIR'),
+    HOME: await $.env.get('HOME'),
+    USERPROFILE: await $.env.get('USERPROFILE'),
+  })
+  if (!path) return
+
+  try {
+    // Claude Code keeps one entry per repository, under its main checkout.
+    const root = await $.session.root()
+    const roots = [root]
+    try {
+      const checkout = await findCheckout(p => $.fs.exists(p), root)
+      const gitFile = checkout ? await $.fs.read(join(checkout, '.git')).then(String, () => null) : null
+      if (checkout) roots.push(checkout)
+      const main = checkout && gitFile !== null ? mainCheckoutOf(checkout, gitFile) : null
+      if (main) roots.push(main)
+    } catch {
+      /* no checkout to add: the session folder alone */
+    }
+
+    noteServerOff(mcpDisabledInConfig(JSON.parse(String(await $.fs.read(path))), roots))
+  } catch {
+    /* unreadable: the gates stay as they are */
+  }
+}
+
 async function handOff($: EngineInterface, id: string): Promise<void> {
-  // Workflow runs keep agent routing on the command hooks, which attach the
-  // workflow budget note (see agent.ts).
+  await checkServerOff($)
+
+  // hook-pre-task only carries a workflow's budget note: outside a workflow
+  // the mod takes it and there is nothing to run.
+  // The same variables, the same way, as activeWorkflowId in src/core/workflow.ts.
   const inWorkflow = Boolean(
-    (await $.env.get('TOKEN_PILOT_WORKFLOW_ID')) ??
-      (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ??
+    (await $.env.get('TOKEN_PILOT_WORKFLOW_ID')) ||
+      (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ||
+      (await $.env.get('CLAUDE_WORKFLOW_ID')) ||
       (await $.env.get('LOOM_WORKFLOW_ID')),
   )
   // Where prompt.compose never reaches session.ts, its section never reaches
-  // the prompt: the SessionStart text and the per-prompt anchor stay with the
-  // command hooks, as without the mod.
+  // the prompt: session start stays with the command hooks, as without the mod.
   guidanceHandedBack = composePassedOver()
   const served = (inWorkflow ? SERVED : [...SERVED, ...AGENT_ACTIONS]).filter(
     action => !guidanceHandedBack || !SESSION_ACTIONS.includes(action),
@@ -117,7 +152,6 @@ export const register: Register = on => {
   registerMcp(on, prep)
   registerEdit(on, prep)
   registerRead(on)
-  registerAgent(on)
   registerSession(on)
   registerBand(on)
   registerStats(on)

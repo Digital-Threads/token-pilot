@@ -1,182 +1,18 @@
 /**
- * MCP tool definitions and system instructions.
+ * MCP tool definitions and the server instruction.
  * Pure static data — no runtime dependencies.
  *
- * v0.30.0 — Profile-specific instructions. Each profile advertises only
- * the tools it includes; instructions are trimmed to match so the agent
- * doesn't hallucinate tools that aren't in tools/list.
- *
- *   minimal — 5 core tools, minimal context overhead
- *   nav     — 10 exploration tools, no editing
- *   edit    — nav + 6 edit-prep tools
- *   full    — everything including audit tools (DEFAULT since v0.45.0)
+ * When to use a tool is written in that tool's description, the one place
+ * the model reads at the moment it picks a tool. The server instruction only
+ * says what token-pilot is for, and names no tool, so it stays true for every
+ * TOKEN_PILOT_PROFILE.
  */
-import type { ToolProfile } from "./tool-profiles.js";
 
-// ---------------------------------------------------------------------------
-// Minimal profile — 5 essential tools, near-zero instructions overhead
-// ---------------------------------------------------------------------------
-const MCP_INSTRUCTIONS_MINIMAL = [
-  "Token Pilot — token-efficient code reading. ALWAYS prefer these tools over Read/cat/grep.",
-  "",
-  "TOOLS:",
-  "• smart_read(path) — read a code file (NOT cat/Read — returns structure, 60-80% fewer tokens)",
-  "• read_symbol(path, symbol) — read ONE function/class body (NOT the whole file)",
-  "• find_usages(symbol) — find where a symbol is defined, imported, or used",
-  "• smart_diff — review git changes mapped to functions/classes (NOT git diff)",
-  "• smart_log — structured commit history (NOT git log)",
-  "",
-  "USE Read/Grep ONLY for: non-code configs (JSON, YAML, markdown), regex patterns.",
+export const MCP_INSTRUCTIONS = [
+  "Token Pilot reads code by structure: the skeleton of a file, one symbol's body, the places a symbol is used, a diff or log mapped to functions.",
+  "It pays off on code files of a few hundred lines or more, on searches for a symbol across the project, and on long git output.",
+  "For a small file, a config file or a known line range, Read is just as good.",
 ].join("\n");
-
-// ---------------------------------------------------------------------------
-// Nav profile — exploration only, no edit-prep tools
-// ---------------------------------------------------------------------------
-const MCP_INSTRUCTIONS_NAV = [
-  "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
-  "",
-  "DECISION RULES — pick the first match:",
-  "1. New codebase / unfamiliar project → project_overview",
-  "2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)",
-  "3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)",
-  '   - For navigation/browsing: smart_read(scope="nav") — names + lines only, 2-3x smaller',
-  '   - For public API overview: smart_read(scope="exports")',
-  "4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)",
-  "5. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)",
-  '   - For initial discovery: find_usages(mode="list") — file:line only, 5-10x smaller',
-  "6. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)",
-  "7. List all symbols in a directory → outline (classes, functions, methods in one call)",
-  "8. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)",
-  "9. Commit history → smart_log (NOT git log — structured with categories)",
-  "10. Module architecture → module_info (deps, dependents, public API)",
-  "11. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)",
-  "12. Long session / before compaction → session_snapshot (<200 token state capture)",
-  "",
-  "USE Read/Grep ONLY for: regex text search → Grep | exact raw content → Read",
-  "",
-  "WORKFLOW:",
-  "• Explore: project_overview → explore_area → smart_read → read_symbol",
-].join("\n");
-
-// ---------------------------------------------------------------------------
-// Edit profile — nav + batch reads + edit-prep
-// ---------------------------------------------------------------------------
-const MCP_INSTRUCTIONS_EDIT = [
-  "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
-  "",
-  "MANDATORY EDIT SAFETY — before ANY Edit/Write tool call on an existing code file:",
-  "  → FIRST call read_for_edit(path, symbol=<target>) to obtain the exact old_string.",
-  "  → NEVER build Edit's old_string from a smart_read / Read snippet — whitespace and",
-  "    line-number prefixes diverge from disk and Edit silently mismatches.",
-  "  → For a brand-new file, Write is fine; read_for_edit is only required for edits.",
-  "",
-  "DECISION RULES — pick the first match:",
-  "1. New codebase / unfamiliar project → project_overview",
-  "2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)",
-  "3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)",
-  '   - For navigation/browsing: smart_read(scope="nav") — names + lines only, 2-3x smaller',
-  '   - For public API overview: smart_read(scope="exports")',
-  "4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)",
-  "   - Preparing edit? Add include_edit_context=true to skip separate read_for_edit call",
-  "5. Need MULTIPLE function/class bodies from same file → read_symbols (batch — one call instead of N)",
-  "6. Preparing an Edit → read_for_edit — MANDATORY, not optional. Returns exact old_string.",
-  "7. Verify edits after editing → read_diff (only changed hunks — REQUIRES smart_read BEFORE editing)",
-  "8. Multiple files at once → smart_read_many (batch up to 20 files)",
-  "9. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)",
-  '   - For initial discovery: find_usages(mode="list") — file:line only, 5-10x smaller',
-  "10. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)",
-  "11. List all symbols in a directory → outline (classes, functions, methods in one call)",
-  "12. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)",
-  "13. Commit history → smart_log (NOT git log — structured with categories)",
-  "14. Module architecture → module_info (deps, dependents, public API)",
-  "15. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)",
-  '    - For editing sections: read_for_edit(path, section="Section Name")',
-  "16. Long session / before compaction → session_snapshot (capture goal, decisions, confirmed facts, files, next step as <200 token block)",
-  "    - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size",
-  "",
-  "USE Read/Grep ONLY for: regex text search → Grep | exact raw content → Read",
-  "",
-  "WORKFLOWS:",
-  "• Explore: project_overview → explore_area → smart_read → read_symbol",
-  "• Edit (mandatory): smart_read (to pick target) → read_for_edit → Edit → read_diff",
-  "• Docs: smart_read (outline) → read_section → read_for_edit(section=) → Edit → read_diff",
-  "• Refactor: find_usages → read_symbols → read_for_edit → Edit",
-  "• Long session: session_snapshot → compact context → continue with minimal state",
-].join("\n");
-
-// ---------------------------------------------------------------------------
-// Full profile — all tools including audit (code_audit, find_unused, test_summary) — DEFAULT since v0.45.0
-// ---------------------------------------------------------------------------
-const MCP_INSTRUCTIONS_FULL = [
-  "Token Pilot — token-efficient code reading (saves 60-80% tokens). ALWAYS prefer these tools over Read/cat/grep.",
-  "",
-  "MANDATORY EDIT SAFETY — before ANY Edit/Write tool call on an existing code file:",
-  "  → FIRST call read_for_edit(path, symbol=<target>) to obtain the exact old_string.",
-  "  → NEVER build Edit's old_string from a smart_read / Read snippet — whitespace and",
-  "    line-number prefixes diverge from disk and Edit silently mismatches.",
-  "  → For a brand-new file, Write is fine; read_for_edit is only required for edits.",
-  "",
-  "DECISION RULES — pick the first match:",
-  "1. New codebase / unfamiliar project → project_overview",
-  "2. Starting work on a directory → explore_area (outline + imports + tests + git log in one call)",
-  "3. Need to read a code file → smart_read (NOT Read/cat — returns structure, 60-80% fewer tokens)",
-  '   - For navigation/browsing: smart_read(scope="nav") — names + lines only, 2-3x smaller',
-  '   - For public API overview: smart_read(scope="exports")',
-  "4. Need one function/class body → read_symbol (loads only that symbol, NOT the whole file)",
-  "   - Preparing edit? Add include_edit_context=true to skip separate read_for_edit call",
-  "5. Need MULTIPLE function/class bodies from same file → read_symbols (batch — one call instead of N)",
-  "6. Preparing an Edit → read_for_edit — MANDATORY, not optional. Returns exact old_string.",
-  "7. Verify edits after editing → read_diff (only changed hunks — REQUIRES smart_read BEFORE editing)",
-  "8. Multiple files at once → smart_read_many (batch up to 20 files)",
-  "9. Find where a symbol is used → find_usages (semantic: definitions + imports + usages)",
-  '   - For initial discovery: find_usages(mode="list") — file:line only, 5-10x smaller',
-  "10. Understand file dependencies → related_files (imports, importers, tests — ranked by relevance)",
-  "11. List all symbols in a directory → outline (classes, functions, methods in one call)",
-  "12. Review git changes → smart_diff (NOT git diff — maps changes to functions/classes)",
-  "13. Commit history → smart_log (NOT git log — structured with categories)",
-  "14. Run tests → test_summary (NOT raw test output — structured pass/fail)",
-  "15. Code quality → code_audit (TODOs, deprecated, structural patterns)",
-  "16. Dead code → find_unused (unreferenced symbols across project)",
-  "17. Module architecture → module_info (deps, dependents, public API)",
-  "18. Read markdown/yaml/json/csv section → read_section (loads one heading/key/row-range, NOT the whole file)",
-  '    - For editing sections: read_for_edit(path, section="Section Name")',
-  "19. Long session / before compaction → session_snapshot (capture goal, decisions, confirmed facts, files, next step as <200 token block)",
-  "    - Budget-constrained? Use smart_read(max_tokens=N) to auto-downgrade output size",
-  "",
-  "USE Read/Grep ONLY for: regex text search → Grep | exact raw content → Read | non-code configs → Read",
-  "",
-  "WORKFLOWS:",
-  "• Explore: project_overview → explore_area → smart_read → read_symbol",
-  "• Edit (mandatory): smart_read (to pick target) → read_for_edit → Edit → read_diff",
-  "• Docs: smart_read (outline) → read_section → read_for_edit(section=) → Edit → read_diff",
-  "• Refactor: find_usages → read_symbols → read_for_edit → Edit → test_summary",
-  "• Audit: code_audit + find_unused + Grep (for regex patterns)",
-  "• Long session: session_snapshot → compact context → continue with minimal state",
-].join("\n");
-
-/**
- * Select MCP instructions for the given tool profile.
- * Each profile only mentions tools that are actually advertised in its
- * tools/list — prevents the agent from calling tools it can't see.
- */
-export function getMcpInstructions(profile: ToolProfile): string {
-  switch (profile) {
-    case "minimal":
-      return MCP_INSTRUCTIONS_MINIMAL;
-    case "nav":
-      return MCP_INSTRUCTIONS_NAV;
-    case "edit":
-      return MCP_INSTRUCTIONS_EDIT;
-    case "full":
-      return MCP_INSTRUCTIONS_FULL;
-  }
-}
-
-/**
- * @deprecated Use getMcpInstructions(profile) instead.
- * Kept for backward-compat — resolves to the full profile instructions.
- */
-export const MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_FULL;
 
 export const TOOL_DEFINITIONS = [
   // --- Core reading tools ---
@@ -368,7 +204,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "read_for_edit",
     description:
-      'Use INSTEAD OF Read when preparing an EDIT. Returns exact RAW code around a symbol or line — copy directly as old_string for Edit tool. Supports batch: pass "symbols" array to get multiple edit contexts in one call. Unlike read_symbols (for reading/understanding), this returns unformatted code optimized for copy-paste into Edit. Optional: include_callers, include_tests, include_changes for enriched context.',
+      'Raw text around a symbol or line, ready to paste as Edit\'s old_string — handy before editing one function of a large file without reading the whole file. Read works just as well when you already have the file open. Supports batch: pass "symbols" array to get multiple edit contexts in one call. Unlike read_symbols (for reading/understanding), this returns unformatted code optimized for copy-paste into Edit. Optional: include_callers, include_tests, include_changes for enriched context.',
     inputSchema: {
       type: "object" as const,
       properties: {

@@ -4,11 +4,10 @@
 
 > **Why it matters more now:** as frontier models move up in price, the tokens you *don't* spend reading code are worth more, not less. The savings are in tokens; the value is in tokens × price. Token Pilot keeps the expensive main thread lean so the premium model spends its budget on reasoning, not on re-reading files.
 
-Three layers, each useful on its own, stronger together:
+Two layers, each useful on its own, stronger together:
 
 1. **MCP tools** — structural reads (`smart_read`, `read_symbol`, `read_for_edit`, …). Ask for an outline or load one function by name instead of the whole file.
 2. **PreToolUse hooks** — intercept heavy native tool calls (`Read` on large files, recursive `Grep`, unbounded `git diff`) and redirect to token-efficient alternatives.
-3. **`tp-*` subagents** — Claude Code delegates with MCP-first behaviour and tight response budgets.
 
 ## How It Works
 
@@ -41,25 +40,24 @@ Measured on public open-source repos. Files ≥50 lines only:
 npx -y token-pilot init
 ```
 
-Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode), then prompts to install `tp-*` subagents. Restart your AI assistant to activate.
+Creates (or merges into) `.mcp.json` with `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode). Restart your AI assistant to activate.
 
 ## What You Get
 
 - **25 MCP tools** — structural reads, symbol search, git analysis, module routing, session analytics → [tools reference](docs/tools.md)
 - **PreToolUse hooks** — block heavy `Grep`/`Bash`/`Read` calls; redirect to efficient alternatives → [hooks & modes](docs/hooks.md)
-- **25 `tp-*` subagents** (Claude Code only) — MCP-first delegates with haiku/sonnet model tiers and budget enforcement → [agents reference](docs/agents.md)
 - **Tool profiles** — trim advertised `tools/list` to save ~2 k tokens per session → [profiles & config](docs/configuration.md)
 
 ## Client Support Matrix
 
-| Client | MCP tools | PreToolUse hooks | `tp-*` subagents |
-|--------|:---------:|:----------------:|:----------------:|
-| Claude Code | ✅ | ✅ | ✅ |
-| Codex CLI | ✅ | ✅ | ❌ |
-| Cursor | ✅ | ❌ | ❌ |
-| Gemini CLI | ✅ | ❌ | ❌ |
-| Cline (VS Code) | ✅ | ❌ | ❌ |
-| Antigravity | ✅ | ❌ | ❌ |
+| Client | MCP tools | PreToolUse hooks |
+|--------|:---------:|:----------------:|
+| Claude Code | ✅ | ✅ |
+| Codex CLI | ✅ | ✅ |
+| Cursor | ✅ | ❌ |
+| Gemini CLI | ✅ | ❌ |
+| Cline (VS Code) | ✅ | ❌ |
+| Antigravity | ✅ | ❌ |
 
 Hooks are written for Claude Code (the plugin's own `hooks/hooks.json`, or
 `~/.claude/settings.json` for an npm install) and for Codex CLI
@@ -68,8 +66,8 @@ trust them). The other clients get the MCP tools; their hook systems exist but
 token-pilot does not write to them yet.
 
 On Claude Code 2.1.275 and later the plugin runs its hooks inside Claude Code
-as a mod — no process per tool call, a big Read comes back as an outline instead
-of a refusal, and the session guidance lives in the system prompt. Older
+as a mod — no process per tool call, and a big Read comes back as an outline instead
+of a refusal. Older
 versions keep the command hooks → [Claude Code mods](docs/hooks.md#claude-code-mods)
 
 Manual config snippets for each client → [installation guide](docs/installation.md)
@@ -82,7 +80,7 @@ Manual config snippets for each client → [installation guide](docs/installatio
 |-------|-----------|
 | `advisory` | Allow all — hooks pass through, advisory notes only |
 | `deny` *(default)* | Block heavy `Grep`/`Bash` patterns; intercept large `Read` calls |
-| `strict` | Deny + auto-cap MCP output (`smart_read` ≤ 2 000 tokens, `find_usages` → list mode, `smart_log` → 20 commits) |
+| `strict` | Deny + auto-cap MCP output (`smart_read` ≤ 2 000 tokens, `find_usages` → list mode, `smart_log` → 20 commits) + refuse an `Edit` of a code file not prepared with `read_for_edit` |
 
 ```bash
 TOKEN_PILOT_MODE=strict npx token-pilot
@@ -132,7 +130,6 @@ npx -y token-pilot init
 # Or if installed globally:
 npm i -g token-pilot@latest
 npx token-pilot install-hook
-npx token-pilot install-agents --scope=user --force
 ```
 
 ## Tips for Claude Code 2.1.139+
@@ -140,11 +137,6 @@ npx token-pilot install-agents --scope=user --force
 The May 2026 Claude Code update changed a few things that affect how
 token-pilot is invoked. Nothing breaks on older versions — these are
 quality-of-life notes for the newer ones.
-
-- **Run a tp-\* agent directly without the `plugin:` prefix.**
-  `claude --agent tp-debugger "fix the stack trace"` now works the same
-  as `--agent token-pilot:tp-debugger`. The Task tool dispatcher
-  resolves the short name automatically.
 
 - **Cold ast-index calls — raise `MCP_TOOL_TIMEOUT`.**
   The first `find_usages` / `outline` / `read_symbol` on a large repo
@@ -157,14 +149,16 @@ quality-of-life notes for the newer ones.
   Dispatching a worker via `claude agents` or `--bg` with
   `--mcp-config /path/to/other.json` swaps the MCP set for that
   session. If `token-pilot` is not in the override config, MCP tools
-  (`smart_read`, `find_usages`, …) are unavailable in that worker
-  even though the hooks (Read / Edit / Bash / Grep / Task) still
-  fire — hooks are project-level, MCP tools are session-level. Add
-  `token-pilot` to the override config or skip `--mcp-config`.
+  (`smart_read`, `find_usages`, …) are unavailable in that worker.
+  On a Claude Code that loads the token-pilot mod, the hooks (Read / Bash /
+  Grep / Edit in strict mode / Agent) see the tools are missing and step
+  aside. The command hooks of an older Claude Code only see a server turned
+  off in `/mcp`. Add `token-pilot` to the override config if you want the
+  tools.
 
 - **`claude plugin details token-pilot`.**
   Shows the projected per-turn token cost, the hook event names, and
-  the MCP server entry. The skill list, the agent list, and the LSP
+  the MCP server entry. The skill list and the LSP
   list are all auto-discovered from the canonical sub-folders.
 
 ## Power-user — undocumented Claude Code features that pair with token-pilot
@@ -173,27 +167,11 @@ These fields come from reverse-engineering `@anthropic-ai/claude-code@2.1.87`
 source (see the May 2026 Habr write-up). They work today but are
 not in the official Claude Code docs, so use at your own risk.
 
-### Persistent agent memory (`memory: project`)
-
-Every relevant tp-\* agent (onboard, debugger, pr-reviewer,
-history-explorer, audit-scanner) now ships with `memory: project`
-in its frontmatter. Claude Code persists the agent's working notes
-in the project so the agent gets faster on repeat invocations —
-`tp-onboard` remembers your layout, `tp-pr-reviewer` remembers your
-flagged patterns, etc. v0.35.0+.
-
-### Required MCP gating (`requiredMcpServers`)
-
-Every tp-\* agent declares `requiredMcpServers: ["token-pilot"]`.
-Claude Code refuses to load the agent when the MCP server isn't
-configured, so a stale install never produces a "tools not found"
-loop. v0.35.0+.
-
 ### Bootstrap-once hook (`once: true`)
 
 The plugin ships a SessionStart hook flagged `once: true` —
 Claude Code runs it once per project then auto-removes the entry.
-It surfaces friendly hints when `install-agents` or
+It surfaces a friendly hint when
 `install-ast-index` hasn't been run yet. v0.35.0+.
 
 ### Async telemetry (`async: true`)
@@ -247,7 +225,7 @@ is undocumented and may change.
 
 ### Experimental: SubagentStop budget feedback (CC 2.1.163+)
 
-Every subagent completion already lands a task-telemetry row via the
+Every subagent completion lands a task-telemetry row via the
 `SubagentStop` hook (that's how `stats --tasks` knows what you
 dispatched). With `TOKEN_PILOT_SUBAGENT_FEEDBACK=1` the same hook also
 returns `additionalContext` — when a `token-pilot workflow` fan-out is
@@ -290,13 +268,6 @@ on Opus 4.7 + 4.8. If you're on one of those, opt in with
 `CLAUDE_CODE_ENABLE_AUTO_MODE=1`. token-pilot's deny-Read /
 deny-Bash gates still run on top — auto mode never bypasses them.
 
-### Opus 4.8 as fast-mode default
-
-Claude Code 2.1.154 made Opus 4.8 the default for high effort. The
-tp-* agents that already declared `model: haiku` keep their cheaper
-tier (90 %+ of the agent roster); the few sonnet/opus-tier ones
-ride the upgrade automatically.
-
 ## Fleet workflows (v0.38.0)
 
 When you fan a task across many subagents — via Claude Code's
@@ -324,7 +295,7 @@ While a workflow is active:
   `hook-events.jsonl` carries `workflow_id`, so you can slice one
   fan-out run out of the global log.
 - The PreToolUse:Agent hook watches the token ceiling. At ≥90 % it
-  appends a wind-down note to its routing advice ("finish in-flight
+  adds a wind-down note ("finish in-flight
   work rather than starting new branches") and logs a
   `workflow_near_budget` diagnostic — visible in `workflow status`.
   Dispatch is never hard-blocked on budget (a half-finished fan-out

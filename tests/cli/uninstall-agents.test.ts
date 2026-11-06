@@ -96,6 +96,22 @@ describe("uninstallAgents", () => {
     expect(await fileExists(join(dir, "tp-run.md"))).toBe(false);
   });
 
+  // Claude Code reads user agents from CLAUDE_CONFIG_DIR/agents when it is set.
+  it("removes files in scope=user from CLAUDE_CONFIG_DIR/agents when one is given", async () => {
+    const project = await makeTmp();
+    tmpDirs.push(project);
+    const home = await makeTmp();
+    tmpDirs.push(home);
+    const configDir = join(home, "profile");
+
+    await mkdir(join(configDir, "agents"), { recursive: true });
+    await writeFile(join(configDir, "agents", "tp-run.md"), installedMd("tp-run"));
+
+    const result = await uninstallAgents({ scope: "user", projectRoot: project, homeDir: home, configDir });
+    expect(result.removed).toEqual(["tp-run"]);
+    expect(result.targetDir).toBe(join(configDir, "agents"));
+  });
+
   it("never removes a file without token_pilot_body_hash (user-owned)", async () => {
     const project = await makeTmp();
     tmpDirs.push(project);

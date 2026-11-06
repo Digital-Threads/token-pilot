@@ -10,7 +10,6 @@
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",
-    "agents/*.md",
     "docs/*.md",
     "scripts/postinstall.mjs",
     "start.sh",
@@ -24,7 +23,7 @@
   ],
   "scripts": {
     "prebuild": "node --input-type=module -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true });\"",
-    "build": "tsc && node scripts/build-agents.mjs",
+    "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",

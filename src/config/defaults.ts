@@ -74,11 +74,6 @@ export const DEFAULT_CONFIG: TokenPilotConfig = {
   sessionStart: {
     enabled: true,
     showStats: false,
-    maxReminderTokens: 500,
-  },
-  agents: {
-    scope: null,
-    reminder: true,
   },
   ignore: ["node_modules/**", "dist/**", ".git/**", "*.min.js", "*.map"],
 };

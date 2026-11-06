@@ -1,363 +1,146 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+/**
+ * SessionStart on Claude Code: the tools' own descriptions say when to use
+ * them, so the model gets no rule block and no agent list here. It gets a
+ * line only when a fresh snapshot is there to resume from. What the person
+ * has to fix (a hook registered twice, old agent copies) goes to them as a
+ * systemMessage, never into the model's context.
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir, homedir } from "node:os";
-
-// ─── agent-scanner ──────────────────────────────────────────────────────────
-
-import { scanAgents } from "../../src/hooks/session-start.js";
-
-describe("scanAgents", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "tp-agents-test-"));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  it("returns empty list when no agents dir exists", async () => {
-    const result = await scanAgents(tempDir, join(tempDir, "no-home"));
-    expect(result).toEqual([]);
-  });
-
-  it("returns empty list when agents dir exists but no tp-* files", async () => {
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await writeFile(
-      join(tempDir, ".claude", "agents", "other.md"),
-      "---\nname: other\n---\n# Other\n",
-    );
-    const result = await scanAgents(tempDir, join(tempDir, "no-home"));
-    expect(result).toEqual([]);
-  });
-
-  it("parses a single tp-* agent with frontmatter", async () => {
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await writeFile(
-      join(tempDir, ".claude", "agents", "tp-onboard.md"),
-      "---\nname: tp-onboard\ndescription: Explore an unfamiliar repo\n---\n# Body\n",
-    );
-    const result = await scanAgents(tempDir, join(tempDir, "no-home"));
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("tp-onboard");
-    expect(result[0].description).toBe("Explore an unfamiliar repo");
-  });
-
-  it("scans both project and home agent dirs and deduplicates by name", async () => {
-    const fakeHome = join(tempDir, "home");
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await mkdir(join(fakeHome, ".claude", "agents"), { recursive: true });
-
-    // Same name in both: project wins (project listed first, dedup keeps first)
-    await writeFile(
-      join(tempDir, ".claude", "agents", "tp-run.md"),
-      "---\nname: tp-run\ndescription: Project version\n---\n",
-    );
-    await writeFile(
-      join(fakeHome, ".claude", "agents", "tp-run.md"),
-      "---\nname: tp-run\ndescription: Home version\n---\n",
-    );
-    // Unique to home
-    await writeFile(
-      join(fakeHome, ".claude", "agents", "tp-triage.md"),
-      "---\nname: tp-triage\ndescription: Test triage\n---\n",
-    );
-
-    const result = await scanAgents(tempDir, fakeHome);
-    expect(result).toHaveLength(2);
-    const names = result.map((a) => a.name);
-    expect(names).toContain("tp-run");
-    expect(names).toContain("tp-triage");
-    const runAgent = result.find((a) => a.name === "tp-run")!;
-    expect(runAgent.description).toBe("Project version");
-  });
-
-  it("uses filename stem as name fallback when frontmatter name is absent", async () => {
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await writeFile(
-      join(tempDir, ".claude", "agents", "tp-fallback.md"),
-      "---\ndescription: Fallback desc\n---\n# Body\n",
-    );
-    const result = await scanAgents(tempDir, join(tempDir, "no-home"));
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe("tp-fallback");
-    expect(result[0].description).toBe("Fallback desc");
-  });
-
-  it("uses empty string for description when frontmatter description is absent", async () => {
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await writeFile(
-      join(tempDir, ".claude", "agents", "tp-nodesc.md"),
-      "---\nname: tp-nodesc\n---\n# Body\n",
-    );
-    const result = await scanAgents(tempDir, join(tempDir, "no-home"));
-    expect(result).toHaveLength(1);
-    expect(result[0].description).toBe("");
-  });
-});
-
-// ─── message builder ─────────────────────────────────────────────────────────
-
-import { buildReminderMessage } from "../../src/hooks/session-start.js";
-
-describe("buildReminderMessage", () => {
-  it("contains MANDATORY section", () => {
-    const msg = buildReminderMessage([], 500);
-    expect(msg).toContain("MANDATORY");
-    // v0.23.3: short forms without mcp__token-pilot__ prefix for density
-    expect(msg).toContain("smart_read(path)");
-  });
-
-  it("contains WHEN DELEGATING section", () => {
-    const msg = buildReminderMessage([], 500);
-    expect(msg).toContain("WHEN DELEGATING");
-  });
-
-  it("shows install hint when no agents found", () => {
-    const msg = buildReminderMessage([], 500);
-    expect(msg).toContain("install-agents");
-  });
-
-  it("surfaces installed known agents via the decision guide", () => {
-    const agents = [
-      { name: "tp-run", description: "General workhorse" },
-      { name: "tp-onboard", description: "Explore unfamiliar repo" },
-    ];
-    const msg = buildReminderMessage(agents, 400);
-    expect(msg).toContain("tp-run");
-    expect(msg).toContain("tp-onboard");
-    // Known agents appear as task→name mappings, not descriptions
-    expect(msg).toMatch(/→\s+tp-run/);
-    expect(msg).toMatch(/→\s+tp-onboard/);
-  });
-
-  it("falls back to description for custom / non-core tp-* agents", () => {
-    const agents = [
-      { name: "tp-custom-widget", description: "Widget inspector" },
-    ];
-    const msg = buildReminderMessage(agents, 400);
-    expect(msg).toContain("tp-custom-widget");
-    expect(msg).toContain("Widget inspector");
-  });
-
-  it("hides decision-guide lines for agents that aren't installed", () => {
-    // No agents installed → "none installed" + no decision-guide body
-    const msg = buildReminderMessage([], 400);
-    expect(msg).not.toMatch(/→\s+tp-/);
-  });
-
-  it('trims agent list with "… and N more" when over budget', () => {
-    // Build many custom agents (none known to the DECISION_GUIDE) to force
-    // overflow. Budget tight enough that MANDATORY + header/footer fits but
-    // 30 extras do not.
-    const agents = Array.from({ length: 30 }, (_, i) => ({
-      name: `tp-agent-${i}`,
-      description: `Description for agent number ${i} which is quite long to inflate token count`,
-    }));
-    const msg = buildReminderMessage(agents, 600);
-    expect(msg).toMatch(/… and \d+ more/);
-  });
-
-  it("fits within maxReminderTokens (500, new default) with 0 agents", () => {
-    const msg = buildReminderMessage([], 500);
-    // Rough token estimate: chars/4
-    const tokens = Math.ceil(msg.length / 4);
-    expect(tokens).toBeLessThanOrEqual(500);
-  });
-
-  it("fits within maxReminderTokens (500) with all 14 typical agents", () => {
-    const agents = [
-      { name: "tp-run", description: "General workhorse, MCP-first" },
-      { name: "tp-onboard", description: "Exploring an unfamiliar repo" },
-      { name: "tp-pr-reviewer", description: "Reviewing a diff or changeset" },
-      { name: "tp-impact-analyzer", description: "Tracing what will break" },
-      { name: "tp-refactor-planner", description: "Planning a refactor" },
-      { name: "tp-test-triage", description: "Investigating test failures" },
-      { name: "tp-debugger", description: "Bug root cause" },
-      { name: "tp-migration-scout", description: "Migration impact map" },
-      { name: "tp-test-writer", description: "Write tests for symbol" },
-      { name: "tp-dead-code-finder", description: "Find dead code" },
-      { name: "tp-commit-writer", description: "Conventional commit" },
-      { name: "tp-history-explorer", description: "Git archaeology" },
-      { name: "tp-audit-scanner", description: "Security scan" },
-      { name: "tp-session-restorer", description: "Restore after /clear" },
-    ];
-    const msg = buildReminderMessage(agents, 500);
-    const tokens = Math.ceil(msg.length / 4);
-    expect(tokens).toBeLessThanOrEqual(500);
-  });
-
-  it("does NOT claim 'none installed' when all agents are trimmed due to budget (regression: show-stopper #1)", () => {
-    // One agent with an absurdly long description that alone overflows any
-    // reasonable budget. After trimming the only entry, the code must NOT
-    // emit the install hint (that would falsely tell the agent there are
-    // no subagents). It should report "… and N more" instead.
-    const agents = [
-      {
-        name: "tp-fat",
-        description:
-          "This description is deliberately enormous: " +
-          "lorem ipsum dolor sit amet ".repeat(80),
-      },
-    ];
-    const msg = buildReminderMessage(agents, 600);
-    expect(msg).not.toMatch(/none installed/);
-    expect(msg).toMatch(/… and 1 more/);
-  });
-
-  it("still emits the install hint when the agent list is genuinely empty", () => {
-    const msg = buildReminderMessage([], 250);
-    expect(msg).toMatch(/none installed/);
-  });
-});
-
-// ─── handleSessionStart handler ──────────────────────────────────────────────
-
+import { tmpdir } from "node:os";
 import { handleSessionStart } from "../../src/hooks/session-start.js";
+import { bootstrapOutput } from "../../src/hooks/session-context.js";
 
-describe("handleSessionStart", () => {
-  let tempDir: string;
+const config = { enabled: true, showStats: false };
+
+/** A tp-*.md as `install-agents` wrote it before plugins existed. */
+const LEGACY_AGENT =
+  "---\nname: tp-run\ndescription: workhorse\ntools:\n  - mcp__token-pilot__smart_read\n  - Read\ntoken_pilot_body_hash: abc\n---\nbody\n";
+
+/** An agent the person wrote themselves: no install marker. */
+const OWN_AGENT =
+  "---\nname: tp-run\ndescription: workhorse\ntools:\n  - mcp__plugin_token-pilot_token-pilot__smart_read\n---\nbody\n";
+
+describe("handleSessionStart — Claude Code", () => {
+  let dir: string;
+  let project: string;
+  let home: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "tp-session-test-"));
+    dir = await mkdtemp(join(tmpdir(), "tp-session-test-"));
+    project = join(dir, "project");
+    home = join(dir, "home");
+    await mkdir(project, { recursive: true });
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-    vi.restoreAllMocks();
+    await rm(dir, { recursive: true, force: true });
   });
 
-  it("returns JSON with additionalContext when enabled", async () => {
-    const out = await handleSessionStart({
-      projectRoot: tempDir,
-      homeDir: join(tempDir, "home"),
-      sessionStartConfig: {
-        enabled: true,
-        showStats: false,
-        maxReminderTokens: 500,
-      },
-    });
-    expect(out).not.toBeNull();
-    const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
-    expect(typeof parsed.hookSpecificOutput.additionalContext).toBe("string");
-    expect(parsed.hookSpecificOutput.additionalContext).toContain("MANDATORY");
-  });
+  const start = (extra: { pluginRoot?: string; claudeConfigDir?: string } = {}) =>
+    handleSessionStart({ projectRoot: project, homeDir: home, sessionStartConfig: config, ...extra });
 
   it("returns null when enabled=false", async () => {
     const out = await handleSessionStart({
-      projectRoot: tempDir,
-      homeDir: join(tempDir, "home"),
-      sessionStartConfig: {
-        enabled: false,
-        showStats: false,
-        maxReminderTokens: 500,
-      },
+      projectRoot: project,
+      homeDir: home,
+      sessionStartConfig: { ...config, enabled: false },
     });
+
     expect(out).toBeNull();
   });
 
-  it("lists tp-* agents found in project agents dir", async () => {
-    await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
-    await writeFile(
-      join(tempDir, ".claude", "agents", "tp-run.md"),
-      "---\nname: tp-run\ndescription: General workhorse\n---\n",
-    );
+  it("gives the model no tool rules and no agent list", async () => {
+    await mkdir(join(project, ".claude", "agents"), { recursive: true });
+    await writeFile(join(project, ".claude", "agents", "tp-run.md"), OWN_AGENT);
 
-    const out = await handleSessionStart({
-      projectRoot: tempDir,
-      homeDir: join(tempDir, "home"),
-      sessionStartConfig: {
-        enabled: true,
-        showStats: false,
-        maxReminderTokens: 500,
-      },
-    });
-    const parsed = JSON.parse(out!);
-    const ctx = parsed.hookSpecificOutput.additionalContext;
-    expect(ctx).toContain("tp-run");
-    // Known agents are surfaced as decision-guide task mappings
-    expect(ctx).toMatch(/→\s+tp-run/);
+    const payload = JSON.parse((await start())!).hookSpecificOutput;
+
+    expect(payload.hookEventName).toBe("SessionStart");
+    expect(payload.additionalContext).toBeUndefined();
   });
 
-  it("shows install hint when no tp-* agents are present", async () => {
-    const out = await handleSessionStart({
-      projectRoot: tempDir,
-      homeDir: join(tempDir, "home"),
-      sessionStartConfig: {
-        enabled: true,
-        showStats: false,
-        maxReminderTokens: 500,
-      },
-    });
-    const parsed = JSON.parse(out!);
-    expect(parsed.hookSpecificOutput.additionalContext).toContain(
-      "install-agents",
-    );
+  it("keeps watchPaths", async () => {
+    expect(JSON.parse((await start())!).hookSpecificOutput).toHaveProperty("watchPaths");
+  });
+
+  it("points the model at a fresh snapshot, and at nothing else", async () => {
+    await mkdir(join(project, ".token-pilot", "snapshots"), { recursive: true });
+    await writeFile(join(project, ".token-pilot", "snapshots", "latest.md"), "**Goal:** ship 1.0.6\n");
+
+    const context = JSON.parse((await start())!).hookSpecificOutput.additionalContext as string;
+
+    expect(context).toContain("ship 1.0.6");
+    expect(context.split("\n")).toHaveLength(1);
+  });
+
+  it("tells the person, not the model, about agent copies an older version installed", async () => {
+    const userAgents = join(home, ".claude", "agents");
+    await mkdir(userAgents, { recursive: true });
+    await writeFile(join(userAgents, "tp-run.md"), LEGACY_AGENT);
+    await writeFile(join(userAgents, "tp-debugger.md"), LEGACY_AGENT.replace(/tp-run/g, "tp-debugger"));
+
+    const out = JSON.parse((await start())!);
+
+    expect(out.systemMessage).toContain(`2 tp-*.md in ${userAgents}`);
+    expect(out.systemMessage).toContain("npx token-pilot uninstall-agents --scope=user");
+    expect(out.hookSpecificOutput.additionalContext).toBeUndefined();
+  });
+
+  it("reads the user agents from the folder Claude Code uses, and says how to clean that one", async () => {
+    const configDir = join(dir, "profile");
+    const configAgents = join(configDir, "agents");
+    await mkdir(configAgents, { recursive: true });
+    await writeFile(join(configAgents, "tp-run.md"), LEGACY_AGENT);
+
+    const out = JSON.parse((await start({ claudeConfigDir: configDir }))!);
+
+    expect(out.systemMessage).toContain(`1 tp-*.md in ${configAgents}`);
+    expect(out.systemMessage).toContain(`CLAUDE_CONFIG_DIR=${configDir} npx token-pilot uninstall-agents --scope=user`);
+  });
+
+  it("leaves an agent the person wrote alone, even under a tp- name", async () => {
+    await mkdir(join(home, ".claude", "agents"), { recursive: true });
+    await writeFile(join(home, ".claude", "agents", "tp-run.md"), OWN_AGENT);
+
+    expect(JSON.parse((await start({ pluginRoot: join(dir, "plugin") }))!)).not.toHaveProperty("systemMessage");
   });
 });
 
-import { profileBannerNote } from "../../src/hooks/session-start.js";
+// Codex validates the hook output and fails the hook on a key it does not
+// know. Measured on Codex 0.156: with `watchPaths` present every session
+// reports "SessionStart Failed"; the same payload without it completes.
+describe("handleSessionStart — Codex", () => {
+  it("keeps its tool text and drops watchPaths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tp-session-client-"));
+    try {
+      const out = await handleSessionStart({
+        projectRoot: root,
+        homeDir: join(root, "home"),
+        sessionStartConfig: config,
+        client: "codex",
+      });
 
-describe("profileBannerNote (2fd part 2 — profile-aware banner)", () => {
-  it("is empty for the default full profile (no caveat needed)", () => {
-    expect(profileBannerNote("full")).toBe("");
-  });
-
-  it("warns on a trimmed profile and names it", () => {
-    for (const p of ["nav", "edit", "minimal"] as const) {
-      const note = profileBannerNote(p);
-      expect(note).toContain(`TOKEN_PILOT_PROFILE=${p}`);
-      expect(note).toContain("No such tool available");
-      expect(note).toContain("unset TOKEN_PILOT_PROFILE");
+      const payload = JSON.parse(out!).hookSpecificOutput;
+      expect(payload).not.toHaveProperty("watchPaths");
+      expect(payload.additionalContext).toContain("smart_read");
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
 
-// Codex validates the returned hookSpecificOutput and fails the hook on a key
-// it does not know. Measured on Codex 0.156: with `watchPaths` present every
-// session reports "SessionStart Failed"; the same payload without it
-// completes. The installer tells the hook which client it serves.
-describe("handleSessionStart — client-specific keys", () => {
-  const config = {
-    enabled: true,
-    showStats: false,
-    maxReminderTokens: 500,
-  };
-  let root: string;
+// The bootstrap hints (ast-index missing) are for the person to act on.
+describe("bootstrapOutput", () => {
+  it("shows the hints to the person, not the model", () => {
+    const out = JSON.parse(bootstrapOutput(["ast-index binary missing — run `npx token-pilot install-ast-index`"])!);
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "tp-session-client-"));
+    expect(out.systemMessage).toContain("install-ast-index");
+    expect(out).not.toHaveProperty("hookSpecificOutput");
   });
 
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true });
-  });
-
-  it("keeps watchPaths for Claude Code", async () => {
-    const out = await handleSessionStart({
-      projectRoot: root,
-      homeDir: join(root, "home"),
-      sessionStartConfig: config,
-    });
-
-    expect(out).not.toBeNull();
-    expect(JSON.parse(out!).hookSpecificOutput).toHaveProperty("watchPaths");
-  });
-
-  it("drops it for Codex", async () => {
-    const out = await handleSessionStart({
-      projectRoot: root,
-      homeDir: join(root, "home"),
-      sessionStartConfig: config,
-      client: "codex",
-    });
-
-    expect(out).not.toBeNull();
-    const payload = JSON.parse(out!).hookSpecificOutput;
-    expect(payload).not.toHaveProperty("watchPaths");
-    expect(payload.additionalContext).toBeTruthy();
+  it("says nothing without hints", () => {
+    expect(bootstrapOutput([])).toBeNull();
   });
 });

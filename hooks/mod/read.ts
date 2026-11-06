@@ -19,7 +19,7 @@ import { estimateTokens } from '../../src/core/token-estimator.js'
 import { relative } from '../../src/core/portable-path.js'
 import { ROTATION_THRESHOLD_BYTES, tagEvent } from '../../src/core/hook-event.js'
 import type { HookEvent } from '../../src/core/event-log.js'
-import { appendLog, caught, configFrom, isInside, PREFIX } from './host.js'
+import { appendLog, caught, configFrom, isInside, PREFIX, tokenPilotTools } from './host.js'
 
 export const READ_ACTIONS = ['hook-read']
 
@@ -49,6 +49,7 @@ export function registerRead(on: On): void {
 
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return next(e)
+    if (tokenPilotTools() === 'missing') return next(e)
 
     const filePath = String(e.file_path)
     if (!isCodeFile(filePath)) return next(e)
@@ -81,7 +82,9 @@ export function registerRead(on: On): void {
       : config.hooks.denyThreshold
     const offset = typeof e.offset === 'number' ? e.offset : null
     const limit = typeof e.limit === 'number' ? e.limit : null
-    if (spanCannotExceed(offset, limit, threshold)) return next(e)
+    // A range the agent chose within the base threshold passes: the adaptive
+    // threshold tightens whole-file reads, not deliberate small ones.
+    if (spanCannotExceed(offset, limit, config.hooks.denyThreshold)) return next(e)
 
     const size = typeof fileStat.size === 'number' ? fileStat.size : 0
     const content = size >= FS_READ_MAX ? null : await $.fs.read(filePath).then(String, () => null)
@@ -107,7 +110,8 @@ export function registerRead(on: On): void {
     } catch {
       text = undefined
     }
-    if (!text) return { deny: pointer }
+    // Where nothing said our tools are there, a failed call may mean they are not.
+    if (!text) return tokenPilotTools() === 'unknown' ? next(e) : { deny: pointer }
 
     const ran = await next({ ...e, offset: 1, limit: 1 })
     if (ran.deny !== undefined || ran.isError) return ran

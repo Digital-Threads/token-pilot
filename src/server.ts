@@ -60,7 +60,7 @@ import { estimateTokens } from "./core/token-estimator.js";
 import { checkPolicy, isFullReadTool } from "./core/policy-engine.js";
 import { appendToolCall } from "./core/tool-call-log.js";
 import {
-  getMcpInstructions,
+  MCP_INSTRUCTIONS,
   TOOL_DEFINITIONS,
 } from "./server/tool-definitions.js";
 import {
@@ -405,8 +405,6 @@ export async function createServer(
   // (default: edit since v0.30.0) trims the advertised tools/list payload.
   // Handlers stay live, so a subagent that explicitly names a filtered-out
   // tool still gets a response — we just don't brag about every tool upfront.
-  // v0.30.0 — profile also selects matching MCP instructions so the agent
-  // doesn't see rules for tools that aren't in its tools/list.
   const activeProfile = parseProfileEnv(process.env.TOKEN_PILOT_PROFILE, (m) =>
     process.stderr.write(m + "\n"),
   );
@@ -415,7 +413,7 @@ export async function createServer(
     { name: "token-pilot", version: pkgVersion },
     {
       capabilities: { tools: {} },
-      instructions: getMcpInstructions(activeProfile),
+      instructions: MCP_INSTRUCTIONS,
     },
   );
 

@@ -36,10 +36,10 @@ describe("Edit gate", () => {
 
   it("names read_for_edit as this install exposes it", () => {
     setPluginInstall(true);
-    const d = decidePreEdit(edit, ctx({ mode: "deny" }));
-    expect(d.kind).toBe("advise");
-    if (d.kind === "advise") {
-      expect(d.message).toContain("mcp__plugin_token-pilot_token-pilot__read_for_edit");
+    const d = decidePreEdit(edit, ctx({ mode: "strict" }));
+    expect(d.kind).toBe("deny");
+    if (d.kind === "deny") {
+      expect(d.reason).toContain("mcp__plugin_token-pilot_token-pilot__read_for_edit");
     }
   });
 

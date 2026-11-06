@@ -5,6 +5,48 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Newer Claude models follow a tool's own description, and repeated rules in
+the prompt only compete with the request. token-pilot said the same thing in
+four places — the server instruction, a block at session start, a line on
+every prompt and every refusal — and refused reads even where its own tools
+were not in the session.
+
+### Changed
+
+- The MCP server instruction is three plain lines that name no tool. When to
+  use a tool is said in that tool's description, and nowhere else.
+- Session start adds nothing to the model's context except a pointer to a
+  fresh snapshot. Notes for the person (token-pilot hooks registered twice,
+  agent copies an older version installed) go to the person.
+- Claude Code no longer gets a reminder on every prompt. `install-hook` stops
+  writing it and removes the one older versions wrote. Codex keeps its anchor.
+- `read_for_edit` is advice. Outside `TOKEN_PILOT_MODE=strict` an Edit gets
+  no hint.
+
+### Removed
+
+- The 25 `tp-*` subagents, the routing of Agent dispatches to them and the
+  tool guide added to subagent prompts. They ran in under 1% of dispatches in
+  the maintainer's sessions, while their descriptions cost context in every
+  session. `install-agents` and `bless-agents` now explain this and exit;
+  `uninstall-agents` removes copies an older version installed (from
+  `$CLAUDE_CONFIG_DIR/agents` when that is set), and `unbless-agents` the
+  copies `bless-agents` made. Each session start lists leftover copies and
+  the command that removes them.
+  The `agents` config keys, `TOKEN_PILOT_FORCE_SUBAGENTS`,
+  `TOKEN_PILOT_NO_AGENT_REMINDER` and the startup reminder are gone.
+
+### Fixed
+
+- The Read, Bash, Grep, Edit and Agent gates step aside when token-pilot's
+  tools are not in the session: the server is off in `/mcp` or never
+  connected. Before, they refused the call and pointed at tools that did not
+  exist.
+- A Read with `offset`/`limit` within the base threshold passes late in a
+  long session too; the adaptive threshold tightens whole-file reads only.
+
 ## [1.0.5] - 2026-10-20
 
 Claude Code 2.1.304 bundles a security plugin, `cc-plugin-sec-default`, that

@@ -66,14 +66,8 @@ import { handleSaveDocCli, handleListDocsCli } from "./cli/save-doc.js";
 import { checkForTypo } from "./cli/typo-guard.js";
 import { processPostTask } from "./hooks/post-task.js";
 import { contextModeExecuteTool } from "./integration/context-mode-detector.js";
-import { handleBlessAgents } from "./cli/bless-agents.js";
-import { unblessAgents } from "./cli/unbless-agents.js";
-import { detectDrift, formatDriftFinding } from "./cli/doctor-drift.js";
-import {
-  handleInstallAgents,
-  maybeEmitStartupReminder,
-} from "./cli/install-agents.js";
 import { handleUninstallAgents } from "./cli/uninstall-agents.js";
+import { unblessAgents } from "./cli/unbless-agents.js";
 import {
   appendEvent,
   applyRetention,
@@ -83,10 +77,11 @@ import {
   buildPromptReminder,
   formatPromptReminderOutput,
 } from "./hooks/user-prompt.js";
+import { bootstrapOutput } from "./hooks/session-context.js";
 import { handleStats } from "./cli/stats.js";
 import { handleToolAudit } from "./cli/tool-audit.js";
 import { TOOL_DEFINITIONS } from "./server/tool-definitions.js";
-import { promptYesNo } from "./cli/install-agents.js";
+import { promptYesNo } from "./cli/prompt.js";
 import { runClaudeCodeEnvCheck } from "./cli/doctor-env-check.js";
 import {
   claudeIgnoreStatus,
@@ -99,11 +94,10 @@ import {
 } from "./hooks/post-bash.js";
 import { decidePreBash, renderPreBashOutput } from "./hooks/pre-bash.js";
 import { decidePreGrep, renderPreGrepOutput } from "./hooks/pre-grep.js";
-import { decidePreTask, renderPreTaskOutput } from "./hooks/pre-task.js";
-import { decideReadGate, isCodeFile } from "./hooks/read-gate.js";
+import { decideReadGate, isCodeFile, spanCannotExceed } from "./hooks/read-gate.js";
 import { decideMcpPath, renderMcpPathOutput } from "./hooks/mcp-path.js";
 import { findCheckout, hookProjectRoot } from "./hooks/find-checkout.js";
-import { getAgentIndex } from "./hooks/post-task.js";
+import { claudeJsonPath, mainCheckoutOf, mcpDisabledInConfig } from "./hooks/tool-availability.js";
 import {
   decidePreEdit,
   renderPreEditOutput,
@@ -130,6 +124,33 @@ export function getVersion(): string {
   }
 }
 
+/**
+ * token-pilot's MCP server is off for this project (/mcp): the gates step
+ * aside, since a refusal would send the model to tools it does not have.
+ */
+function mcpServerOff(): boolean {
+  // Claude Code sets CLAUDE_PROJECT_DIR for its hooks; Codex runs the same
+  // hooks without it, and Claude Code's config says nothing about Codex.
+  const path = claudeJsonPath(process.env);
+  if (!path || !process.env.CLAUDE_PROJECT_DIR) return false;
+
+  try {
+    const root = hookProjectRoot();
+    const checkout = findCheckout(root);
+    let main: string | null = null;
+    try {
+      if (checkout) main = mainCheckoutOf(checkout, readFileSync(join(checkout, ".git"), "utf-8"));
+    } catch {
+      /* .git is a directory: the main checkout itself */
+    }
+    const roots = [root, checkout, main].filter((r): r is string => Boolean(r));
+
+    return mcpDisabledInConfig(JSON.parse(readFileSync(path, "utf-8")), roots);
+  } catch {
+    return false;
+  }
+}
+
 export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
   // Guard against mis-typed commands like `install-aents` silently
   // becoming a projectRoot=install-aents server launch. See TP-v0.22.3.
@@ -147,6 +168,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // try/catch for known I/O failures; the wrapper is the safety
       // net for everything else.
       await runHookEntryPoint({ hook: "hook-read" }, async () => {
+        if (mcpServerOff()) return;
         const cfg = await loadConfig(hookProjectRoot());
         await handleHookRead(
           cliArgs[1],
@@ -163,11 +185,13 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     }
     case "hook-edit":
       await runHookEntryPoint({ hook: "hook-edit" }, async () => {
+        if (mcpServerOff()) return;
         handleHookEdit();
       });
       return;
     case "hook-post-bash": {
       await runHookEntryPoint({ hook: "hook-post-bash" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const contextModeTool = contextModeExecuteTool(hookProjectRoot());
@@ -185,6 +209,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // v0.28.0 — passive pre-intercept for heavy Bash commands.
       // v0.34.0 — runHookEntryPoint covers throw paths.
       await runHookEntryPoint({ hook: "hook-pre-bash" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreBash(
@@ -223,6 +248,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       // v0.28.0 — passive pre-intercept for symbol-like Grep patterns.
       // v0.34.0 — runHookEntryPoint covers throw paths.
       await runHookEntryPoint({ hook: "hook-pre-grep" }, async () => {
+        if (mcpServerOff()) return;
         const stdin = readFileSync(0, "utf-8");
         const input = JSON.parse(stdin);
         const decision = decidePreGrep(
@@ -250,90 +276,34 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       return;
     }
     case "hook-pre-task": {
-      // v0.31.0 Pack 2 — route general-purpose Task dispatches to a
-      // `tp-*` specialist when the description clearly matches.
-      // v0.34.0 — error/diagnostic logging via runHookEntryPoint.
-      await runHookEntryPoint(
-        { hook: "hook-pre-task" },
-        async () => {
-          const stdin = readFileSync(0, "utf-8");
-          const input = JSON.parse(stdin);
-          const agentIndex = await getAgentIndex();
-          const force = process.env.TOKEN_PILOT_FORCE_SUBAGENTS === "1";
+      // A Loom workflow run near its token ceiling: the dispatch goes ahead
+      // with a note to wrap up. Nothing else happens on Agent calls.
+      await runHookEntryPoint({ hook: "hook-pre-task" }, async () => {
+        const { activeWorkflowId, workflowStatus, isWorkflowNearBudget } =
+          await import("./core/workflow.js");
+        const wfId = activeWorkflowId();
+        if (!wfId) return;
 
-          // v0.34.0 diagnostic: B4 — empty index + force is a fail
-          // case (we deny, but record so the user can see why).
-          if (force && agentIndex.agents.length === 0) {
-            await appendDiagnostic(hookProjectRoot(), {
-              code: "force_subagents_no_agents",
-              level: "warn",
-              detail: { hint: "run `npx token-pilot install-agents`" },
-            });
-          }
+        const st = await workflowStatus(hookProjectRoot(), wfId);
+        if (!st || !isWorkflowNearBudget(st)) return;
 
-          const decision = decidePreTask(input, {
-            mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
-            agentIndex,
-            force,
-            // Plugin agents are dispatched as `token-pilot:tp-*`.
-            agentNamePrefix: process.env.CLAUDE_PLUGIN_ROOT
-              ? "token-pilot:"
-              : "",
-          });
-
-          // v0.34.2 — emit a diagnostic for every non-allow Task decision
-          // so we can count miss-rate and pair-popularity without waiting
-          // for PostToolUse:Task to land. If the post-task hook ever fails
-          // again (see typo-guard bug from v0.33.1), pre-task diagnostics
-          // are still recoverable from hook-events.jsonl. Best-effort —
-          // never blocks the dispatch decision.
-          if (decision.kind !== "allow") {
-            const subagentType = input?.tool_input?.subagent_type ?? "";
-            appendDiagnostic(hookProjectRoot(), {
-              code: "task_pre_intercept",
-              level: decision.kind === "deny" ? "warn" : "info",
-              detail: {
-                decision: decision.kind,
-                subagent_type:
-                  typeof subagentType === "string" ? subagentType : "",
-                index_size: agentIndex.agents.length,
-                force,
-                mode: parseEnforcementMode(process.env.TOKEN_PILOT_MODE),
-              },
-            }).catch(() => {
-              /* never block dispatch on telemetry */
-            });
-          }
-
-          // v0.38.0 — fleet budget guard. When a workflow is active and
-          // its token ceiling is within reach, append a wind-down note
-          // to whatever the routing decision produced. The dispatch is
-          // never hard-blocked on budget (a half-finished fan-out is
-          // worse than a small overrun) — we advise, and surface an
-          // over-budget diagnostic so `workflow status` reflects it.
-          const { activeWorkflowId, workflowStatus, isWorkflowNearBudget } =
-            await import("./core/workflow.js");
-          const wfId = activeWorkflowId();
-          let budgetNote = "";
-          if (wfId) {
-            const st = await workflowStatus(hookProjectRoot(), wfId);
-            if (st && isWorkflowNearBudget(st)) {
-              budgetNote =
-                `\n\n[token-pilot] workflow ${wfId} is at ${st.pct ?? "~"}% of its ` +
+        appendDiagnostic(hookProjectRoot(), {
+          code: "workflow_near_budget",
+          level: "warn",
+          detail: { workflow_id: wfId, pct: st.pct, used: st.used_tokens },
+        }).catch(() => {});
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              additionalContext:
+                `[token-pilot] workflow ${wfId} is at ${st.pct ?? "~"}% of its ` +
                 `${st.budget_tokens} token ceiling — finish in-flight work and ` +
-                `report rather than starting new branches.`;
-              appendDiagnostic(hookProjectRoot(), {
-                code: "workflow_near_budget",
-                level: "warn",
-                detail: { workflow_id: wfId, pct: st.pct, used: st.used_tokens },
-              }).catch(() => {});
-            }
-          }
-
-          const rendered = renderPreTaskOutput(decision, budgetNote);
-          if (rendered) process.stdout.write(rendered);
-        },
-      );
+                `report rather than starting new branches.`,
+            },
+          }),
+        );
+      });
       return;
     }
     case "hook-post-task": {
@@ -364,31 +334,6 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       await runHookEntryPoint({ hook: "hook-bootstrap" }, async () => {
         const cwd = hookProjectRoot();
         const hints = [];
-        // Detect installed tp-* agents (project-level OR user-level).
-        try {
-          const { readdirSync, existsSync } = await import("node:fs");
-          const projAgents = resolve(cwd, ".claude", "agents");
-          const userAgents = resolve(homedir(), ".claude", "agents");
-          // A plugin install ships its agents in its own agents/ dir.
-          const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-          const dirs = [projAgents, userAgents];
-          if (pluginRoot) dirs.push(resolve(pluginRoot, "agents"));
-          let total = 0;
-          for (const dir of dirs) {
-            if (existsSync(dir)) {
-              total += readdirSync(dir).filter(
-                (f) => f.startsWith("tp-") && f.endsWith(".md"),
-              ).length;
-            }
-          }
-          if (total === 0) {
-            hints.push(
-              "no tp-* agents installed — run `npx token-pilot install-agents --scope=project` to enable the 25-agent toolkit",
-            );
-          }
-        } catch {
-          /* skip silently */
-        }
         // Detect ast-index binary availability.
         try {
           const { findBinary } = await import("./ast-index/binary-manager.js");
@@ -401,17 +346,8 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         } catch {
           /* skip silently */
         }
-        if (hints.length > 0) {
-          const message = `[token-pilot] bootstrap notes:\n  - ${hints.join("\n  - ")}`;
-          process.stdout.write(
-            JSON.stringify({
-              hookSpecificOutput: {
-                hookEventName: "SessionStart",
-                additionalContext: message,
-              },
-            }),
-          );
-        }
+        const output = bootstrapOutput(hints);
+        if (output) process.stdout.write(output);
       });
       return;
     }
@@ -493,6 +429,7 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           projectRoot: hookProjectRoot(),
           homeDir: homedir(),
           pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
+          claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || undefined,
           sessionStartConfig: cfg.sessionStart,
           client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
@@ -503,11 +440,8 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       return;
     }
     case "hook-user-prompt": {
-      // UserPromptSubmit per-turn reinforcement. SessionStart injects the
-      // full ruleset once; this re-injects a tiny anchor on every user
-      // message so token-pilot stays in the model's working set instead of
-      // decaying out of attention (the failure mode caveman fixes the same
-      // way). additionalContext only — never blocks the prompt.
+      // Codex only: a one-line anchor per prompt. Claude Code gets nothing
+      // (see src/hooks/user-prompt.ts); an old settings.json entry runs silent.
       await runHookEntryPoint({ hook: "hook-user-prompt" }, async () => {
         const cfg = await loadConfig(hookProjectRoot());
         // Reuse the awareness toggle — disabling SessionStart reminders
@@ -620,10 +554,17 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
     case "doctor":
       await handleDoctor();
       return;
+    case "install-agents":
     case "bless-agents":
-      await handleBlessAgents(cliArgs.slice(1));
+      process.stderr.write(
+        `token-pilot no longer ships subagents: each MCP tool's description says when to use it.\n` +
+          `Remove copies an older version installed: npx token-pilot uninstall-agents --scope=user|project,\n` +
+          `and agents bless-agents copied into this project: npx token-pilot unbless-agents --all\n`,
+      );
+      process.exit(1);
       return;
     case "unbless-agents": {
+      // Kept to remove copies an older bless-agents made.
       const args = cliArgs.slice(1);
       const all = args.includes("--all");
       const names = args.filter((a) => !a.startsWith("--"));
@@ -634,11 +575,6 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
         process.exit(1);
       }
       await unblessAgents({ projectRoot: process.cwd(), names, all });
-      return;
-    }
-    case "install-agents": {
-      const code = await handleInstallAgents(cliArgs.slice(1));
-      process.exit(code);
       return;
     }
     case "uninstall-agents": {
@@ -881,16 +817,6 @@ export async function startServer(cliArgs: string[] = process.argv.slice(2)) {
     /* ignore */
   });
 
-  // Phase 5 subtask 5.6 — one-time reminder when no tp-* agents installed.
-  // Non-blocking, silent on error, single-fire per process.
-  maybeEmitStartupReminder({
-    projectRoot,
-    homeDir: homedir(),
-    configSuppressed: config.agents?.reminder === false,
-  }).catch(() => {
-    /* ignore */
-  });
-
   // v0.30.x ecosystem nudge — one-time stderr tip suggesting caveman for
   // output compression. Fires at most once per MCP process, stays silent
   // when caveman is already detected or TOKEN_PILOT_NO_ECOSYSTEM_TIPS=1.
@@ -1062,6 +988,10 @@ async function runHookReadDispatchImpl(
     }
     return null;
   }
+
+  // A range the agent chose within the base threshold passes: the adaptive
+  // threshold tightens whole-file reads, not deliberate small ones.
+  if (spanCannotExceed(offsetVal, limitVal, denyThreshold)) return null;
 
   // Resolve effective threshold once (cheap if adaptive is off).
   const effectiveThreshold = adaptive.adaptiveThreshold
@@ -1624,16 +1554,6 @@ export async function handleDoctor() {
   }
   console.log("");
 
-  // ── blessed agents drift check ──
-  const drift = await detectDrift({ projectRoot: cwd, homeDir: homedir() });
-  if (drift.length > 0) {
-    console.log("── blessed-agents drift ──");
-    for (const finding of drift) {
-      console.log(`  ${formatDriftFinding(finding)}`);
-    }
-    console.log("");
-  }
-
   // ── Claude Code env-var savings tips ──
   try {
     const tips = await runClaudeCodeEnvCheck();
@@ -1811,47 +1731,6 @@ export async function handleDoctor() {
       console.log(`  fix:          token-pilot migrate-hooks`);
     }
 
-    // Installed tp-* agents vs catalog
-    let installed = 0;
-    let catalog = 0;
-    try {
-      const fsp = await import("node:fs/promises");
-      const userAgents = join(homedir(), ".claude", "agents");
-      const projAgents = join(cwd, ".claude", "agents");
-      const seen = new Set<string>();
-      for (const dir of [userAgents, projAgents]) {
-        try {
-          const entries = await fsp.readdir(dir);
-          for (const e of entries) {
-            if (e.startsWith("tp-") && e.endsWith(".md")) seen.add(e);
-          }
-        } catch {
-          /* missing */
-        }
-      }
-      installed = seen.size;
-      const dist = new URL("../agents", import.meta.url).pathname;
-      try {
-        const dEntries = await fsp.readdir(dist);
-        catalog = dEntries.filter((f) => f.startsWith("tp-") && f.endsWith(".md")).length;
-      } catch {
-        catalog = 0;
-      }
-    } catch {
-      /* skip */
-    }
-    if (catalog === 0) {
-      console.log(`  tp-* agents:  could not read catalog`);
-    } else if (installed === 0) {
-      console.log(`  tp-* agents:  0 of ${catalog} installed`);
-      console.log(`  fix:          token-pilot install-agents --scope=user`);
-    } else if (installed < catalog) {
-      console.log(`  tp-* agents:  ${installed} of ${catalog} installed (partial)`);
-      console.log(`  fix:          token-pilot install-agents --force`);
-    } else {
-      console.log(`  tp-* agents:  ${installed}/${catalog} ✓`);
-    }
-
     // WSL detection probe
     const cwdGuess = process.env.CLAUDE_PROJECT_DIR || process.cwd();
     if (isWindowsSystemPath(cwdGuess)) {
@@ -1929,49 +1808,18 @@ export async function handleInit(targetDir: string) {
 
   console.log(`\nConfigured MCP servers:`);
   console.log(
-    `  • token-pilot   — enforcement layer for token-efficient reads (hook + MCP + tp-* subagents)`,
+    `  • token-pilot   — enforcement layer for token-efficient reads (hooks + MCP)`,
   );
   console.log(
     `  • context-mode  — shell output & large data processing (BM25 sandbox)`,
   );
 
-  // Claude Code users benefit from six token-pilot-native subagents (tp-run,
-  // tp-onboard, …). Offer installation now so they don't have to discover
-  // `install-agents` from a stderr reminder later.
-  const offeredAgents =
+  const interactive =
     added.includes("token-pilot") && process.stdin.isTTY === true;
-  if (offeredAgents) {
-    console.log("");
-    const yes = await promptYesNo(
-      "Install 6 tp-* subagents now (recommended for Claude Code)?",
-      true,
-    );
-    if (yes) {
-      // Delegate to the full install-agents flow: it will prompt scope,
-      // handle idempotence, and persist the choice to .token-pilot.json.
-      const code = await handleInstallAgents([], { projectRoot: targetDir });
-      if (code !== 0) {
-        console.log(
-          "\n(install-agents returned non-zero; you can retry with: npx token-pilot install-agents)",
-        );
-      }
-    } else {
-      console.log(
-        "\nSkipping agent install. Run later: npx token-pilot install-agents",
-      );
-    }
-  } else if (added.includes("token-pilot")) {
-    // Non-TTY path — at minimum surface the next step in the log.
-    console.log(
-      `\nNext step (Claude Code): npx token-pilot install-agents --scope=user|project`,
-    );
-  }
 
   // Offer `.claudeignore` — small one-time win that compounds per message.
-  // Separate TTY check so a script that declined agents can still get ignore,
-  // and vice versa.
   const ignoreStatus = await claudeIgnoreStatus(targetDir);
-  if (offeredAgents && ignoreStatus.kind !== "user-owned") {
+  if (interactive && ignoreStatus.kind !== "user-owned") {
     console.log("");
     const yesIgnore = await promptYesNo(
       ignoreStatus.kind === "absent"

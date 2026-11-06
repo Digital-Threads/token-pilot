@@ -15,15 +15,8 @@
  */
 
 import { promises as fs } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  matchTpAgent,
-  type AgentIndex,
-  bareAgentName,
-  isDispatchTool,
-} from "../core/agent-matcher.js";
-import { buildAgentIndex } from "../core/agent-index-fs.js";
+import { join } from "node:path";
+import { bareAgentName, isDispatchTool } from "../core/dispatch.js";
 import { appendEvent } from "../core/event-log.js";
 import {
   decideBudgetAdvice,
@@ -127,8 +120,8 @@ export async function appendOverBudgetLog(
 
 /**
  * Locate the markdown body for a `tp-*` subagent — project-level first,
- * then user-level, then the agents shipped with the plugin itself (a
- * plugin install has no copy under .claude/agents). Returns null when
+ * then user-level (copies install-agents wrote before the plugin stopped
+ * shipping agents). Returns null when
  * none exists. Non-tp-* subagents are rejected up front so we never peek
  * outside our namespace; a plugin namespace (`token-pilot:`) is dropped
  * before that check.
@@ -144,7 +137,6 @@ export async function loadAgentBody(
   const candidates = [
     join(projectRoot, ".claude", "agents", `${name}.md`),
     join(homeDir, ".claude", "agents", `${name}.md`),
-    join(defaultAgentsDir(), `${name}.md`),
   ];
   for (const p of candidates) {
     try {
@@ -173,48 +165,6 @@ export interface PostTaskHookInput {
   parent_agent_id?: string;
 }
 
-// ─── Cached tp-* agent index ─────────────────────────────────────────
-// The hook subprocess is cold-started per Task post-event, but within
-// that process we parse the agents directory once. Lookup cost is ~1 FS
-// listing + 24 file reads, ~5-15 ms — below the noise floor of the hook
-// round-trip. Kept as a process-level cache anyway for Pack 2 when the
-// pre-task hook re-uses the same index on hot paths.
-
-let _agentIndexCache: AgentIndex | null = null;
-
-/**
- * Resolve the plugin's own `agents/` directory. The hook binary lives
- * at `<plugin>/dist/index.js`, so agents/ is `../agents` from here.
- * Allow an override for tests that want an isolated fixture dir.
- */
-export function defaultAgentsDir(): string {
-  // `import.meta.url` resolves to the bundled dist location, which is
-  // already one step below the repo root (`dist/hooks/post-task.js`).
-  // Walk up twice: `hooks` → `dist` → plugin root, then join `agents`.
-  try {
-    const here = fileURLToPath(import.meta.url);
-    return resolve(dirname(here), "..", "..", "agents");
-  } catch {
-    // Not running as a bundled module (eg. vitest in-source) — fall
-    // back to CWD/agents. Production path uses the URL resolver above.
-    return resolve(process.cwd(), "agents");
-  }
-}
-
-/** Resolve (and cache) the tp-* agent index. Safe to call repeatedly. */
-export async function getAgentIndex(
-  dir: string = defaultAgentsDir(),
-): Promise<AgentIndex> {
-  if (_agentIndexCache) return _agentIndexCache;
-  _agentIndexCache = await buildAgentIndex(dir);
-  return _agentIndexCache;
-}
-
-/** Test-only: clear the module-level cache between fixtures. */
-export function _resetAgentIndexCache(): void {
-  _agentIndexCache = null;
-}
-
 /**
  * Full post-Task processing: read frontmatter, count tokens, log over-budget.
  * Returns the advice message (or null) so the caller can optionally emit
@@ -228,7 +178,6 @@ export async function processPostTask(
   if (!isDispatchTool(input.tool_name)) return null;
 
   const subagentType = input.tool_input?.subagent_type;
-  const description = input.tool_input?.description ?? "";
   const actualTokens = extractSubagentTokens(input) ?? 0;
   // Plugin agents arrive namespaced (`token-pilot:tp-run`).
   const isTpAgent =
@@ -263,23 +212,9 @@ export async function processPostTask(
   }
 
   // ─── v0.31.0 Task telemetry ────────────────────────────────────
-  // One event per Task call, regardless of tp-*. For non-tp agents we
-  // run the heuristic matcher so `stats --tasks` can surface routing
-  // misses (general-purpose picked when a tp-* would have fit).
-  // Silent on any error — telemetry must never break hook dispatch.
+  // One event per Task call. Silent on any error — telemetry must never
+  // break hook dispatch.
   try {
-    let matched: string | null = null;
-    let matchConfidence: "high" | "low" | undefined;
-
-    if (!isTpAgent && description.length > 0) {
-      const index = await getAgentIndex();
-      const hit = matchTpAgent(description, index);
-      if (hit) {
-        matched = hit.agent;
-        matchConfidence = hit.confidence;
-      }
-    }
-
     await appendEvent(projectRoot, {
       ts: Date.now(),
       session_id: input.session_id ?? "",
@@ -297,8 +232,7 @@ export async function processPostTask(
       summaryTokens: 0,
       savedTokens: 0,
       subagent_type: typeof subagentType === "string" ? subagentType : "",
-      matched_tp_agent: matched,
-      ...(matchConfidence ? { match_confidence: matchConfidence } : {}),
+      matched_tp_agent: null,
       budget,
       overBudget: decision.overBudget,
       // SubagentStop writes the canonical task event for the same dispatch;

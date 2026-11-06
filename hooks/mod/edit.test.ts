@@ -10,7 +10,7 @@ const base = (on: any, mode?: string) => {
   on('tool.call', async () => ({ result: 'ok', text: 'ok' }))
 }
 
-// Same tiers as the command hook: strict refuses, the default mode advises.
+// Same tiers as the command hook: strict refuses, the default mode lets it through.
 test('strict mode denies an Edit of a code file not prepared with read_for_edit', async ($, on) => {
   base(on, 'strict')
 
@@ -19,13 +19,13 @@ test('strict mode denies an Edit of a code file not prepared with read_for_edit'
   expect(res.deny).toContain('read_for_edit')
 })
 
-test('the default mode lets it through with advice', async ($, on) => {
+test('the default mode lets it through and adds nothing', async ($, on) => {
   base(on)
 
   const res: any = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' } as any)
 
   expect(res.deny).toBe(undefined)
-  expect((res.context ?? []).join('\n')).toContain('read_for_edit')
+  expect(res.context ?? []).toEqual([])
 })
 
 test('allows the Edit once read_for_edit ran for that file', async ($, on) => {

@@ -172,14 +172,6 @@ function createHookConfig(options?: HookInstallOptions) {
           hooks: [hookEntry("hook-session-start", options)],
         },
       ],
-      // Per-turn reinforcement — re-injects a tiny anchor on every user
-      // message so the mandatory-tool rules don't decay out of attention
-      // over a long session (SessionStart fires only once).
-      UserPromptSubmit: [
-        {
-          hooks: [hookEntry("hook-user-prompt", options)],
-        },
-      ],
       PostToolUse: [
         {
           matcher: "Bash",
@@ -345,13 +337,10 @@ export async function installHook(
       settings.hooks.SessionStart.push(...hookConfig.hooks.SessionStart);
     }
 
-    // UserPromptSubmit reminder — the config always shipped it, the
-    // installer never wrote it.
-    if (!Array.isArray(settings.hooks.UserPromptSubmit)) {
-      settings.hooks.UserPromptSubmit = [];
-    }
-    if (!settings.hooks.UserPromptSubmit.some(isTokenPilotHook)) {
-      settings.hooks.UserPromptSubmit.push(...hookConfig.hooks.UserPromptSubmit);
+    // Older versions wrote a per-prompt reminder; Claude Code no longer gets one.
+    if (Array.isArray(settings.hooks.UserPromptSubmit)) {
+      settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((h: any) => !isTokenPilotHook(h));
+      if (settings.hooks.UserPromptSubmit.length === 0) delete settings.hooks.UserPromptSubmit;
     }
 
     // Install PostToolUse hooks idempotently — per-matcher check.
@@ -426,8 +415,9 @@ export async function uninstallHook(
     const raw = await readFile(settingsPath, "utf-8");
     const settings = JSON.parse(raw);
 
-    // Every event token-pilot installs into — one list, so none is missed.
-    const events = Object.keys(createHookConfig().hooks);
+    // Every event token-pilot installs into, plus the per-prompt reminder
+    // older versions wrote — one list, so none is missed.
+    const events = [...Object.keys(createHookConfig().hooks), "UserPromptSubmit"];
     if (!events.some((event) => settings.hooks?.[event])) {
       return { removed: false, fatal: false, message: "No hooks to remove." };
     }

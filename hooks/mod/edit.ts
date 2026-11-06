@@ -14,7 +14,7 @@ import { isCodeFile } from '../../src/hooks/read-gate.js'
 import { parseEnforcementMode } from '../../src/server/enforcement-mode.js'
 import type { EditPrep } from './mcp.js'
 import { dirname } from '../../src/core/portable-path.js'
-import { caught, findCheckout, isInside, prepKey, withContext } from './host.js'
+import { caught, findCheckout, isInside, prepKey, tokenPilotTools } from './host.js'
 
 export const EDIT_ACTIONS = ['hook-edit']
 
@@ -31,6 +31,7 @@ async function keyOf($: EngineInterface, filePath: string): Promise<string> {
 export function registerEdit(on: On, prep: EditPrep): void {
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return next(e)
+    if (tokenPilotTools() === 'missing') return next(e)
 
     const filePath = String(e.file_path ?? '')
     const fileExists = await $.fs.exists(filePath)
@@ -48,7 +49,7 @@ export function registerEdit(on: On, prep: EditPrep): void {
     )
     if (decision.kind === 'deny') return { deny: decision.reason }
 
-    return withContext(await next(e), decision.kind === 'advise' ? [decision.message] : [])
+    return next(e)
   }).catch(caught)
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {

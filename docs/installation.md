@@ -21,7 +21,6 @@ npx -y token-pilot init
 # Or if installed globally:
 npm i -g token-pilot@latest
 npx token-pilot install-hook
-npx token-pilot install-agents --scope=user --force
 ```
 
 ---
@@ -32,7 +31,7 @@ npx token-pilot install-agents --scope=user --force
 npx -y token-pilot init
 ```
 
-Writes `.mcp.json` (or merges into an existing one), adds `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode), then prompts to install `tp-*` subagents. Restart your AI assistant to activate.
+Writes `.mcp.json` (or merges into an existing one), adds `token-pilot` + [`context-mode`](https://github.com/mksglu/claude-context-mode). Restart your AI assistant to activate.
 
 ---
 
@@ -47,7 +46,7 @@ claude plugin marketplace add https://github.com/Digital-Threads/token-pilot
 claude plugin install token-pilot@token-pilot
 ```
 
-Claude Code clones the repo into `~/.claude/plugins/cache/token-pilot/`, sets `CLAUDE_PLUGIN_ROOT`, and registers the MCP server + all hooks declared in `.claude-plugin/hooks/hooks.json`. No `install-hook` call needed. Run `install-agents` separately for the `tp-*` subagents.
+Claude Code clones the repo into `~/.claude/plugins/cache/token-pilot/`, sets `CLAUDE_PLUGIN_ROOT`, and registers the MCP server + all hooks declared in `.claude-plugin/hooks/hooks.json`. No `install-hook` call needed.
 
 ### B. MCP config (npm-based, no plugin system)
 
@@ -72,7 +71,6 @@ Or edit `.mcp.json` (project-level) / `~/.mcp.json` (user-level) directly:
 Then:
 ```bash
 npx token-pilot install-hook                   # register PreToolUse hooks
-npx token-pilot install-agents --scope=user    # install tp-* subagents
 ```
 
 ### C. One-liner
@@ -81,7 +79,7 @@ npx token-pilot install-agents --scope=user    # install tp-* subagents
 npx -y token-pilot init
 ```
 
-Writes path B config for you, then prompts about subagents.
+Writes path B config for you.
 
 ---
 
@@ -121,7 +119,7 @@ and run `/hooks` to trust the current definition.
 
 What this wires: shell commands get the same rules Claude Code gets — `cat` of
 a code file, recursive `grep`, unbounded `git log` / `git diff` come back with
-a cheaper alternative — plus session-start and per-prompt context. Codex has no
+a cheaper alternative — plus session-start and per-prompt context (Codex only). Codex has no
 separate file-read tool; the model reads through the shell, which those rules
 already cover. `apply_patch` and subagent dispatch stay out on purpose: their
 payloads differ from Claude Code's, and the matching handlers would misread
@@ -165,7 +163,7 @@ No env vars required. Common optional overrides:
 | `TOKEN_PILOT_MODE` | `deny` | `advisory` / `deny` / `strict` — enforcement level |
 | `TOKEN_PILOT_PROFILE` | `full` | `nav` / `edit` / `full` — trims `tools/list` payload |
 | `TOKEN_PILOT_DENY_THRESHOLD` | `300` | Line count above which the Read hook intervenes |
-| `TOKEN_PILOT_ADAPTIVE_THRESHOLD` | `false` | Enable adaptive curve as session burns |
+| `TOKEN_PILOT_ADAPTIVE_THRESHOLD` | `false` | Enable adaptive curve as session burns (whole-file Reads only) |
 | `TOKEN_PILOT_BYPASS` | unset | Set to `1` to disable the Read hook for one session |
 | `TOKEN_PILOT_SKIP_POSTINSTALL` | unset | Skip `ast-index` safety-net install at `npm install` time |
 
@@ -184,4 +182,4 @@ cd token-pilot && npm install && npm run build
 
 ## Non-Claude clients
 
-`install-agents` detects non-Claude clients via env vars + filesystem markers (`CURSOR_TRACE_ID`, `~/.codex/`, `~/.gemini/`, etc.) and **skips installing subagents** unless you pass `--scope=user|project` explicitly. Cursor, Codex, Gemini, and Cline users get all 25 MCP tools without the `tp-*` agents. Of those, only Codex can also install the hooks (see the Codex section above).
+Cursor, Codex, Gemini, and Cline users get all 25 MCP tools. Of those, only Codex can also install the hooks (see the Codex section above). token-pilot does not ship subagents; to remove `tp-*` copies an older version installed, see [agents](agents.md).

@@ -131,7 +131,7 @@ test('after a large output, points at the context-mode tool the session has', as
 
   await ($ as any).prompt.compose({
     model: 'm', promptModel: 'm', surfaces: [], outputStyle: null, traits: [],
-    tools: ['Bash', 'mcp__plugin_context-mode_context-mode__ctx_execute'],
+    tools: ['Bash', 'mcp__plugin_context-mode_context-mode__ctx_execute', 'mcp__plugin_token-pilot_token-pilot__smart_read'],
   })
   const res: any = await $.tool.call({ tool: 'Bash', command: 'make' } as any)
 

@@ -1,9 +1,12 @@
 # Hooks & Enforcement Modes
 
-Token Pilot installs two categories of PreToolUse hooks in Claude Code:
+Token Pilot installs these PreToolUse hooks in Claude Code:
 
 1. **Read hook** — intercepts large `Read` calls (configurable threshold, default 300 lines) and returns a structural summary in the denial reason.
 2. **Grep / Bash hooks** — block heavy recursive patterns (`grep -r`, `find /`, `cat <file.ts>`, unbounded `git log`, bare `git diff`) and redirect to token-pilot MCP equivalents.
+3. **Edit hook** — only in `strict` mode: refuses an `Edit` of a code file that was not prepared with `read_for_edit`. In the other modes an `Edit` goes through with no hint.
+
+The Read, Bash, Grep, Edit (strict) and Agent gates step aside when token-pilot's MCP tools are not in the session, so the model is never refused and pointed at tools it does not have. In Claude Code the mod learns this from the tool list the model is offered. The command hooks read Claude Code's `.claude.json` (in `CLAUDE_CONFIG_DIR`, else your home folder) and treat `projects[<project>].disabledMcpServers` (the project being the session folder, its git checkout or, for a worktree, the main checkout, which is where Claude Code keeps the entry) containing `token-pilot` or `plugin:token-pilot:token-pilot` as "tools missing". The advice after a Bash call is skipped too.
 
 ## TOKEN_PILOT_MODE — Enforcement Mode
 
@@ -13,7 +16,7 @@ Controls how aggressively both hook categories behave:
 |-------|----------------|------------|
 | `advisory` | Pass all through (no blocking) | No caps |
 | `deny` *(default)* | Block heavy patterns, allow bounded variants | No caps |
-| `strict` | Same as deny, plus auto-cap MCP output (see below) | Capped |
+| `strict` | Same as deny, plus refuse an unprepared `Edit` and auto-cap MCP output (see below) | Capped |
 
 ```bash
 # Set in your MCP server env block or shell profile:
@@ -40,12 +43,14 @@ The PreToolUse:Read hook has its own mode (separate from enforcement mode). Set 
 | Mode | Behaviour |
 |------|-----------|
 | `off` | Hook is inert — all `Read` calls pass through |
-| `advisory` | Denies unbounded Read with a short tip pointing at `smart_read` / `read_for_edit` |
+| `advisory` | Denies unbounded Read with a short tip pointing at `smart_read` / `read_symbol` |
 | `deny-enhanced` *(default)* | Denies the Read and returns a full structural summary (imports, exports, declarations) **inside** the denial reason. Works for subagents that lack MCP access. |
 
 ```json
 { "hooks": { "mode": "deny-enhanced", "denyThreshold": 300 } }
 ```
+
+A Read with `offset`/`limit` whose `limit` is within the base `denyThreshold` (300) always passes, even late in a long session when the adaptive threshold has tightened. Adaptive tightening applies to whole-file Reads.
 
 ## Grep / Bash Hook Rules
 
@@ -69,7 +74,7 @@ npx token-pilot install-hook      # register PreToolUse hooks in Claude Code
 npx token-pilot uninstall-hook    # remove hooks
 ```
 
-Hooks are auto-installed on first server start inside Claude Code. The Claude Code plugin path installs hooks automatically:
+Hooks are auto-installed on first server start inside Claude Code. `install-hook` no longer writes a `UserPromptSubmit` entry and removes an old token-pilot one. The Claude Code plugin path installs hooks automatically:
 
 ```bash
 claude plugin marketplace add https://github.com/Digital-Threads/token-pilot
@@ -83,9 +88,9 @@ claude plugin install token-pilot@token-pilot
 | `TOKEN_PILOT_MODE` | `advisory` / `deny` (default) / `strict` — enforcement level for Grep/Bash hooks and MCP output caps |
 | `TOKEN_PILOT_BYPASS=1` | Pass every Read through (Read hook only) |
 | `TOKEN_PILOT_DENY_THRESHOLD=<n>` | Override `hooks.denyThreshold` (default 300) |
-| `TOKEN_PILOT_ADAPTIVE_THRESHOLD=true` | Enable adaptive curve as session burns |
+| `TOKEN_PILOT_ADAPTIVE_THRESHOLD=true` | Enable adaptive curve as session burns (whole-file Reads only) |
 | `TOKEN_PILOT_DEBUG=1` | Verbose hook logging to stderr |
-| `TOKEN_PILOT_NO_AGENT_REMINDER=1` | Suppress the "tp-* not installed" stderr nudge |
+| `TOKEN_PILOT_PROMPT_REMINDER` | Codex only: the per-prompt reminder (`hook-user-prompt`) |
 | `TOKEN_PILOT_SUBAGENT=1` | Mark the MCP server as running inside a subagent |
 | `TOKEN_PILOT_NO_MOD=1` | Claude Code: keep every hook on the command path, as if the mod were not loaded |
 
@@ -94,7 +99,7 @@ claude plugin install token-pilot@token-pilot
 ```bash
 token-pilot stats                          # totals + top files from hook-events.jsonl
 token-pilot stats --session[=<id>]         # filter by session
-token-pilot stats --by-agent              # grouped by agent
+token-pilot stats --by-agent              # grouped by agent_type of the subagent
 token-pilot tool-audit                    # per-tool savings distribution (cumulative)
 token-pilot tool-audit --json             # machine-readable output
 ```
@@ -118,7 +123,7 @@ The hand-off is tied to the sessions the module has served
 (`TOKEN_PILOT_MOD_SESSION`, the last eight): a `claude` started from that
 session's shell inherits the variables, and its command hooks still run unless
 its own module takes over. After `/clear` the earlier session stays listed, so
-its background agents keep the hand-off; after `/resume` the resumed session is
+its background subagents keep the hand-off; after `/resume` the resumed session is
 listed.
 
 A module hook that fails is skipped and the tool call goes ahead; the failure
@@ -132,18 +137,16 @@ What changes when the module runs:
 | Hook | With the module |
 |------|-----------------|
 | Read | A whole-file Read of a large code file returns the file's outline from `smart_read` as a normal Read result. The first line says it is an outline and how to get exact lines. The command hook refused the read instead, and the model had to recover. An Edit of the file afterwards works as usual. Files of 4 MiB and up, or that Claude Code will not read, are gated by their line count. |
-| Edit | Knows which files went through `read_for_edit` from the calls it saw in this session, so there is no state file. Strict mode refuses an unprepared Edit, the default mode adds a note — as before. |
+| Edit | Knows which files went through `read_for_edit` from the calls it saw in this session, so there is no state file. Only strict mode refuses an unprepared Edit; the other modes let it through with no hint. |
 | Bash, Grep | Same rules, no process per call. The note after a very large Bash output arrives together with the result. Claude Code 2.1.289 has no Grep tool; search goes through Bash. |
-| Agent | Same routing, no process per dispatch. Budgets and task telemetry stay with the SubagentStop command hook: agents run in the background by default, so only SubagentStop sees the final answer. Workflow runs (`TOKEN_PILOT_WORKFLOW_ID`, `CLAUDE_CODE_WORKFLOW_ID`, `LOOM_WORKFLOW_ID`) keep routing on the command hooks too, which add the workflow budget note. |
+| Agent | No process per dispatch. Budgets and task telemetry stay with the SubagentStop command hook: agents run in the background by default, so only SubagentStop sees the final answer. Workflow runs (`TOKEN_PILOT_WORKFLOW_ID`, `CLAUDE_CODE_WORKFLOW_ID`, `LOOM_WORKFLOW_ID`) stay on the command hook, which adds a note when the workflow is near its token budget. |
 | token-pilot's MCP tools | In the main session, relative paths are mapped into the worktree the session moved into, and the permission prompt is left alone. The module cannot see a subagent's `cd`, so subagent calls and the note on whole-tree tools stay with the `hook-mcp-path` command hook. |
-| SessionStart, UserPromptSubmit | The token-pilot guidance becomes a section of the system prompt. It is built once per session and does not change, so the prompt cache keeps it, and it is no longer repeated on every turn. If token-pilot is also registered in a settings file, that shows up as a notification. |
+| SessionStart | The model gets one line, and only when a fresh `.token-pilot/snapshots/latest.md` (under 2 hours old) exists. Notes meant for you (token-pilot hooks registered twice in a `settings.json`; `tp-*.md` copies an older version installed) show as a toast, never to the model. There is no per-prompt reminder in Claude Code. |
 | Status | The savings line from `hooks/tp-statusline.sh`, with the 5-hour and 7-day rate limits, in a dim band above the prompt, refreshed after each turn. A `statusLine` that runs that script (directly or through `statusline-chain.sh`) prints no token-pilot badge for the session from then on, so the line shows once; until the first reply it is still the one shown. |
 | `/tp-stats` | Opens this session's `session_analytics` in a side pane. |
 
-Not carried over to the module: the subagent-adoption nudge (it read the whole
-event log at every start), the bootstrap notes (a plugin always carries its
-agents, and the MCP server reports a missing `ast-index` itself) and
-SessionStart's `watchPaths`.
+Not carried over to the module: the bootstrap notes (the MCP server reports a
+missing `ast-index` itself) and SessionStart's `watchPaths`.
 
 ## Codex CLI
 
@@ -166,13 +169,13 @@ hook definition it has not been shown.
 |-------|---------|---------|
 | `PreToolUse` | `Bash` | shell rules (`cat`, recursive `grep`, unbounded `git log` / `git diff`) |
 | `PostToolUse` | `Bash` | post-command advisory |
-| `SessionStart` | — | project context |
-| `UserPromptSubmit` | — | per-turn reminder |
+| `SessionStart` | — | Codex tool block |
+| `UserPromptSubmit` | — | per-turn reminder (`hook-user-prompt`, Codex only) |
 
 Not wired, on purpose: Codex has no file-read tool (its model reads through the
 shell, which the `Bash` rules already cover), and both `apply_patch` and
 `spawn_agent` carry payloads that differ from Claude Code's `Edit` and `Agent`
-— the read-gate and the routing hook would be reasoning about fields that are
+— the read-gate and the Agent hook would be reasoning about fields that are
 not there.
 
 ## Git worktrees

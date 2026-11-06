@@ -174,15 +174,19 @@ describe("Hook Installer", () => {
     expect(JSON.stringify(settings.hooks.SubagentStop)).toContain("hook-subagent-stop");
   });
 
-  it("installs and removes the UserPromptSubmit reminder like every other entry it ships", async () => {
-    await installHook(tempDir);
+  it("installs no per-prompt reminder and drops one an older install left", async () => {
+    await mkdir(join(tempDir, ".claude"), { recursive: true });
     const path = join(tempDir, ".claude", "settings.json");
-    const installed = JSON.parse(await readFile(path, "utf-8"));
-    expect(JSON.stringify(installed.hooks.UserPromptSubmit)).toContain("hook-user-prompt");
+    await writeFile(
+      path,
+      JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: "token-pilot hook-user-prompt" }] }] } }),
+    );
 
-    await uninstallHook(tempDir);
-    const removed = JSON.parse(await readFile(path, "utf-8"));
-    expect(removed.hooks?.UserPromptSubmit).toBeUndefined();
+    await installHook(tempDir);
+
+    const installed = JSON.parse(await readFile(path, "utf-8"));
+    expect(installed.hooks.UserPromptSubmit).toBeUndefined();
+    expect(JSON.stringify(installed.hooks)).toContain("hook-session-start");
   });
 
   it("reports invalid JSON as a fatal install error", async () => {
