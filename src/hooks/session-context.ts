@@ -1,88 +1,11 @@
 /**
- * The text token-pilot puts in front of a session: the mandatory tool block,
- * the delegation guide filtered to installed agents, the profile banner and
- * the adoption nudge. No Node here — the SessionStart hook and the Claude
- * Code mod's system-prompt section build the same text.
+ * What token-pilot says at session start. On Claude Code the model gets no
+ * rule block: each tool's description says when to use it. What is left is
+ * a pointer to a fresh snapshot, and notes for the person (duplicate hook
+ * registrations, old agent copies). Codex reads code through the shell and
+ * keeps its tool block. No Node here — the SessionStart hook and the Claude
+ * Code mod build the same text.
  */
-
-import type { HookEvent } from "../core/event-log.js";
-import type { ToolProfile } from "../server/tool-profiles.js";
-
-// ─── subagent adoption nudge (v0.32.0) ──────────────────────────────
-// Pure function: takes the event log + current time, returns either a
-// one-liner nudge string or null when there's nothing useful to say.
-// Thresholds are module-level constants so tests can reference them.
-
-const NUDGE_WINDOW_DAYS = 7;
-/** Minimum Task events in window before we consider the sample big enough. */
-const NUDGE_MIN_SAMPLE = 5;
-/** Miss-rate (routable general-purpose dispatches / total) above which we nudge. */
-const NUDGE_THRESHOLD = 0.5;
-
-export function buildSubagentAdoptionNudge(
-  events: HookEvent[],
-  now: number,
-  windowDays: number = NUDGE_WINDOW_DAYS,
-  minSample: number = NUDGE_MIN_SAMPLE,
-  threshold: number = NUDGE_THRESHOLD,
-): string | null {
-  const cutoff = now - windowDays * 86_400_000;
-  const tasks = events.filter((e) => e.event === "task" && e.ts >= cutoff);
-  if (tasks.length < minSample) return null;
-
-  const misses = tasks.filter(
-    (e) =>
-      typeof e.matched_tp_agent === "string" &&
-      e.matched_tp_agent.length > 0 &&
-      e.subagent_type !== e.matched_tp_agent,
-  );
-  if (misses.length === 0) return null;
-
-  const rate = misses.length / tasks.length;
-  if (rate < threshold) return null;
-
-  const pct = Math.round(rate * 100);
-  // Surface the top routing miss pair so the nudge is concrete, not abstract.
-  const pairCounts = new Map<string, number>();
-  for (const m of misses) {
-    const key = `${m.subagent_type} → ${m.matched_tp_agent}`;
-    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
-  }
-  const topPair = [...pairCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-
-  const pairClause = topPair ? ` Top miss: ${topPair}.` : "";
-  return (
-    `[token-pilot] subagent miss-rate ${pct}% over last ${windowDays}d ` +
-    `(${misses.length}/${tasks.length} Task calls could have used a tp-* specialist).${pairClause} ` +
-    `Run \`token-pilot stats --tasks\` for details, or set TOKEN_PILOT_FORCE_SUBAGENTS=1 to hard-block.`
-  );
-}
-
-export interface AgentEntry {
-  name: string;
-  description: string;
-}
-
-/**
- * Parse YAML-style frontmatter from a markdown file.
- * Only handles simple key: value pairs (no nested, no arrays).
- * Returns an object with extracted string fields.
- */
-function parseFrontmatter(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return result;
-
-  for (const line of match[1].split(/\r?\n/)) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
-    if (kv) {
-      result[kv[1]] = kv[2].trim();
-    }
-  }
-  return result;
-}
-
-// ─── Message builder (subtask 2.3) ───────────────────────────────────────────
 
 const TOOL_LIST = `  smart_read(path)             — structural overview of a code file
   read_symbol(path, symbol)    — one function / class body
@@ -102,157 +25,12 @@ const SHELL_GATE =
   "Unbounded shell dumps (cat of a code file, grep -r, git log/diff without a bound) are refused; " +
   "prefix a command with TOKEN_PILOT_BYPASS=1 to run it anyway.";
 
-export const MANDATORY_BLOCK = `[token-pilot active]
-
-MANDATORY — use these BEFORE whole-file Read, grep or git:
-${TOOL_LIST}
-A whole-file Read of a big code file returns its outline; Read with offset/limit
-within the gate's limit (300 lines by default) passes. ${SHELL_GATE}`;
-
 /** Codex has no Read tool and no tp-* agents: everything goes through the shell. */
 export const CODEX_BLOCK = `[token-pilot active]
 
 MANDATORY — use these BEFORE reading code through the shell (cat, sed, grep -r, git):
 ${TOOL_LIST}
 ${SHELL_GATE}`;
-
-export const DECISION_GUIDE = `WHEN DELEGATING — if the task fits a specialist, dispatch it with the Agent tool:
-  bug / stack trace       → tp-debugger
-  PR / diff review        → tp-pr-reviewer
-  impact before change    → tp-impact-analyzer
-  plan refactor           → tp-refactor-planner
-  failing tests           → tp-test-triage
-  write new tests         → tp-test-writer
-  migrate API / version   → tp-migration-scout
-  "why is this like this?" → tp-history-explorer
-  security / quality audit → tp-audit-scanner
-  resume after /clear     → tp-session-restorer
-  dead code cleanup       → tp-dead-code-finder
-  commit message          → tp-commit-writer
-  repo onboarding         → tp-onboard
-  blast radius of a PR    → tp-review-impact
-  test coverage gaps      → tp-test-coverage-gapper
-  public API diff / semver → tp-api-surface-tracker
-  dependency audit        → tp-dep-health
-  incident post-mortem    → tp-incident-timeline
-  general workhorse       → tp-run
-Delegating keeps main-context lean; each specialist has a narrow toolset + budget.`;
-
-function estimateTokens(text: string): number {
-  // Fast approximation: chars / 4, adjusted for whitespace
-  if (text.length === 0) return 0;
-  return Math.ceil(text.length / 4);
-}
-
-/**
- * Build the reminder message combining the mandatory-tool rules and the
- * tp-* agent list.  Enforces the maxReminderTokens budget by trimming the
- * delegating list with "… and N more" if needed.
- */
-export function buildReminderMessage(
-  agents: AgentEntry[],
-  maxReminderTokens: number,
-): string {
-  // If no agents installed, give the user a clear nudge; skip the
-  // delegation guide since there's nothing to delegate to.
-  if (agents.length === 0) {
-    return `${MANDATORY_BLOCK}\n\nWHEN DELEGATING — none installed; run: npx token-pilot install-agents`;
-  }
-
-  // Filter the decision guide to the agents this user actually has
-  // installed, under the name they are dispatched by (a plugin's agents are
-  // `token-pilot:tp-*`). Dropping lines for missing agents keeps the
-  // reminder honest when the template ships an agent the user hasn't installed.
-  const installed = new Map(agents.map((a) => [a.name.slice(a.name.indexOf(":") + 1), a.name]));
-  const guideKnownNames = new Set<string>();
-  const decisionGuideLines: string[] = [];
-  for (const line of DECISION_GUIDE.split("\n")) {
-    const m = line.match(/→\s+(tp-[a-z-]+)/);
-    if (!m) {
-      decisionGuideLines.push(line); // header / footer
-      continue;
-    }
-    guideKnownNames.add(m[1]);
-    const name = installed.get(m[1]);
-    if (name) decisionGuideLines.push(line.replace(m[1], name));
-  }
-
-  // Fallback: custom / third-party tp-* agents we don't hard-code in the
-  // guide still deserve a mention so the main agent can delegate to them.
-  const extras = agents.filter(
-    (a) => !guideKnownNames.has(a.name.slice(a.name.indexOf(":") + 1)),
-  );
-  if (extras.length > 0) {
-    const extraLines = extras.map(
-      (a) => `  custom: ${a.name}  — ${a.description}`,
-    );
-    // Insert before the "Delegating keeps..." footer.
-    const footer = decisionGuideLines.pop() ?? "";
-    decisionGuideLines.push(...extraLines, footer);
-  }
-  const decisionGuide = decisionGuideLines.join("\n");
-
-  const full = `${MANDATORY_BLOCK}\n\n${decisionGuide}`;
-  if (estimateTokens(full) <= maxReminderTokens) {
-    return full;
-  }
-
-  // Budget overflow: trim decision-guide body lines from the end (keep
-  // header, footer, and as many mappings as fit). Preserves the first
-  // line so the agent still knows the section exists.
-  const header = decisionGuideLines[0];
-  const footer = decisionGuideLines[decisionGuideLines.length - 1];
-  const body = decisionGuideLines.slice(1, -1);
-  let kept = body.length;
-  while (kept > 0) {
-    kept--;
-    const dropped = body.length - kept;
-    const trimmedBody =
-      kept === 0
-        ? [`  … and ${dropped} more (reminder budget exhausted)`]
-        : body.slice(0, kept).concat(`  … and ${dropped} more`);
-    const candidate = `${MANDATORY_BLOCK}\n\n${[header, ...trimmedBody, footer].join("\n")}`;
-    if (estimateTokens(candidate) <= maxReminderTokens) {
-      return candidate;
-    }
-  }
-
-  // Last resort: just the mandatory block
-  return MANDATORY_BLOCK;
-}
-
-// ─── Handler (subtask 2.4) ───────────────────────────────────────────────────
-
-/**
- * Main handler for the hook-session-start CLI command.
- *
- * Returns the JSON string to write to stdout, or null for silent exit.
- * Never throws — any error → null (fail-safe pass-through).
- */
-/**
- * v0.45.0 (token-pilot-2fd part 2) — when a trimmed TOOL profile is active,
- * the banner still names tools that profile hides. The full default advertises
- * everything, but an explicit nav/edit/minimal does not, so warn the agent
- * before it calls a hidden tool, hits "No such tool available", and falls back
- * to raw Read/Bash. Empty string for the default `full` profile.
- */
-export function profileBannerNote(profile: ToolProfile): string {
-  if (profile === "full") return "";
-  return (
-    `⚠ TOKEN_PILOT_PROFILE=${profile} — trimmed tool surface active. Some tools named below are NOT advertised this session ` +
-    `(test_summary / code_audit / find_unused always; read_for_edit / read_range / read_diff / batch reads on nav & minimal). ` +
-    `Calling them returns "No such tool available" — use the listed alternatives or unset TOKEN_PILOT_PROFILE to advertise all.\n\n`
-  );
-}
-
-/** One tp-*.md file as the session reminder lists it. */
-export function parseAgentEntry(fileName: string, content: string): AgentEntry {
-  const fm = parseFrontmatter(content);
-  return {
-    name: fm.name ?? fileName.replace(/\.md$/, ""),
-    description: fm.description ?? "",
-  };
-}
 
 // 2h — enough to cover compaction/restart, tight enough that a new day's
 // unrelated work doesn't inherit yesterday's thread.
@@ -318,5 +96,35 @@ export function duplicateWarning(
     `[token-pilot] registered ${total} time(s) outside the plugin: ${where}. ` +
     `Claude Code runs a hook once per registration, so hooks fire repeatedly and the event log double-counts. ` +
     `Delete the token-pilot entries from those files — the plugin already provides every hook.`
+  );
+}
+
+const NPM_TOOL = "mcp__token-pilot__";
+const PLUGIN_TOOL = "mcp__plugin_token-pilot_token-pilot__";
+
+/**
+ * A tp-*.md that grants only the npm server's tool names. `install-agents`
+ * wrote these before agents carried both spellings; on a plugin install none
+ * of their token-pilot tools resolve, and each one repeats an agent the
+ * plugin already ships.
+ */
+export function isLegacyAgent(body: string): boolean {
+  return body.includes(NPM_TOOL) && !body.includes(PLUGIN_TOOL);
+}
+
+/** One note for the person about old agent copies, or null when there are none. */
+export function legacyAgentsWarning(
+  found: ReadonlyArray<{ dir: string; count: number; scope: "user" | "project" }>,
+): string | null {
+  const dirs = found.filter((f) => f.count > 0);
+  if (dirs.length === 0) return null;
+
+  const where = dirs.map((f) => `${f.count} old tp-*.md in ${f.dir}`).join(", ");
+  const remove = dirs.map((f) => `npx token-pilot uninstall-agents --scope=${f.scope}`).join(" and ");
+
+  return (
+    `[token-pilot] ${where}: they list only mcp__token-pilot__* tools, which the plugin does not provide, ` +
+    `and repeat the plugin's own token-pilot:tp-* agents in every session. ` +
+    `Remove them with ${remove}, or refresh them with install-agents --force if you also run token-pilot outside the plugin.`
   );
 }

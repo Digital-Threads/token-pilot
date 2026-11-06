@@ -1,41 +1,36 @@
 /**
- * Tests for the UserPromptSubmit per-turn reinforcement hook builder.
- *
- * Pure functions. We cover:
- *   - disabled / bypass → null (caller emits nothing)
- *   - enabled → the minimal anchor (the per-turn floor)
- *   - output envelope shape (additionalContext, never a block decision)
+ * UserPromptSubmit: Claude Code gets nothing per prompt — each tool's own
+ * description says when to use it, and a line repeated on every turn only
+ * competes with the user's request. Codex, which reads code through the
+ * shell, keeps its one-line anchor.
  */
 import { describe, expect, it } from "vitest";
 import {
   buildPromptReminder,
   formatPromptReminderOutput,
-  MINIMAL_ANCHOR,
 } from "../../src/hooks/user-prompt.ts";
 
 describe("buildPromptReminder", () => {
-  it("returns null when disabled", () => {
-    expect(buildPromptReminder(false, false)).toBeNull();
+  it("sends Claude Code nothing", () => {
+    expect(buildPromptReminder(true, false)).toBeNull();
+    expect(buildPromptReminder(true, false, "claude-code")).toBeNull();
   });
 
-  it("returns null when bypassed", () => {
-    expect(buildPromptReminder(true, true)).toBeNull();
+  it("sends Codex its anchor", () => {
+    expect(buildPromptReminder(true, false, "codex")).toContain("smart_read");
   });
 
-  it("emits the minimal anchor when enabled and not bypassed", () => {
-    expect(buildPromptReminder(true, false)).toBe(MINIMAL_ANCHOR);
+  it("sends Codex nothing when disabled or bypassed", () => {
+    expect(buildPromptReminder(false, false, "codex")).toBeNull();
+    expect(buildPromptReminder(true, true, "codex")).toBeNull();
   });
 });
 
 describe("formatPromptReminderOutput", () => {
   it("wraps the message as UserPromptSubmit additionalContext, never a block", () => {
-    const out = JSON.parse(formatPromptReminderOutput("hello"));
-    expect(out).toEqual({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: "hello",
-      },
-    });
-    expect(out.decision).toBeUndefined();
+    const out = JSON.parse(formatPromptReminderOutput("hi"));
+    expect(out.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+    expect(out.hookSpecificOutput.additionalContext).toBe("hi");
+    expect(out).not.toHaveProperty("decision");
   });
 });

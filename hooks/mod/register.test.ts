@@ -145,7 +145,7 @@ const promptsSeeing = (on: any, env: Record<string, string>) => {
   return seen
 }
 
-const GUIDANCE = ['hook-session-start', 'hook-bootstrap', 'hook-user-prompt']
+const GUIDANCE = ['hook-session-start', 'hook-bootstrap']
 
 test('when prompt.compose is passed over, the command hooks keep the guidance from the next prompt on', async ($, on) => {
   const { env } = withoutSessionStart(on, { current: 'session-1' })

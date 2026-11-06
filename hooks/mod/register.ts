@@ -42,8 +42,7 @@ async function handOff($: EngineInterface, id: string): Promise<void> {
       (await $.env.get('LOOM_WORKFLOW_ID')),
   )
   // Where prompt.compose never reaches session.ts, its section never reaches
-  // the prompt: the SessionStart text and the per-prompt anchor stay with the
-  // command hooks, as without the mod.
+  // the prompt: session start stays with the command hooks, as without the mod.
   guidanceHandedBack = composePassedOver()
   const served = (inWorkflow ? SERVED : [...SERVED, ...AGENT_ACTIONS]).filter(
     action => !guidanceHandedBack || !SESSION_ACTIONS.includes(action),

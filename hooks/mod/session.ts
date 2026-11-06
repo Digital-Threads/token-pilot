@@ -1,31 +1,25 @@
 /**
- * Session guidance as a system-prompt section. The SessionStart command hook
- * puts it into the first message, and UserPromptSubmit re-sends an anchor on
- * every turn; a `session` section is part of every request instead, built
- * once and kept stable so the prompt cache holds. Replaces hook-session-start,
- * hook-bootstrap and hook-user-prompt.
+ * Session start, in-process. The model gets a `session` section only when a
+ * fresh snapshot is there to resume from: each tool's own description says
+ * when to use it, so no rule block or agent list goes into the prompt.
+ * Replaces hook-session-start and hook-bootstrap.
  *
- * Duplicate hook registrations are a note for the person, not the model:
- * they go out as a toast. Not ported: the subagent-adoption nudge (it reads
- * the whole event log at every start) and the bootstrap notes (a plugin
- * always carries its agents; the MCP server reports a missing ast-index).
+ * What the person has to fix — a hook registered twice, old agent copies
+ * that shadow the plugin's — goes out as a toast, never to the model.
  */
 
 import type { EngineInterface, On } from 'claude-code'
 import {
-  buildReminderMessage,
   countTokenPilotHooks,
   duplicateWarning,
-  parseAgentEntry,
-  profileBannerNote,
+  isLegacyAgent,
+  legacyAgentsWarning,
   snapshotLine,
-  type AgentEntry,
 } from '../../src/hooks/session-context.js'
-import { parseProfileEnv } from '../../src/server/tool-profiles.js'
 import { join } from '../../src/core/portable-path.js'
 import { caught, configFrom, noteTools, PREFIX } from './host.js'
 
-export const SESSION_ACTIONS = ['hook-session-start', 'hook-bootstrap', 'hook-user-prompt']
+export const SESSION_ACTIONS = ['hook-session-start', 'hook-bootstrap']
 
 async function readText($: EngineInterface, path: string): Promise<string | null> {
   try {
@@ -38,22 +32,6 @@ async function readText($: EngineInterface, path: string): Promise<string | null
 
 async function homeDir($: EngineInterface): Promise<string> {
   return (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? ''
-}
-
-async function agentEntries($: EngineInterface, dir: string): Promise<AgentEntry[]> {
-  const entries: AgentEntry[] = []
-  try {
-    for (const entry of await $.fs.list(dir)) {
-      const fileName = String((entry as { name: string }).name)
-      if (!fileName.startsWith('tp-') || !fileName.endsWith('.md')) continue
-      const body = await readText($, join(dir, fileName))
-      if (body !== null) entries.push(parseAgentEntry(fileName, body))
-    }
-  } catch {
-    /* no agents dir */
-  }
-
-  return entries
 }
 
 async function sessionText($: EngineInterface): Promise<string | null> {
@@ -69,47 +47,43 @@ async function sessionText($: EngineInterface): Promise<string | null> {
   const config = configFrom(await readText($, join(root, '.token-pilot.json')), env)
   if (!config.sessionStart.enabled || (await $.env.get('TOKEN_PILOT_BYPASS')) === '1') return null
 
-  // Project agents first, then home agents, then the plugin's own — named as
-  // Claude Code dispatches them (`token-pilot:tp-*`).
-  const seen = new Set<string>()
-  const agents: AgentEntry[] = []
-  for (const [dir, prefix] of [
-    [join(root, '.claude', 'agents'), ''],
-    [join(await homeDir($), '.claude', 'agents'), ''],
-    [join($.plugin.root, 'agents'), 'token-pilot:'],
-  ]) {
-    for (const agent of await agentEntries($, dir)) {
-      if (seen.has(agent.name)) continue
-      seen.add(agent.name)
-      agents.push({ ...agent, name: prefix + agent.name })
-    }
-  }
-
-  let text =
-    profileBannerNote(parseProfileEnv(await $.env.get('TOKEN_PILOT_PROFILE'))) +
-    buildReminderMessage(agents, config.sessionStart.maxReminderTokens)
-
   const snapshot = join(root, '.token-pilot', 'snapshots', 'latest.md')
   const body = await readText($, snapshot)
-  if (body !== null) {
-    try {
-      const { mtimeMs } = await $.fs.stat(snapshot)
-      const line = typeof mtimeMs === 'number' ? snapshotLine(body, Math.max(0, Date.now() - mtimeMs)) : null
-      if (line) text += `\n\n${line}`
-    } catch {
-      /* no snapshot age — skip the line */
-    }
-  }
+  if (body === null) return null
 
-  return text
+  try {
+    const { mtimeMs } = await $.fs.stat(snapshot)
+
+    return typeof mtimeMs === 'number' ? snapshotLine(body, Math.max(0, Date.now() - mtimeMs)) : null
+  } catch {
+    return null // no snapshot age — skip the line
+  }
 }
 
-async function warnDuplicates($: EngineInterface): Promise<void> {
+/** tp-*.md files in `dir` that list only the npm server's tool names. */
+async function countLegacyAgents($: EngineInterface, dir: string): Promise<number> {
+  let count = 0
+  try {
+    for (const entry of await $.fs.list(dir)) {
+      const name = String((entry as { name: string }).name)
+      if (!name.startsWith('tp-') || !name.endsWith('.md')) continue
+      const body = await readText($, join(dir, name))
+      if (body !== null && isLegacyAgent(body)) count++
+    }
+  } catch {
+    /* no agents dir */
+  }
+
+  return count
+}
+
+async function warnPerson($: EngineInterface): Promise<void> {
   const root = await $.session.root()
+  const home = await homeDir($)
   const sources: Array<{ path: string; count: number }> = []
 
   for (const path of [
-    join(await homeDir($), '.claude', 'settings.json'),
+    join(home, '.claude', 'settings.json'),
     join(root, '.claude', 'settings.json'),
     join(root, '.claude', 'settings.local.json'),
   ]) {
@@ -123,19 +97,31 @@ async function warnDuplicates($: EngineInterface): Promise<void> {
     }
   }
 
-  const warning = duplicateWarning(sources)
-  if (warning) $.ui.toast(warning)
+  // Claude Code reads user agents from its config dir.
+  const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
+  const userDir = configDir ? join(configDir, 'agents') : join(home, '.claude', 'agents')
+  const projectDir = join(root, '.claude', 'agents')
+
+  for (const note of [
+    duplicateWarning(sources),
+    legacyAgentsWarning([
+      { dir: userDir, count: await countLegacyAgents($, userDir), scope: 'user' },
+      { dir: projectDir, count: await countLegacyAgents($, projectDir), scope: 'project' },
+    ]),
+  ]) {
+    if (note) $.ui.toast(note)
+  }
 }
 
 // Built once per session: stable text keeps the prompt cache; a /clear starts a new session.
 let section: { session: string; text: Promise<string | null> } | null = null
-let warned = false
+let warnedSession: string | null = null
 
 // prompt.compose runs as each main-loop turn starts, unless an outer plugin
 // passes it on past this one (Claude Code's sec-default does, for Team and
 // Enterprise organizations). No signal says so: a turn that started without
-// it does. Then the section never reaches the prompt, and the command hooks
-// keep the guidance (register.ts hands SESSION_ACTIONS back to them).
+// it does. Then the command hooks keep session start (register.ts hands
+// SESSION_ACTIONS back to them).
 let composed = false
 let turnStarted = false
 
@@ -155,12 +141,12 @@ export function registerSession(on: On): void {
     if (!e.tools.some(tool => tool.startsWith(PREFIX))) return out
     if ((await $.env.get('TOKEN_PILOT_NO_MOD')) === '1') return out
 
-    if (!warned) {
-      warned = true
-      void warnDuplicates($).catch(() => {})
+    const session = await $.session.id()
+    if (warnedSession !== session) {
+      warnedSession = session
+      void warnPerson($).catch(() => {})
     }
 
-    const session = await $.session.id()
     if (section?.session !== session) section = { session, text: sessionText($).catch(() => null) }
     const text = await section.text
 

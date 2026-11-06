@@ -1,9 +1,9 @@
 /**
- * SessionStart reminder hook — Component 2 of the enforcement layer.
- *
- * On every session start / /clear / /compact, emits a compact additionalContext
- * block containing the mandatory-tool rules and a list of tp-* subagents found
- * in the project and user agent directories.
+ * SessionStart hook. On Claude Code the model gets a line only when a fresh
+ * snapshot is there to resume from: each tool's own description says when
+ * to use it, so no rule block or agent list goes into the context. What the
+ * person has to fix goes to them as a systemMessage. Codex reads code
+ * through the shell and keeps its tool block.
  *
  * Output contract: one JSON line on stdout, or exit 0 silent.
  */
@@ -12,30 +12,13 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { detectDuplicateHookRegistrations } from "./installer.js";
 import { loadLatestSnapshot } from "./../handlers/session-snapshot-persist.js";
-import { loadEvents, type HookEvent } from "../core/event-log.js";
-import { parseProfileEnv, type ToolProfile } from "../server/tool-profiles.js";
 import {
-  buildReminderMessage,
-  buildSubagentAdoptionNudge,
   CODEX_BLOCK,
   duplicateWarning,
-  parseAgentEntry,
-  profileBannerNote,
+  isLegacyAgent,
+  legacyAgentsWarning,
   snapshotLine,
-  type AgentEntry,
 } from "./session-context.js";
-
-export {
-  buildReminderMessage,
-  buildSubagentAdoptionNudge,
-  parseAgentEntry,
-  profileBannerNote,
-};
-export type { AgentEntry };
-
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 
 export interface SessionStartConfig {
   enabled: boolean;
@@ -47,8 +30,10 @@ export interface HandleSessionStartOptions {
   projectRoot: string;
   homeDir: string;
   sessionStartConfig: SessionStartConfig;
-  /** The plugin's root (CLAUDE_PLUGIN_ROOT): its agents ship in `agents/`. */
+  /** The plugin's root (CLAUDE_PLUGIN_ROOT), set when running as the plugin. */
   pluginRoot?: string;
+  /** Where Claude Code reads user agents: `$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`. */
+  userAgentsDir?: string;
   /**
    * Which client this hook is serving. Codex validates the returned
    * `hookSpecificOutput` and fails the hook on a key it does not know,
@@ -57,163 +42,91 @@ export interface HandleSessionStartOptions {
   client?: "claude-code" | "codex";
 }
 
-// ─── Agent scanner (subtask 2.2) ─────────────────────────────────────────────
-
-
-/**
- * Scan one agents directory for tp-*.md files and return parsed entries.
- */
-async function scanDir(dir: string, prefix = ""): Promise<AgentEntry[]> {
+/** tp-*.md files in `dir` that list only the npm server's tool names. */
+async function countLegacyAgents(dir: string): Promise<number> {
   let names: string[];
   try {
     names = await readdir(dir);
   } catch {
-    return [];
+    return 0;
   }
 
-  const agents: AgentEntry[] = [];
-  for (const filename of names) {
-    if (!filename.startsWith("tp-") || !filename.endsWith(".md")) continue;
+  let count = 0;
+  for (const name of names) {
+    if (!name.startsWith("tp-") || !name.endsWith(".md")) continue;
     try {
-      const content = await readFile(join(dir, filename), "utf-8");
-      const entry = parseAgentEntry(filename, content);
-      agents.push({ ...entry, name: prefix + entry.name });
+      if (isLegacyAgent(await readFile(join(dir, name), "utf-8"))) count++;
     } catch {
-      // Skip unreadable files
+      /* unreadable — not ours to judge */
     }
   }
-  return agents;
+
+  return count;
 }
 
-/**
- * Scan ./.claude/agents/, ~/.claude/agents/ and the plugin's own agents/
- * for tp-*.md agent definitions. Earlier directories take precedence;
- * duplicates (by bare name) are dropped. Plugin agents are named as Claude
- * Code dispatches them: `token-pilot:tp-*`.
- *
- * @param projectRoot - absolute path to the project root
- * @param homeDir - home directory (injected for testability; defaults to os.homedir())
- * @param pluginRoot - the plugin's root (CLAUDE_PLUGIN_ROOT), when installed as one
- */
-export async function scanAgents(
-  projectRoot: string,
-  homeDir: string,
-  pluginRoot?: string,
-): Promise<AgentEntry[]> {
-  const found = await Promise.all([
-    scanDir(join(projectRoot, ".claude", "agents")),
-    scanDir(join(homeDir, ".claude", "agents")),
-    pluginRoot ? scanDir(join(pluginRoot, "agents"), "token-pilot:") : [],
+/** Notes for the person on a plugin install: duplicate hooks, old agent copies. */
+async function pluginNotes(opts: HandleSessionStartOptions): Promise<string[]> {
+  const notes: string[] = [];
+
+  // v0.48.0 — as a plugin, hooks/hooks.json already registers every hook;
+  // a leftover entry in some settings.json fires each hook once per copy.
+  try {
+    const report = await detectDuplicateHookRegistrations([
+      resolve(opts.homeDir, ".claude", "settings.json"),
+      resolve(opts.projectRoot, ".claude", "settings.json"),
+      resolve(opts.projectRoot, ".claude", "settings.local.json"),
+    ]);
+    const warning = duplicateWarning(report.sources);
+    if (warning) notes.push(warning);
+  } catch {
+    /* a stale-install warning must never break startup */
+  }
+
+  const userDir = opts.userAgentsDir ?? join(opts.homeDir, ".claude", "agents");
+  const projectDir = join(opts.projectRoot, ".claude", "agents");
+  const legacy = legacyAgentsWarning([
+    { dir: userDir, count: await countLegacyAgents(userDir), scope: "user" },
+    { dir: projectDir, count: await countLegacyAgents(projectDir), scope: "project" },
   ]);
+  if (legacy) notes.push(legacy);
 
-  const seen = new Set<string>();
-  const merged: AgentEntry[] = [];
-  for (const agent of found.flat()) {
-    const bare = agent.name.slice(agent.name.indexOf(":") + 1);
-    if (!seen.has(bare)) {
-      seen.add(bare);
-      merged.push(agent);
-    }
-  }
-  return merged;
+  return notes;
 }
-
 
 export async function handleSessionStart(
   opts: HandleSessionStartOptions,
 ): Promise<string | null> {
   try {
-    if (!opts.sessionStartConfig.enabled) {
-      return null;
-    }
+    if (!opts.sessionStartConfig.enabled) return null;
 
-    // Codex has no Read tool and no tp-* agents: its own text.
     const codex = opts.client === "codex";
-    let message = codex
-      ? CODEX_BLOCK
-      : buildReminderMessage(
-          await scanAgents(opts.projectRoot, opts.homeDir, opts.pluginRoot),
-          opts.sessionStartConfig.maxReminderTokens,
-        );
-    // Prepend a profile caveat when a trimmed surface hides referenced tools.
-    message =
-      profileBannerNote(parseProfileEnv(process.env.TOKEN_PILOT_PROFILE)) +
-      message;
+    const lines: string[] = codex ? [CODEX_BLOCK] : [];
 
     // TP-340: surface a fresh snapshot so the new session can resume.
     const snap = await loadLatestSnapshot(opts.projectRoot);
     const resume = snap ? snapshotLine(snap.body, snap.ageMs) : null;
-    if (resume) message += `\n\n${resume}`;
+    if (resume) lines.push(resume);
 
-    // v0.32.0 — subagent adoption nudge. Reads recent Task telemetry
-    // from hook-events.jsonl; when the main thread is picking
-    // general-purpose on routable work, surface a one-liner so the
-    // user / agent sees the miss rate without needing `stats --tasks`.
-    try {
-      const events = codex ? [] : await loadEvents(opts.projectRoot);
-      const nudge = buildSubagentAdoptionNudge(events, Date.now());
-      if (nudge) message += `\n\n${nudge}`;
-    } catch {
-      /* silent — telemetry nudge is strictly opt-in */
-    }
+    const notes = !codex && opts.pluginRoot ? await pluginNotes(opts) : [];
 
-    // v0.48.0 — flag a token-pilot that is registered more than once.
-    // As a plugin, hooks/hooks.json already registers every hook; a
-    // leftover entry in some settings.json is a second registration, so
-    // Claude Code fires each hook once per copy — several node processes
-    // per Read, several event-log rows per subagent. `installHook`
-    // refuses to write a duplicate, but that guard only runs when the
-    // user invokes `install-hook`; entries written before the plugin was
-    // enabled survive untouched. This lives here rather than in
-    // hook-bootstrap because bootstrap carries `once: true` and the
-    // people who need the warning ran it long ago.
-    if (process.env.CLAUDE_PLUGIN_ROOT) {
-      try {
-        const report = await detectDuplicateHookRegistrations([
-          resolve(opts.homeDir, ".claude", "settings.json"),
-          resolve(opts.projectRoot, ".claude", "settings.json"),
-          resolve(opts.projectRoot, ".claude", "settings.local.json"),
-        ]);
-        const warning = duplicateWarning(report.sources);
-        if (warning) message += `\n\n${warning}`;
-      } catch {
-        /* silent — a stale-install warning must never break startup */
-      }
-    }
-
-    // v0.35.0 — watchPaths is an undocumented SessionStart return key
-    // (surfaced by reverse-engineering @anthropic-ai/claude-code@2.1.87).
-    // Claude Code watches these paths and re-fires FileChanged so a
-    // second active session picks up new snapshots / errors emitted by
-    // another worker without manual polling. Additive — older Claude
-    // Code versions ignore the key.
+    // v0.35.0 — watchPaths is an undocumented SessionStart return key:
+    // Claude Code watches these paths and re-fires FileChanged so a second
+    // active session picks up new snapshots. Measured on Codex 0.156: with
+    // `watchPaths` present every start reports "SessionStart Failed", so
+    // the key ships only on Claude Code.
     const watchPaths = [
       ".token-pilot/snapshots/latest.md",
       ".token-pilot/hook-events.jsonl",
     ];
 
-    // v0.41.1 — sessionTitle removed. v0.36.0 set the window/tab title
-    // to `[TP] Nk saved`, but `sessionTitle` OVERWRITES Claude Code's
-    // own session name — an intrusive clobber users (rightly) disliked.
-    // The cumulative-savings display belongs in the additive statusline
-    // badge (hooks/tp-statusline.sh), the same non-intrusive channel
-    // caveman uses — it sits alongside the session name instead of
-    // replacing it. Workflow progress, likewise, can ride the
-    // statusline (tp-statusline.sh reads the active workflow) rather
-    // than hijacking the title.
-
-    // Measured on Codex 0.156: with `watchPaths` present every start
-    // reports "SessionStart Failed"; the identical payload without it
-    // completes. The key is a Claude Code extension, so it ships only there.
-    const output = {
+    return JSON.stringify({
+      ...(notes.length > 0 ? { systemMessage: notes.join("\n\n") } : {}),
       hookSpecificOutput: {
         hookEventName: "SessionStart",
-        additionalContext: message,
-        ...(opts.client === "codex" ? {} : { watchPaths }),
+        ...(lines.length > 0 ? { additionalContext: lines.join("\n\n") } : {}),
+        ...(codex ? {} : { watchPaths }),
       },
-    };
-
-    return JSON.stringify(output);
+    });
   } catch {
     // Fail-safe: never block the session
     return null;

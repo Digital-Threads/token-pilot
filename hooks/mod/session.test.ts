@@ -2,78 +2,97 @@ import { test, expect } from 'claude-code/testing'
 
 const P = 'mcp__plugin_token-pilot_token-pilot__'
 
-const base = (on: any) => {
-  on('env.get', async () => ({ value: undefined }))
-  on('session.id', async () => ({ value: 'session-base' }))
+const LEGACY = '---\nname: tp-run\ntools:\n  - mcp__token-pilot__smart_read\n---\n'
+
+type Engine = {
+  env?: Record<string, string>
+  files?: Record<string, string>
+  dirs?: Record<string, string[]>
+  mtimeMs?: number
+}
+
+const base = (on: any, session: string, engine: Engine = {}) => {
+  const path = (e: any) => String(e.path ?? e)
+  on('env.get', async (_$: any, e: any) => ({ value: engine.env?.[e.name] }))
+  on('session.id', async () => ({ value: session }))
   on('session.root', async () => ({ value: '/repo' }))
-  on('fs.read', async () => ({ deny: 'no such file' }))
-  on('fs.stat', async () => ({ deny: 'no such file' }))
-  on('fs.list', async () => ({ value: [] }))
+  on('fs.read', async (_$: any, e: any) =>
+    engine.files?.[path(e)] !== undefined ? { value: engine.files[path(e)] } : { deny: 'no such file' },
+  )
+  on('fs.stat', async () => (engine.mtimeMs === undefined ? { deny: 'no such file' } : { value: { mtimeMs: engine.mtimeMs, size: 1 } }))
+  on('fs.list', async (_$: any, e: any) => ({ value: (engine.dirs?.[path(e)] ?? []).map(name => ({ name })) }))
   on('prompt.compose', async () => ({ sections: [{ id: 'base', scope: 'shared', text: 'BASE' }] }))
 }
 
 const compose = ($: any, tools: string[]) =>
   $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], outputStyle: null, traits: [], tools })
 
-test('adds the token-pilot section when our tools are offered', async ($, on) => {
-  base(on)
+const ids = (out: any) => out.sections.map((s: any) => s.id)
+
+test('gives the model no rules and no agent list', async ($, on) => {
+  base(on, 'session-quiet')
 
   const out: any = await compose($, ['Read', `${P}smart_read`])
+
+  expect(ids(out)).toEqual(['base'])
+})
+
+test('points the model at a fresh snapshot, in one line', async ($, on) => {
+  base(on, 'session-snapshot', {
+    files: { '/repo/.token-pilot/snapshots/latest.md': '**Goal:** ship 1.0.6\n' },
+    mtimeMs: Date.now(),
+  })
+
+  const out: any = await compose($, [`${P}smart_read`])
   const ours = out.sections.find((s: any) => s.id === 'token-pilot')
 
   expect(ours?.scope).toBe('session')
-  expect(ours?.text).toContain('smart_read')
-  expect(out.sections[0].id).toBe('base')
+  expect(ours?.text).toContain('ship 1.0.6')
+  expect(ours?.text.split('\n')).toHaveLength(1)
 })
 
 test('adds nothing when our tools are not offered', async ($, on) => {
-  base(on)
+  base(on, 'session-no-tools')
 
   const out: any = await compose($, ['Read', 'Bash'])
 
-  expect(out.sections.map((s: any) => s.id)).toEqual(['base'])
+  expect(ids(out)).toEqual(['base'])
 })
 
-test('rebuilds the section for a new session (after /clear)', async ($, on) => {
-  let session = 'session-1'
-  let profile: string | undefined
-  on('env.get', async (_$: any, e: any) => ({ value: e.name === 'TOKEN_PILOT_PROFILE' ? profile : undefined }))
-  on('session.id', async () => ({ value: session }))
-  on('session.root', async () => ({ value: '/repo' }))
-  on('fs.read', async () => ({ deny: 'no such file' }))
-  on('fs.stat', async () => ({ deny: 'no such file' }))
-  on('fs.list', async () => ({ value: [] }))
-  on('prompt.compose', async () => ({ sections: [{ id: 'base', scope: 'shared', text: 'BASE' }] }))
-
-  const first: any = await compose($, [`${P}smart_read`])
-  session = 'session-2'
-  profile = 'minimal'
-  const second: any = await compose($, [`${P}smart_read`])
-
-  const text = (out: any) => out.sections.find((s: any) => s.id === 'token-pilot')?.text ?? ''
-  expect(text(first)).not.toContain('TOKEN_PILOT_PROFILE=minimal')
-  expect(text(second)).toContain('TOKEN_PILOT_PROFILE=minimal')
-})
-
-test("lists the plugin's own agents under their dispatch name", async ($, on) => {
-  on('env.get', async () => ({ value: undefined }))
-  on('session.id', async () => ({ value: 'session-plugin-agents' }))
-  on('session.root', async () => ({ value: '/repo' }))
-  on('fs.read', async (_$: any, e: any) =>
-    String(e.path ?? e).endsWith('/tp-debugger.md')
-      ? { value: '---\nname: tp-debugger\ndescription: bugs\n---\n' }
-      : { deny: 'no such file' },
-  )
-  on('fs.stat', async () => ({ deny: 'no such file' }))
-  // Only the plugin's agents/ holds agents; .claude/agents dirs are empty.
-  on('fs.list', async (_$: any, e: any) => ({
-    value: String(e.path ?? e).endsWith('.claude/agents') ? [] : [{ name: 'tp-debugger.md' }],
-  }))
-  on('prompt.compose', async () => ({ sections: [] }))
+test('tells the person, not the model, about old agent copies', async ($, on) => {
+  const toasts: string[] = []
+  base(on, 'session-legacy', {
+    env: { HOME: '/home/u' },
+    dirs: { '/home/u/.claude/agents': ['tp-run.md', 'notes.md'] },
+    files: { '/home/u/.claude/agents/tp-run.md': LEGACY },
+  })
+  on('ui.toast', async (_$: any, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
 
   const out: any = await compose($, [`${P}smart_read`])
-  const text = out.sections.find((s: any) => s.id === 'token-pilot')?.text ?? ''
+  await new Promise(resolve => setTimeout(resolve, 20))
 
-  expect(text).toContain('token-pilot:tp-debugger')
-  expect(text).not.toContain('none installed')
+  expect(ids(out)).toEqual(['base'])
+  expect(toasts.join('\n')).toContain('1 old tp-*.md in /home/u/.claude/agents')
+  expect(toasts.join('\n')).toContain('npx token-pilot uninstall-agents --scope=user')
+})
+
+test('reads user agents where Claude Code does: CLAUDE_CONFIG_DIR/agents', async ($, on) => {
+  const toasts: string[] = []
+  base(on, 'session-config-dir', {
+    env: { HOME: '/home/u', CLAUDE_CONFIG_DIR: '/home/u/profile' },
+    dirs: { '/home/u/profile/agents': ['tp-run.md'] },
+    files: { '/home/u/profile/agents/tp-run.md': LEGACY },
+  })
+  on('ui.toast', async (_$: any, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+
+  await compose($, [`${P}smart_read`])
+  await new Promise(resolve => setTimeout(resolve, 20))
+
+  expect(toasts.join('\n')).toContain('1 old tp-*.md in /home/u/profile/agents')
 })

@@ -493,6 +493,9 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
           projectRoot: hookProjectRoot(),
           homeDir: homedir(),
           pluginRoot: process.env.CLAUDE_PLUGIN_ROOT,
+          userAgentsDir: process.env.CLAUDE_CONFIG_DIR
+            ? resolve(process.env.CLAUDE_CONFIG_DIR, "agents")
+            : undefined,
           sessionStartConfig: cfg.sessionStart,
           client: cliArgs.includes("--client=codex") ? "codex" : "claude-code",
         });
@@ -503,11 +506,8 @@ export async function main(cliArgs = process.argv.slice(2)): Promise<void> {
       return;
     }
     case "hook-user-prompt": {
-      // UserPromptSubmit per-turn reinforcement. SessionStart injects the
-      // full ruleset once; this re-injects a tiny anchor on every user
-      // message so token-pilot stays in the model's working set instead of
-      // decaying out of attention (the failure mode caveman fixes the same
-      // way). additionalContext only — never blocks the prompt.
+      // Codex only: a one-line anchor per prompt. Claude Code gets nothing
+      // (see src/hooks/user-prompt.ts); an old settings.json entry runs silent.
       await runHookEntryPoint({ hook: "hook-user-prompt" }, async () => {
         const cfg = await loadConfig(hookProjectRoot());
         // Reuse the awareness toggle — disabling SessionStart reminders
