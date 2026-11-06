@@ -9,7 +9,6 @@ import {
   setPluginInstall,
   tpTool,
   toolPrefix,
-  tpToolBothNames,
 } from "../../src/core/tool-names.ts";
 
 const saved = process.env.CLAUDE_PLUGIN_ROOT;
@@ -34,17 +33,6 @@ describe("tpTool", () => {
 
     expect(tpTool("smart_read")).toBe("mcp__token-pilot__smart_read");
     expect(toolPrefix()).toBe("mcp__token-pilot__");
-  });
-});
-
-describe("tpToolBothNames", () => {
-  it("lists both spellings regardless of how this process runs", () => {
-    process.env.CLAUDE_PLUGIN_ROOT = "/somewhere";
-
-    expect(tpToolBothNames("outline")).toEqual([
-      "mcp__token-pilot__outline",
-      "mcp__plugin_token-pilot_token-pilot__outline",
-    ]);
   });
 });
 

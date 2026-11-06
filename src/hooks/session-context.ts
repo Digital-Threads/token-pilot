@@ -99,32 +99,27 @@ export function duplicateWarning(
   );
 }
 
-const NPM_TOOL = "mcp__token-pilot__";
-const PLUGIN_TOOL = "mcp__plugin_token-pilot_token-pilot__";
-
 /**
- * A tp-*.md that grants only the npm server's tool names. `install-agents`
- * wrote these before agents carried both spellings; on a plugin install none
- * of their token-pilot tools resolve, and each one repeats an agent the
- * plugin already ships.
+ * A tp-*.md an older token-pilot installed: it carries the install marker,
+ * exactly what `uninstall-agents` removes. token-pilot no longer ships
+ * subagents, so each copy only adds its description to every session.
  */
 export function isLegacyAgent(body: string): boolean {
-  return body.includes(NPM_TOOL) && !body.includes(PLUGIN_TOOL);
+  return /^token_pilot_body_hash:\s*\S/m.test(body);
 }
 
-/** One note for the person about old agent copies, or null when there are none. */
+/** One note for the person about leftover agent copies, or null when there are none. */
 export function legacyAgentsWarning(
   found: ReadonlyArray<{ dir: string; count: number; scope: "user" | "project" }>,
 ): string | null {
   const dirs = found.filter((f) => f.count > 0);
   if (dirs.length === 0) return null;
 
-  const where = dirs.map((f) => `${f.count} old tp-*.md in ${f.dir}`).join(", ");
+  const where = dirs.map((f) => `${f.count} tp-*.md in ${f.dir}`).join(", ");
   const remove = dirs.map((f) => `npx token-pilot uninstall-agents --scope=${f.scope}`).join(" and ");
 
   return (
-    `[token-pilot] ${where}: they list only mcp__token-pilot__* tools, which the plugin does not provide, ` +
-    `and repeat the plugin's own token-pilot:tp-* agents in every session. ` +
-    `Remove them with ${remove}, or refresh them with install-agents --force if you also run token-pilot outside the plugin.`
+    `[token-pilot] ${where}: copies an older version installed. token-pilot no longer ships subagents, ` +
+    `and each copy adds its description to every session. Remove them with ${remove}.`
   );
 }

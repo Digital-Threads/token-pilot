@@ -38,11 +38,3 @@ export function toolPrefix(): string {
     pluginInstall ?? Boolean(globalThis.process?.env?.CLAUDE_PLUGIN_ROOT);
   return isPlugin ? PLUGIN_PREFIX : NPM_PREFIX;
 }
-
-/**
- * Both spellings of one tool. Written into agent `tools:` lists, where the
- * name that does not resolve is ignored as long as another entry does.
- */
-export function tpToolBothNames(name: string): string[] {
-  return [NPM_PREFIX + name, PLUGIN_PREFIX + name];
-}

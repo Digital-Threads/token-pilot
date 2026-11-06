@@ -2,7 +2,7 @@ import { test, expect } from 'claude-code/testing'
 
 const P = 'mcp__plugin_token-pilot_token-pilot__'
 
-const LEGACY = '---\nname: tp-run\ntools:\n  - mcp__token-pilot__smart_read\n---\n'
+const LEGACY = '---\nname: tp-run\ntools:\n  - mcp__token-pilot__smart_read\ntoken_pilot_body_hash: abc\n---\n'
 
 type Engine = {
   env?: Record<string, string>
@@ -75,7 +75,7 @@ test('tells the person, not the model, about old agent copies', async ($, on) =>
   await new Promise(resolve => setTimeout(resolve, 20))
 
   expect(ids(out)).toEqual(['base'])
-  expect(toasts.join('\n')).toContain('1 old tp-*.md in /home/u/.claude/agents')
+  expect(toasts.join('\n')).toContain('1 tp-*.md in /home/u/.claude/agents')
   expect(toasts.join('\n')).toContain('npx token-pilot uninstall-agents --scope=user')
 })
 
@@ -94,5 +94,5 @@ test('reads user agents where Claude Code does: CLAUDE_CONFIG_DIR/agents', async
   await compose($, [`${P}smart_read`])
   await new Promise(resolve => setTimeout(resolve, 20))
 
-  expect(toasts.join('\n')).toContain('1 old tp-*.md in /home/u/profile/agents')
+  expect(toasts.join('\n')).toContain('1 tp-*.md in /home/u/profile/agents')
 })

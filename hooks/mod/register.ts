@@ -17,7 +17,6 @@ import { GREP_ACTIONS, registerGrep } from './grep.js'
 import { MCP_ACTIONS, createEditPrep, registerMcp } from './mcp.js'
 import { EDIT_ACTIONS, registerEdit } from './edit.js'
 import { READ_ACTIONS, registerRead } from './read.js'
-import { AGENT_ACTIONS, registerAgent } from './agent.js'
 import { SESSION_ACTIONS, composePassedOver, registerSession } from './session.js'
 import { registerBand } from './band.js'
 import { STATS_COMMAND, registerStats } from './stats.js'
@@ -28,6 +27,8 @@ import { STATS_COMMAND, registerStats } from './stats.js'
  * set and every command hook runs as before.
  */
 const SERVED: string[] = [...BASH_ACTIONS, ...GREP_ACTIONS, ...MCP_ACTIONS, ...EDIT_ACTIONS, ...READ_ACTIONS, ...SESSION_ACTIONS]
+
+const AGENT_ACTIONS = ['hook-pre-task']
 
 const MAX_SESSIONS = 8
 
@@ -53,8 +54,8 @@ async function checkServerOff($: EngineInterface): Promise<void> {
 async function handOff($: EngineInterface, id: string): Promise<void> {
   await checkServerOff($)
 
-  // Workflow runs keep agent routing on the command hooks, which attach the
-  // workflow budget note (see agent.ts).
+  // hook-pre-task only carries a workflow's budget note: outside a workflow
+  // the mod takes it and there is nothing to run.
   const inWorkflow = Boolean(
     (await $.env.get('TOKEN_PILOT_WORKFLOW_ID')) ??
       (await $.env.get('CLAUDE_CODE_WORKFLOW_ID')) ??
@@ -135,7 +136,6 @@ export const register: Register = on => {
   registerMcp(on, prep)
   registerEdit(on, prep)
   registerRead(on)
-  registerAgent(on)
   registerSession(on)
   registerBand(on)
   registerStats(on)

@@ -20,8 +20,6 @@ const MOD_ENTRIES = [
   "src/hooks/user-prompt.ts",
   "src/hooks/adaptive-threshold.ts",
   "src/hooks/mcp-path.ts",
-  "src/core/agent-matcher.ts",
-  "src/hooks/pre-task.ts",
   "src/hooks/agent-budget.ts",
   "src/hooks/session-context.ts",
   "src/hooks/read-gate.ts",

@@ -11,15 +11,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { handleSessionStart } from "../../src/hooks/session-start.js";
 
-const config = { enabled: true, showStats: false, maxReminderTokens: 500 };
+const config = { enabled: true, showStats: false };
 
 /** A tp-*.md as `install-agents` wrote it before plugins existed. */
 const LEGACY_AGENT =
   "---\nname: tp-run\ndescription: workhorse\ntools:\n  - mcp__token-pilot__smart_read\n  - Read\ntoken_pilot_body_hash: abc\n---\nbody\n";
 
-/** The same agent as install-agents writes it today: both tool spellings. */
-const CURRENT_AGENT =
-  "---\nname: tp-run\ndescription: workhorse\ntools:\n  - mcp__token-pilot__smart_read\n  - mcp__plugin_token-pilot_token-pilot__smart_read\n---\nbody\n";
+/** An agent the person wrote themselves: no install marker. */
+const OWN_AGENT =
+  "---\nname: tp-run\ndescription: workhorse\ntools:\n  - mcp__plugin_token-pilot_token-pilot__smart_read\n---\nbody\n";
 
 describe("handleSessionStart — Claude Code", () => {
   let dir: string;
@@ -52,7 +52,7 @@ describe("handleSessionStart — Claude Code", () => {
 
   it("gives the model no tool rules and no agent list", async () => {
     await mkdir(join(project, ".claude", "agents"), { recursive: true });
-    await writeFile(join(project, ".claude", "agents", "tp-run.md"), CURRENT_AGENT);
+    await writeFile(join(project, ".claude", "agents", "tp-run.md"), OWN_AGENT);
 
     const payload = JSON.parse((await start())!).hookSpecificOutput;
 
@@ -74,15 +74,15 @@ describe("handleSessionStart — Claude Code", () => {
     expect(context.split("\n")).toHaveLength(1);
   });
 
-  it("tells the person, not the model, about old agent copies on a plugin install", async () => {
+  it("tells the person, not the model, about agent copies an older version installed", async () => {
     const userAgents = join(home, ".claude", "agents");
     await mkdir(userAgents, { recursive: true });
     await writeFile(join(userAgents, "tp-run.md"), LEGACY_AGENT);
     await writeFile(join(userAgents, "tp-debugger.md"), LEGACY_AGENT.replace(/tp-run/g, "tp-debugger"));
 
-    const out = JSON.parse((await start({ pluginRoot: join(dir, "plugin") }))!);
+    const out = JSON.parse((await start())!);
 
-    expect(out.systemMessage).toContain(`2 old tp-*.md in ${userAgents}`);
+    expect(out.systemMessage).toContain(`2 tp-*.md in ${userAgents}`);
     expect(out.systemMessage).toContain("npx token-pilot uninstall-agents --scope=user");
     expect(out.hookSpecificOutput.additionalContext).toBeUndefined();
   });
@@ -92,21 +92,14 @@ describe("handleSessionStart — Claude Code", () => {
     await mkdir(configAgents, { recursive: true });
     await writeFile(join(configAgents, "tp-run.md"), LEGACY_AGENT);
 
-    const out = JSON.parse((await start({ pluginRoot: join(dir, "plugin"), userAgentsDir: configAgents }))!);
+    const out = JSON.parse((await start({ userAgentsDir: configAgents }))!);
 
-    expect(out.systemMessage).toContain(`1 old tp-*.md in ${configAgents}`);
+    expect(out.systemMessage).toContain(`1 tp-*.md in ${configAgents}`);
   });
 
-  it("leaves agent copies alone outside a plugin install, where they are the only ones", async () => {
+  it("leaves an agent the person wrote alone, even under a tp- name", async () => {
     await mkdir(join(home, ".claude", "agents"), { recursive: true });
-    await writeFile(join(home, ".claude", "agents", "tp-run.md"), LEGACY_AGENT);
-
-    expect(JSON.parse((await start())!)).not.toHaveProperty("systemMessage");
-  });
-
-  it("does not count refreshed copies as old", async () => {
-    await mkdir(join(home, ".claude", "agents"), { recursive: true });
-    await writeFile(join(home, ".claude", "agents", "tp-run.md"), CURRENT_AGENT);
+    await writeFile(join(home, ".claude", "agents", "tp-run.md"), OWN_AGENT);
 
     expect(JSON.parse((await start({ pluginRoot: join(dir, "plugin") }))!)).not.toHaveProperty("systemMessage");
   });

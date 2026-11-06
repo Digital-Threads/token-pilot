@@ -17,7 +17,7 @@ describe("Codex gets Codex text", () => {
       const out = await handleSessionStart({
         projectRoot: dir,
         homeDir: dir,
-        sessionStartConfig: { enabled: true, showStats: false, maxReminderTokens: 2000 },
+        sessionStartConfig: { enabled: true, showStats: false },
         client: "codex",
       });
       const msg = JSON.parse(out!).hookSpecificOutput.additionalContext as string;

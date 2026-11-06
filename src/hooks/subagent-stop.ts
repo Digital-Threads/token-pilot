@@ -33,7 +33,7 @@
 import { readFileSync } from "node:fs";
 import type { HookEvent } from "../core/event-log.js";
 import { estimateTokens } from "../core/token-estimator.js";
-import { bareAgentName } from "../core/agent-matcher.js";
+import { bareAgentName } from "../core/dispatch.js";
 import {
   parseAgentBudget,
   decideBudgetAdvice,

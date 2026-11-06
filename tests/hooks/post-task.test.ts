@@ -261,9 +261,8 @@ describe("appendOverBudgetLog", () => {
   });
 });
 
-// Claude Code reports plugin agents as `token-pilot:tp-debugger`, and a
-// plugin install keeps the agent files in the plugin's own agents/ dir.
-// Neither was found, so the budget watchdog never had a body to read.
+// Claude Code reports plugin agents as `token-pilot:tp-debugger`; the
+// namespace is dropped before the agent file is looked up.
 describe("loadAgentBody — plugin installs", () => {
   it("strips the plugin namespace before looking the agent up", async () => {
     await mkdir(join(tempDir, ".claude", "agents"), { recursive: true });
@@ -272,11 +271,5 @@ describe("loadAgentBody — plugin installs", () => {
     expect(await loadAgentBody(tempDir, tempDir, "token-pilot:tp-demo")).toBe(
       "demo body",
     );
-  });
-
-  it("falls back to the agents shipped with the plugin", async () => {
-    const body = await loadAgentBody(tempDir, tempDir, "token-pilot:tp-debugger");
-
-    expect(body).toContain("name: tp-debugger");
   });
 });
