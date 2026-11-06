@@ -5,7 +5,7 @@ All notable changes to Token Pilot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-06
 
 Newer Claude models follow a tool's own description, and repeated rules in
 the prompt only compete with the request. token-pilot said the same thing in

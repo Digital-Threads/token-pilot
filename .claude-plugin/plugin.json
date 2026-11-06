@@ -1,6 +1,6 @@
 {
   "name": "token-pilot",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "description": "Saves 60-90% tokens on AI code reading. AST-aware lazy reads, symbol navigation, find_usages, structural git diff/log, read gates that step aside when the tools are not in the session, cross-session telemetry (errors + diagnostics).",
   "author": {
     "name": "Digital-Threads",

@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Token Pilot — save 60-90% tokens when AI reads code",
-    "version": "1.0.5"
+    "version": "2.0.0"
   },
   "plugins": [
     {
       "name": "token-pilot",
       "source": "./",
       "description": "Reduces token consumption by 60-90% via AST-aware lazy file reading, structural symbol navigation, and cross-session tool-usage analytics. 25 MCP tools + read gates that step aside when the tools are not in the session.",
-      "version": "1.0.5",
+      "version": "2.0.0",
       "author": {
         "name": "Digital-Threads"
       },
